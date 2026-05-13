@@ -2,7 +2,7 @@
 --[[
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
- * Author:      Hansen (via Claude)
+ * Author:      S.Hansen / Tycho
  * Version:     1.0
 --]]
 
