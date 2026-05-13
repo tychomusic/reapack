@@ -4,6 +4,8 @@ Current public version: 1.1
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
+Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cross-package rules.
+
 ## Repo And Package
 - Working repo: `/Applications/Reaper/Scripts/Tycho/reapack`
 - Main script: `Track Navigator/Track Navigator.lua`
@@ -39,7 +41,8 @@ The `Reflex_*.lua` core names are intentional historical/shared-core names. Do n
 - Use `/Applications/Reaper/Scripts/Tycho/Reflex` as read-only reference for shared behavior, helper patterns, and existing NAV expectations.
 - Do not edit Reflex during Track Navigator work unless the user explicitly asks for a Reflex port.
 - When a Track Navigator change affects shared NAV semantics, note whether Reflex should receive the same change in a separate Reflex task.
-- When porting to Reflex, switch roots, read Reflex `AGENTS.md` and `PROJECT_KNOWLEDGE.md`, and follow Reflex rules such as its version bump and file-scope function constraints.
+- When porting to Reflex before Reflex is moved into this repo, switch roots, read Reflex `AGENTS.md` and `PROJECT_KNOWLEDGE.md`, and follow Reflex rules such as its version bump and file-scope function constraints.
+- When Reflex eventually lives inside this ReaPack repo, keep Reflex package knowledge in `Reflex/PROJECT_KNOWLEDGE.md` and continue treating Track Navigator and Reflex as separate release surfaces.
 
 ## UI Shorthand
 - `NAV.pill`: top-level track pill/button.

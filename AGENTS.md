@@ -1,33 +1,35 @@
 # Tycho ReaPack
 
-ReaPack repository for Tycho REAPER scripts. The active package is Track Navigator.
+ReaPack repository for Tycho REAPER scripts. This is a multi-package repo: each package owns its own `PROJECT_KNOWLEDGE.md`.
 
 ## First Read
-- Read `Track Navigator/PROJECT_KNOWLEDGE.md` before making Track Navigator changes.
+- Read repo-level `PROJECT_KNOWLEDGE.md` before work in this repo.
+- Then read the package-specific `PROJECT_KNOWLEDGE.md` for the package being changed.
 - Treat `/Applications/Reaper/Scripts/Tycho/reapack` as the working repo.
-- Use `/Applications/Reaper/Scripts/Tycho/Reflex` only as read-only reference unless the user explicitly asks to work in Reflex.
+- If the user has not named a package, assume the active package is Track Navigator for now.
 
-## Track Navigator
-- Main script: `Track Navigator/Track Navigator.lua`
-- Package metadata: `Track Navigator/Track Navigator package.lua`
-- Public ReaPack index: `index.xml`
-- Current public version is documented in `Track Navigator/PROJECT_KNOWLEDGE.md`.
-- Author metadata should remain `S.Hansen / Tycho`.
+## Current Packages
+- Track Navigator:
+  - Package path: `Track Navigator/`
+  - Knowledge: `Track Navigator/PROJECT_KNOWLEDGE.md`
+  - Main script: `Track Navigator/Track Navigator.lua`
+  - Package metadata: `Track Navigator/Track Navigator package.lua`
+
+## Future Packages
+- Reflex is expected to eventually live in this ReaPack repo as its own package.
+- Until Reflex is moved into this repo, `/Applications/Reaper/Scripts/Tycho/Reflex` is a read-only sibling/reference unless the user explicitly asks to work in Reflex.
+- If work moves to Reflex, switch to the Reflex root and follow Reflex's own `AGENTS.md` and `PROJECT_KNOWLEDGE.md`.
+
+## Cross-Package Rules
+- Keep package-specific behavior, versioning, and architecture rules in that package's `PROJECT_KNOWLEDGE.md`.
+- Shared NAV behavior may need coordinated changes in Track Navigator and Reflex, but do not edit both implicitly. Do one package at a time unless the user explicitly asks for a port.
 - Do not add comments or headers crediting agents, Claude, or other assistants.
+- Preserve author metadata as `S.Hansen / Tycho` unless the user requests otherwise.
 
-## Reflex Relationship
-- Track Navigator is the standalone public ReaPack package.
-- Reflex contains its own embedded Navigator experience and remains an important reference for shared NAV behavior and helper patterns.
-- The `Track Navigator/core/Reflex_*.lua` names are historical/shared-core names. Do not rename them casually; ReaPack packaging and `require` paths depend on them.
-- When changing NAV behavior, consider whether the same behavior should be ported back to Reflex, but do not edit Reflex from this repo unless explicitly requested.
-- If a task moves into Reflex, switch to the Reflex root, read Reflex `AGENTS.md` and `PROJECT_KNOWLEDGE.md`, and follow its separate versioning and architecture rules.
-
-## Versioning And Releases
-- Track Navigator public versions use simple package versions such as `1.1`, not Reflex `v20.xxx` versions.
-- For every release change, keep these in sync:
-  - `Track Navigator/Track Navigator package.lua` `@version`
-  - `Track Navigator/Track Navigator.lua` header `Version:`
-  - `TRACK_NAVIGATOR_VERSION`
+## ReaPack Releases
+- Public ReaPack index: `index.xml`
+- Import URL:
+  `https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml`
 - Rebuild/check the ReaPack index after release changes:
   - `~/.gem/ruby/2.6.0/bin/reapack-index --scan --no-commit`
   - `~/.gem/ruby/2.6.0/bin/reapack-index --check`
@@ -35,9 +37,7 @@ ReaPack repository for Tycho REAPER scripts. The active package is Track Navigat
 - Commit code changes and index changes as separate commits when practical.
 - Push `main` after the index is updated.
 
-## ReaPack
-- Import URL:
-  `https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml`
+## Stale ReaPack Metadata
 - If REAPER/ReaPack shows stale metadata, remove the Tycho repo, clear the local ReaPack cache file for Tycho, re-import the raw URL, and synchronize packages.
 
 ## Delivery
