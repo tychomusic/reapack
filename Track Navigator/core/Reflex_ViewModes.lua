@@ -147,6 +147,58 @@ ReflexInstallViewModes = function(deps)
         return result
     end
 
+    local function RoutingViewNormalizeSources(sources)
+        local out = {}
+        local seen = {}
+        for _, source in ipairs(sources or {}) do
+            if source and r.ValidatePtr(source, "MediaTrack*") and not seen[source] then
+                out[#out + 1] = source
+                seen[source] = true
+            end
+        end
+        return out
+    end
+
+    local function RoutingViewCollectSelectedSources()
+        local sources = {}
+        local count = r.CountSelectedTracks(0)
+        for i = 0, count - 1 do
+            sources[#sources + 1] = r.GetSelectedTrack(0, i)
+        end
+        return RoutingViewNormalizeSources(sources)
+    end
+
+    local function RoutingViewStoreSources(sources)
+        routing_view_sources = RoutingViewNormalizeSources(sources)
+        routing_view_source = routing_view_sources[1]
+    end
+
+    local function RoutingViewCurrentSources()
+        local sources = RoutingViewNormalizeSources(routing_view_sources)
+        if #sources == 0 and routing_view_source and r.ValidatePtr(routing_view_source, "MediaTrack*") then
+            sources[1] = routing_view_source
+        end
+        return sources
+    end
+
+    local function RoutingViewScanSources(sources, depth)
+        local result = {}
+        for _, source in ipairs(sources or {}) do
+            for track in pairs(RoutingViewScan(source, depth)) do
+                result[track] = true
+            end
+        end
+        return result
+    end
+
+    local function RoutingViewSourceSet(sources)
+        local result = {}
+        for _, source in ipairs(sources or {}) do
+            result[source] = true
+        end
+        return result
+    end
+
     local view_mode_project_states = {}
     local view_mode_project_key = nil
 
@@ -169,6 +221,28 @@ ReflexInstallViewModes = function(deps)
             if r.GetTrackGUID(t) == guid then return t end
         end
         return nil
+    end
+
+    local function ViewModeCaptureTrackList(tracks)
+        local guids = {}
+        for _, track in ipairs(tracks or {}) do
+            local guid = ViewModeTrackGuid(track)
+            if guid then guids[#guids + 1] = guid end
+        end
+        return guids
+    end
+
+    local function ViewModeRestoreTrackList(guids)
+        local tracks = {}
+        local seen = {}
+        for _, guid in ipairs(guids or {}) do
+            local track = ViewModeFindTrackByGuid(guid)
+            if track and not seen[track] then
+                tracks[#tracks + 1] = track
+                seen[track] = true
+            end
+        end
+        return tracks
     end
 
     local function ViewModeCaptureTrackSet(track_set)
@@ -215,9 +289,11 @@ ReflexInstallViewModes = function(deps)
     end
 
     local function ViewModeCaptureProjectState()
+        local routing_sources = RoutingViewCurrentSources()
         return {
             routing_active = routing_view_active or false,
             routing_source_guid = ViewModeTrackGuid(routing_view_source),
+            routing_source_guids = ViewModeCaptureTrackList(routing_sources),
             routing_tracks = ViewModeCaptureTrackSet(routing_view_tracks),
             routing_saved_snap = routing_view_saved_snap,
             active_active = active_view_active or false,
@@ -232,6 +308,7 @@ ReflexInstallViewModes = function(deps)
     local function ViewModeResetProjectState()
         routing_view_active = false
         routing_view_source = nil
+        routing_view_sources = {}
         routing_view_tracks = {}
         routing_view_saved_snap = nil
         active_view_active = false
@@ -248,11 +325,15 @@ ReflexInstallViewModes = function(deps)
         if not state then return end
 
         if state.routing_active then
-            local source = ViewModeFindTrackByGuid(state.routing_source_guid)
-            if source then
+            local sources = ViewModeRestoreTrackList(state.routing_source_guids)
+            if #sources == 0 then
+                local source = ViewModeFindTrackByGuid(state.routing_source_guid)
+                if source then sources[1] = source end
+            end
+            if #sources > 0 then
                 routing_view_active = true
-                routing_view_source = source
-                routing_view_tracks = RoutingViewScan(source, routing_view_depth)
+                RoutingViewStoreSources(sources)
+                routing_view_tracks = RoutingViewScanSources(routing_view_sources, routing_view_depth)
                 routing_view_saved_snap = state.routing_saved_snap
             end
         end
@@ -304,6 +385,7 @@ ReflexInstallViewModes = function(deps)
         if routing_view_active then
             routing_view_active = false
             routing_view_source = nil
+            routing_view_sources = {}
             routing_view_tracks = {}
             if routing_view_saved_snap then
                 ViewHistoryRestore(routing_view_saved_snap)
@@ -316,12 +398,16 @@ ReflexInstallViewModes = function(deps)
     end
 
     RoutingViewApply = function()
-        if not routing_view_source or not r.ValidatePtr(routing_view_source, "MediaTrack*") then
+        local sources = RoutingViewCurrentSources()
+        if #sources == 0 then
             routing_view_active = false
+            routing_view_source = nil
+            routing_view_sources = {}
             ViewModeRememberProjectState()
             return
         end
-        routing_view_tracks = RoutingViewScan(routing_view_source, routing_view_depth)
+        RoutingViewStoreSources(sources)
+        routing_view_tracks = RoutingViewScanSources(routing_view_sources, routing_view_depth)
 
         r.Undo_BeginBlock()
         r.PreventUIRefresh(1)
@@ -343,7 +429,7 @@ ReflexInstallViewModes = function(deps)
         r.TrackList_AdjustWindows(false)
         r.UpdateArrange()
         r.Undo_EndBlock("Track Navigator: Routing View", 0)
-        ViewModeDeferScroll(routing_view_source)
+        ViewModeDeferScroll(ViewModeFirstTrackInSet(RoutingViewSourceSet(routing_view_sources)))
         ViewModeRememberProjectState()
     end
 
@@ -353,14 +439,15 @@ ReflexInstallViewModes = function(deps)
             -- Exit: restore pre-entry snapshot
             routing_view_active = false
             routing_view_source = nil
+            routing_view_sources = {}
             routing_view_tracks = {}
             if routing_view_saved_snap then
                 ViewHistoryRestore(routing_view_saved_snap)
                 routing_view_saved_snap = nil
             end
         else
-            local sel = r.CountSelectedTracks(0) > 0 and r.GetSelectedTrack(0, 0) or nil
-            if not sel then return end
+            local sources = RoutingViewCollectSelectedSources()
+            if #sources == 0 then return end
             -- Silently discard other special view (no restore; current view becomes the new baseline)
             if active_view_active then
                 active_view_active = false; active_view_tracks = {}; active_view_saved_snap = nil
@@ -368,7 +455,7 @@ ReflexInstallViewModes = function(deps)
             -- Save current state (may be another mode's filtered view), then apply routing
             routing_view_saved_snap = ViewHistorySnapshot()
             routing_view_active = true
-            routing_view_source = sel
+            RoutingViewStoreSources(sources)
             RoutingViewApply()
         end
         ViewModeRememberProjectState()
@@ -538,7 +625,7 @@ ReflexInstallViewModes = function(deps)
             active_view_flash_time = r.time_precise()
             -- Silently discard other special view (no restore; current view becomes the new baseline)
             if routing_view_active then
-                routing_view_active = false; routing_view_source = nil; routing_view_tracks = {}; routing_view_saved_snap = nil
+                routing_view_active = false; routing_view_source = nil; routing_view_sources = {}; routing_view_tracks = {}; routing_view_saved_snap = nil
             end
             -- Save current state (may be another mode's filtered view), then apply active
             active_view_saved_snap = ViewHistorySnapshot()

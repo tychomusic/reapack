@@ -1,5 +1,5 @@
 -- @description Track Navigator
--- @version 1.0
+-- @version 1.8
 -- @author Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @metapackage
@@ -24,3 +24,4 @@
 --   [nomain] icons/Nav.Active.A.png
 --   [nomain] icons/Nav.Route.R.png
 --   [nomain] icons/Navigator.mark.png
+--   [nomain] icons/Tycho-Logo-dots.png

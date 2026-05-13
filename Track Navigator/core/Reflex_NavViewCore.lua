@@ -7,6 +7,7 @@ ReflexInstallNavViewCore = function(deps)
     local ctx = deps.ctx
     local C = deps.colors
     local scaled_fonts = deps.scaled_fonts
+    local font_sizes = deps.font_sizes or {}
     local track_color_overrides = deps.track_color_overrides or {}
     local getNavScale = deps.get_nav_scale
     local setNavScale = deps.set_nav_scale
@@ -21,6 +22,29 @@ ReflexInstallNavViewCore = function(deps)
         if debugEvent then debugEvent(source, opts or {}) end
     end
 
+    local function NavFrameKeyMods()
+        if not r.ImGui_GetKeyMods then return 0 end
+        local ok, mods = pcall(r.ImGui_GetKeyMods, ctx)
+        if ok and type(mods) == "number" then return mods end
+        return 0
+    end
+
+    local function NavClickMods()
+        return NavFrameKeyMods()
+    end
+
+    local function NavPushFont(font)
+        if not font then return false end
+        local size = font_sizes[font]
+        if not size then return false end
+        r.ImGui_PushFont(ctx, font, size)
+        return true
+    end
+
+    local function NavPopFont(pushed)
+        if pushed then r.ImGui_PopFont(ctx) end
+    end
+
     local AR_LABEL_TEXT_FALLBACK_NUDGE = {
         A = { x = 0.5, y = 0.0 },
         R = { x = 1.0, y = 0.0 },
@@ -30,8 +54,11 @@ ReflexInstallNavViewCore = function(deps)
         R = "Nav.Route.R.png",
     }
     local NAVIGATOR_MARK_FILE = "Navigator.mark.png"
+    local TYCHO_DOTS_FILE = "Tycho-Logo-dots.png"
+    local NAVIGATOR_MARK_SCALE = 0.2175
     local ar_label_images = {}
     local navigator_mark_image = nil
+    local tycho_dots_image = nil
     local nav_reset_confirm = false
     local nav_help_manual_close_requested = false
     local nav_help_manual_hovered = false
@@ -83,16 +110,45 @@ ReflexInstallNavViewCore = function(deps)
         return nil
     end
 
-    local function NavNavigatorMarkSize()
-        local img = NavGetNavigatorMarkImage()
+    local function NavGetTychoDotsImage()
+        if tycho_dots_image ~= nil then
+            return tycho_dots_image or nil
+        end
+        if script_dir == "" then
+            tycho_dots_image = false
+            return nil
+        end
+        local path = script_dir .. "icons/" .. TYCHO_DOTS_FILE
+        local f = io.open(path, "rb")
+        if f then
+            f:close()
+            local ok, img = pcall(r.ImGui_CreateImage, path)
+            if ok and img then
+                r.ImGui_Attach(ctx, img)
+                tycho_dots_image = img
+                return img
+            end
+        end
+        tycho_dots_image = false
+        return nil
+    end
+
+    local function NavScaledImageSize(img)
         if not img then return nil, nil end
         local iw, ih = r.ImGui_Image_GetSize(img)
         if not iw or not ih or iw < 1 or ih < 1 then return nil, nil end
         local scale = getNavScale and getNavScale() or 1.0
-        -- Navigator.mark.png was authored from a doubled-size Photoshop mockup,
-        -- and ReaImGui's image size on Retina lands one additional 2x step
-        -- larger than the intended popup coordinates.
-        return (iw * 0.25) * scale, (ih * 0.25) * scale
+        return (iw * NAVIGATOR_MARK_SCALE) * scale, (ih * NAVIGATOR_MARK_SCALE) * scale
+    end
+
+    local function NavNavigatorMarkSize()
+        -- Navigator.mark.png is a high-density export; 0.2175 is the mockup-matched
+        -- popup coordinate scale (the previous quarter scale reduced to 87%).
+        return NavScaledImageSize(NavGetNavigatorMarkImage())
+    end
+
+    local function NavTychoDotsSize()
+        return NavScaledImageSize(NavGetTychoDotsImage())
     end
 
     local function NavDrawArLabelImage(dl, cx, cy, which, col, box)
@@ -121,6 +177,68 @@ ReflexInstallNavViewCore = function(deps)
 
     local function NavWithAlpha(col, alpha)
         return (col & 0xFFFFFF00) | alpha
+    end
+
+    local function NavIsMacOS()
+        local os = r.GetOS and r.GetOS() or ""
+        return os:find("OSX", 1, true) ~= nil
+            or os:find("macOS", 1, true) ~= nil
+            or os:find("Mac", 1, true) ~= nil
+    end
+
+    local function NavPrimaryLabel()
+        return NavIsMacOS() and "Cmd" or "Ctrl"
+    end
+
+    local function NavPinLabel()
+        return NavIsMacOS() and "Opt" or "Alt"
+    end
+
+    local function NavChildExpandLabel()
+        return NavIsMacOS() and "Opt+CMD" or "Alt+Ctrl"
+    end
+
+    local function NavRawModState(mods)
+        if type(TrackNavigatorModState) == "function" then
+            local state = TrackNavigatorModState(mods)
+            if type(state) == "table" then return state end
+        end
+        mods = tonumber(mods) or 0
+        return {
+            raw = mods,
+            cmd = IsCmd(mods),
+            shift = IsShift(mods),
+            alt = IsAlt(mods),
+            ctrl = IsCtrl(mods),
+        }
+    end
+
+    local function NavMods(mods)
+        local raw = NavRawModState(mods)
+        local is_mac = NavIsMacOS()
+        local primary, child_expand
+        if is_mac then
+            child_expand = raw.cmd == true and raw.alt == true
+            primary = raw.cmd == true and child_expand ~= true
+        else
+            child_expand = raw.ctrl == true and raw.alt == true
+            primary = raw.ctrl == true and child_expand ~= true
+        end
+        return {
+            raw = raw.raw or mods or 0,
+            shift = raw.shift == true,
+            primary = primary == true,
+            pin = raw.alt == true and child_expand ~= true,
+            child_expand = child_expand == true,
+            show_all = primary == true and raw.shift == true,
+        }
+    end
+
+    local function NavTrackClickMods(mods)
+        local m = NavMods(mods)
+        local primary = m.primary
+        local pin = m.pin
+        return m.show_all, primary, m.shift, pin, m.child_expand
     end
 
     local function NavBrightenColor(col, amount)
@@ -232,18 +350,48 @@ ReflexInstallNavViewCore = function(deps)
         ReflexPopupStackGap()
     end
 
-    local function NavDrawStandaloneTitle(menu_w)
+    local function NavDrawVersionRow(menu_w)
         local version = "v" .. tostring(nav_version)
         local version_w, version_h = r.ImGui_CalcTextSize(ctx, version)
         version_h = version_h or r.ImGui_GetTextLineHeight(ctx)
-        local title = "Track Navigator"
-        local title_w = r.ImGui_CalcTextSize(ctx, title)
-        local row_h = math.max(r.ImGui_GetTextLineHeight(ctx), version_h)
+        local dots_img = NavGetTychoDotsImage()
+        local dots_w, dots_h = NavTychoDotsSize()
+        local row_h = math.max(version_h, dots_h or 0)
         local x, y = r.ImGui_GetCursorScreenPos(ctx)
         local dl = r.ImGui_GetWindowDrawList(ctx)
-        r.ImGui_DrawList_AddText(dl, x, y + Round((row_h - r.ImGui_GetTextLineHeight(ctx)) / 2), C.text, title)
-        r.ImGui_DrawList_AddText(dl, x + math.max(title_w + S(14), menu_w - version_w), y + Round((row_h - version_h) / 2), C.text_dim, version)
+        if dots_img and dots_w and dots_w > 0 and dots_h and dots_h > 0 then
+            local _, ih = r.ImGui_Image_GetSize(dots_img)
+            local uv_y2 = (ih and ih > 2) and ((ih - 1) / ih) or 1
+            local dots_y = y + Round((row_h - dots_h) / 2)
+            r.ImGui_DrawList_AddImage(dl, dots_img, x, dots_y, x + dots_w, dots_y + dots_h, 0, 0, 1, uv_y2, 0xFFFFFFFF)
+        end
+        r.ImGui_DrawList_AddText(dl,
+            x + math.max(0, menu_w - version_w),
+            y + Round((row_h - version_h) / 2),
+            C.text_dim,
+            version)
         r.ImGui_Dummy(ctx, menu_w, row_h)
+    end
+
+    local function NavDrawStandaloneTitle(menu_w)
+        local img = NavGetNavigatorMarkImage()
+        local natural_w, natural_h = NavNavigatorMarkSize()
+        if img and natural_w and natural_w > 0 and natural_h and natural_h > 0 then
+            local x, y = r.ImGui_GetCursorScreenPos(ctx)
+            local draw_h = menu_w * (natural_h / natural_w)
+            local dl = r.ImGui_GetWindowDrawList(ctx)
+            local _, ih = r.ImGui_Image_GetSize(img)
+            local uv_y2 = (ih and ih > 2) and ((ih - 1) / ih) or 1
+            r.ImGui_DrawList_AddImage(dl, img, x, y, x + menu_w, y + draw_h, 0, 0, 1, uv_y2, 0xFFFFFFFF)
+            r.ImGui_Dummy(ctx, menu_w, draw_h)
+            ReflexPopupGap(S(47))
+            NavDrawVersionRow(menu_w)
+            return
+        end
+
+        ReflexPopupLabel("Track Navigator", { col = C.text, min_w = menu_w })
+        ReflexPopupGap(S(47))
+        NavDrawVersionRow(menu_w)
     end
 
     local function NavArchiveTip()
@@ -270,37 +418,33 @@ ReflexInstallNavViewCore = function(deps)
         PopTooltipStyle()
     end
 
-    local function NavHelpLine(text, col, manual_w)
+    local function NavHelpLine(text, manual_w, col)
         ReflexPopupLabel(text, { col = col or C.text_dim, min_w = manual_w })
     end
 
-    local function NavHelpSection(title, col, manual_w, first)
-        if not first then ReflexPopupStackGap(S(8)) end
-        ReflexPopupRule(manual_w, { col = col or (C.border or C.text_dim) })
-        ReflexPopupStackGap(S(5))
-        ReflexPopupLabel(title, { col = col or C.text, min_w = manual_w })
-        ReflexPopupGap(S(3))
+    local function NavHelpSection(title, manual_w, first)
+        if not first then ReflexPopupStackGap(S(18)) end
+        ReflexPopupRule(manual_w, { col = C.text_dim })
+        ReflexPopupStackGap(S(8))
+        local section_font = GetSteppedFont and GetSteppedFont(1) or nil
+        local section_font_pushed = NavPushFont(section_font)
+        ReflexPopupLabel(string.upper(title), { col = C.text, min_w = manual_w })
+        NavPopFont(section_font_pushed)
+        ReflexPopupStackGap(S(14))
     end
 
-    local function NavHelpRow(label, detail, col, manual_w)
-        local label_w = S(128)
-        local row_h = math.max(r.ImGui_GetTextLineHeight(ctx) + S(5), S(20))
-        local x, y = r.ImGui_GetCursorScreenPos(ctx)
-        local dl = r.ImGui_GetWindowDrawList(ctx)
-        local _, label_h = r.ImGui_CalcTextSize(ctx, label)
-        local _, detail_h = r.ImGui_CalcTextSize(ctx, detail)
-        label_h = label_h or r.ImGui_GetTextLineHeight(ctx)
-        detail_h = detail_h or label_h
-        r.ImGui_DrawList_AddText(dl, x, y + Round((row_h - label_h) / 2), col or C.text, label)
-        r.ImGui_DrawList_AddText(dl, x + label_w, y + Round((row_h - detail_h) / 2), C.text_dim, detail)
-        r.ImGui_Dummy(ctx, manual_w, row_h)
+    local function NavHelpInfoBlock(title, lines, manual_w)
+        ReflexPopupLabel(title, { col = C.text, min_w = manual_w })
+        ReflexPopupGap(S(2))
+        for _, line in ipairs(lines) do
+            NavHelpLine(line, manual_w)
+        end
     end
 
     local function NavDrawHelpManualPopup()
-        r.ImGui_SetNextWindowSize(ctx, S(440), S(510), r.ImGui_Cond_Appearing())
         if r.ImGui_BeginPopup(ctx, "##nav_help_manual") then
             ReflexPushPopupLayout()
-            local manual_w = S(400)
+            local manual_w = S(460)
             nav_help_manual_hovered = r.ImGui_IsWindowHovered(ctx, r.ImGui_HoveredFlags_RootAndChildWindows())
             if nav_help_manual_close_requested
                or r.ImGui_IsKeyPressed(ctx, r.ImGui_Key_Escape()) then
@@ -312,43 +456,120 @@ ReflexInstallNavViewCore = function(deps)
                 return
             end
 
-            ReflexPopupLabel("Help / Manual", { col = C.text, min_w = manual_w })
-            ReflexPopupGap(S(3))
-            NavHelpLine("Quick reference for NAV, visibility, inspector, and routing.", C.text_dim, manual_w)
+            local is_mac = NavIsMacOS()
+            local primary_click = is_mac and "Cmd-click" or "Ctrl-click"
+            local pin_click = is_mac and "Opt-click" or "Alt-click"
+            local child_click = is_mac and "Opt+CMD-click" or "Alt+Ctrl-click"
 
-            NavHelpSection("Track Navigator", C.text, manual_w, true)
-            NavHelpLine("NAV shows natural top-level tracks (TLTs).", C.text_dim, manual_w)
-            NavHelpRow("Click", "Focus/show that section", C.text, manual_w)
-            NavHelpRow("Cmd-click", "Add/remove from visible set", C.text, manual_w)
-            NavHelpRow("Opt-click", "Expand children", C.text, manual_w)
-            NavHelpRow("Right-click", "Pin or customize visibility", C.text, manual_w)
+            local header_h = S(22)
+            local close_sz = S(20)
+            local header_x, header_y = r.ImGui_GetCursorScreenPos(ctx)
+            local header_dl = r.ImGui_GetWindowDrawList(ctx)
+            local header_label = "Help / Manual"
+            local _, header_text_h = r.ImGui_CalcTextSize(ctx, header_label)
+            header_text_h = header_text_h or r.ImGui_GetTextLineHeight(ctx)
+            r.ImGui_DrawList_AddText(header_dl,
+                header_x,
+                header_y + Round((header_h - header_text_h) / 2),
+                C.text_dim,
+                header_label)
+            r.ImGui_SetCursorScreenPos(ctx,
+                header_x + manual_w - close_sz,
+                header_y + Round((header_h - close_sz) / 2))
+            local _, close_clicked = NavSquare("##nav_help_close", close_sz, close_sz, "X", {
+                bg = C.fx_ctrl_bg,
+                hov = C.fx_ctrl_hover,
+                active = C.fx_ctrl_active,
+                fg = C.text_dim,
+                fg_hov = C.text,
+            })
+            r.ImGui_SetCursorScreenPos(ctx, header_x, header_y)
+            r.ImGui_Dummy(ctx, manual_w, header_h)
+            if close_clicked then
+                nav_help_manual_close_requested = false
+                nav_help_manual_hovered = false
+                r.ImGui_CloseCurrentPopup(ctx)
+                ReflexPopPopupLayout()
+                r.ImGui_EndPopup(ctx)
+                return
+            end
+            ReflexPopupStackGap(S(12))
 
-            NavHelpSection("Custom Visibility", COL_NAV_ADD, manual_w)
-            NavHelpRow("Show selected", "Add manual NAV shortcuts", COL_NAV_ADD, manual_w)
-            NavHelpRow("Manual tracks", "Shortcuts in project order", C.text, manual_w)
-            NavHelpRow("Hidden", "Hide TLT and descendants", COL_NAV_REMOVE, manual_w)
-            NavHelpRow("Show children", "Promote direct children", C.text, manual_w)
-            NavHelpRow("Reset", "Clear custom visibility rules", COL_NAV_REMOVE, manual_w)
-            NavHelpLine("Ignore ARCHIVE hides tracks named ARCHIVE and their children.", C.text_dim, manual_w)
+            NavHelpLine("Track Navigator lets you quickly build custom track views so you can", manual_w)
+            NavHelpLine("focus on specific parts of your session. If you get lost,", manual_w)
+            if is_mac then
+                NavHelpLine("Cmd+Shift-click anywhere or click Show all tracks", manual_w)
+            else
+                NavHelpLine("Ctrl+Shift-click anywhere or click Show all tracks", manual_w)
+            end
+            NavHelpLine("in the global menu.", manual_w)
 
-            NavHelpSection("TLT Hide Modes", COL_NAV_REMOVE, manual_w)
-            NavHelpRow("Hide", "Remove the whole TLT subtree", COL_NAV_REMOVE, manual_w)
-            NavHelpRow("Hide + children", "Remove only the TLT button", COL_NAV_REMOVE, manual_w)
-            NavHelpLine("Show-children promotes current and future direct children.", C.text_dim, manual_w)
+            ReflexPopupStackGap(S(16))
+            NavHelpInfoBlock("R - Routing View Button", {
+                "Builds a view from the selected track or tracks.",
+                "Shows sources, sends, receives, child tracks, and parent tracks",
+            }, manual_w)
+            ReflexPopupStackGap(S(12))
+            NavHelpInfoBlock("A - Active Tracks View Button", {
+                "Shows tracks whose signal exceeded -60 dB recently.",
+                "Also includes parent folders and forward send destinations",
+            }, manual_w)
 
-            NavHelpSection("Inspector", C.text, manual_w)
-            NavHelpRow("HDR", "Track name, mute/solo, pan, envelopes", C.text, manual_w)
-            NavHelpRow("VOL", "Meter, volume control, peak readout", C.text, manual_w)
-            NavHelpRow("ENV", "Track envelopes when expanded", C.text, manual_w)
+            NavHelpSection("Top Level Track (TLT) Buttons", manual_w)
+            NavHelpInfoBlock("Click", {
+                "Show only this TLT, subsequent clicks expand / collapse",
+                "if track is a folder",
+            }, manual_w)
+            ReflexPopupStackGap(S(9))
+            NavHelpInfoBlock(primary_click, {
+                "Add or remove this TLT from the visible set",
+            }, manual_w)
+            ReflexPopupStackGap(S(9))
+            NavHelpInfoBlock(pin_click, {
+                "Pin or unpin this TLT. Pinned TLT's visibility persists",
+                "even when other TLTs are clicked",
+            }, manual_w)
+            ReflexPopupStackGap(S(9))
+            NavHelpInfoBlock(child_click, {
+                "Expand or collapse this TLT and its children",
+                "(if track is a folder) without affecting visibility",
+                "of other TLTs",
+            }, manual_w)
+            ReflexPopupStackGap(S(9))
+            NavHelpInfoBlock("Shift-click", {
+                "Range-select TLTs",
+            }, manual_w)
+            ReflexPopupStackGap(S(9))
+            NavHelpInfoBlock("Right-click", {
+                "Pin, hide, or customize this TLT",
+            }, manual_w)
 
-            NavHelpSection("FX / Routing / Sends", C.text, manual_w)
-            NavHelpRow("FX", "Chain state, controls, drag reorder", C.text, manual_w)
-            NavHelpRow("A/B", "Compare and clipboard chain work", C.text, manual_w)
-            NavHelpRow("R/F/S", "Routing, flow, sends views", C.text, manual_w)
+            NavHelpSection("Custom Visibility", manual_w)
+            NavHelpInfoBlock("Show selected tracks", {
+                "Adds selected REAPER tracks manually as TLT buttons",
+            }, manual_w)
+            ReflexPopupStackGap(S(9))
+            NavHelpInfoBlock("Hide in Track Navigator", {
+                "Hides a TLT and all of its descendants from Track Navigator",
+            }, manual_w)
+            ReflexPopupStackGap(S(9))
+            NavHelpInfoBlock("Show children", {
+                "Hides the parent button and promotes its direct children",
+                "as TLT buttons",
+            }, manual_w)
+            ReflexPopupStackGap(S(9))
+            NavHelpInfoBlock("Reset", {
+                "Clears manual, hidden, and promoted visibility rules",
+            }, manual_w)
 
-            NavHelpSection("History / Remote", C.text, manual_w)
-            NavHelpRow("History", "Back/forward inspected tracks", C.text, manual_w)
-            NavHelpRow("Remote", "Configurable macro-pad pages", C.text, manual_w)
+            NavHelpSection("Options", manual_w)
+            NavHelpInfoBlock("Ignore ARCHIVE", {
+                "Hides any folder named ARCHIVE and its children",
+            }, manual_w)
+            ReflexPopupStackGap(S(9))
+            NavHelpInfoBlock("Mirror TLT buttons", {
+                "Mirrors TLT button layout",
+            }, manual_w)
 
             ReflexPopPopupLayout()
             r.ImGui_EndPopup(ctx)
@@ -366,16 +587,17 @@ ReflexInstallNavViewCore = function(deps)
         local controls_w = row_h + S(2) + label_w + S(2) + row_h
         local title_w = 0
         if nav_menu_context == "standalone" then
-            title_w = r.ImGui_CalcTextSize(ctx, "Track Navigator v" .. tostring(nav_version))
+            local mark_w = select(1, NavNavigatorMarkSize())
+            title_w = mark_w or r.ImGui_CalcTextSize(ctx, "Track Navigator v" .. tostring(nav_version))
         end
         local size_label = nav_menu_context == "standalone" and "UI size" or "Navigator size"
         local ui_w = r.ImGui_CalcTextSize(ctx, size_label)
         local size_row_w = ui_w + S(12) + controls_w
-        local ignore_archive_w = r.ImGui_CalcTextSize(ctx, "\xE2\x9C\x93 Ignore ARCHIVE") + S(16)
-        local mirror_w = r.ImGui_CalcTextSize(ctx, "Mirror TLT buttons") + S(16)
+        local check_w = r.ImGui_CalcTextSize(ctx, "\xE2\x9C\x93")
+        local ignore_archive_w = r.ImGui_CalcTextSize(ctx, "Ignore ARCHIVE") + check_w + S(30)
+        local mirror_w = r.ImGui_CalcTextSize(ctx, "Mirror TLT buttons") + check_w + S(30)
+        local show_all_w = r.ImGui_CalcTextSize(ctx, "Show all tracks") + S(16)
         local help_w = r.ImGui_CalcTextSize(ctx, "Help / Manual") + S(42)
-        local hide_tlt_w = r.ImGui_CalcTextSize(ctx, "Hide in Track Navigator") + S(16)
-        local promote_tlt_w = r.ImGui_CalcTextSize(ctx, "Hide in Track Navigator - show children") + S(16)
         local include_w = r.ImGui_CalcTextSize(ctx, "Show selected tracks") + S(16)
         include_w = math.max(include_w, r.ImGui_CalcTextSize(ctx, "No tracks selected") + S(16))
         local custom_w = r.ImGui_CalcTextSize(ctx, "Manually shown tracks") + S(16)
@@ -411,8 +633,8 @@ ReflexInstallNavViewCore = function(deps)
                 end
             end
         end
-        return math.max(S(180), size_row_w, title_w, ignore_archive_w, mirror_w,
-            help_w, hide_tlt_w, promote_tlt_w, include_w, custom_w, hidden_w, promoted_w, reset_w, confirm_w)
+        return math.max(S(180), size_row_w, title_w, ignore_archive_w, mirror_w, show_all_w,
+            help_w, include_w, custom_w, hidden_w, promoted_w, reset_w, confirm_w)
     end
 
     local function NavTlfMenuWidth(pin_label, ignore_label, ghost_parent, custom_item)
@@ -496,18 +718,73 @@ ReflexInstallNavViewCore = function(deps)
         end
     end
 
+    local function NavMenuCheckItem(label, checked, id, menu_w)
+        local row_h = S(UI.btn_h or 26)
+        local pad_x = S(8)
+        local pad_y = S(4)
+        local flags = 0
+        local text_w, text_h = r.ImGui_CalcTextSize(ctx, label)
+        text_h = text_h or r.ImGui_GetTextLineHeight(ctx)
+        local check = "\xE2\x9C\x93"
+        local check_w, check_h = r.ImGui_CalcTextSize(ctx, check)
+        check_h = check_h or text_h
+        local row_w = math.max(menu_w, text_w + check_w + pad_x * 3)
+        local row_h_calc = math.max(row_h, text_h + pad_y * 2)
+
+        r.ImGui_PushID(ctx, id)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Header(), 0x00000000)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), 0x00000000)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderActive(), 0x00000000)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), 0x00000000)
+        local clicked = r.ImGui_Selectable(ctx, "##item", false, flags, row_w, row_h_calc)
+        r.ImGui_PopStyleColor(ctx, 4)
+        local hovered = r.ImGui_IsItemHovered(ctx)
+        local active = r.ImGui_IsItemActive(ctx)
+        local x1, y1 = r.ImGui_GetItemRectMin(ctx)
+        local x2, y2 = r.ImGui_GetItemRectMax(ctx)
+        local dl = r.ImGui_GetWindowDrawList(ctx)
+        if hovered or active then
+            r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y2,
+                active and (C.popup_active or C.fx_ctrl_active) or (C.popup_hover or C.fx_ctrl_hover), S(4))
+        end
+        r.ImGui_DrawList_AddText(dl, x1 + pad_x, y1 + Round((row_h_calc - text_h) / 2),
+            hovered and C.text or C.text_dim, label)
+        if checked then
+            r.ImGui_DrawList_AddText(dl, x2 - pad_x - check_w, y1 + Round((row_h_calc - check_h) / 2),
+                hovered and C.text or C.text_dim, check)
+        end
+        r.ImGui_PopID(ctx)
+        return clicked, hovered
+    end
+
     local function NavDrawGlobalOptions(menu_w)
-        local ignore_label = (opt_nav_ignore_archive and "\xE2\x9C\x93 " or "") .. "Ignore ARCHIVE"
-        local archive_clicked, archive_hov = ReflexMenuItem(ignore_label, { id = "ignore_archive", min_w = menu_w })
+        local archive_clicked, archive_hov = NavMenuCheckItem("Ignore ARCHIVE", opt_nav_ignore_archive, "ignore_archive", menu_w)
         if archive_hov then NavArchiveTip() end
         if archive_clicked then
             opt_nav_ignore_archive = not opt_nav_ignore_archive
             SavePref("nav_ignore_archive", opt_nav_ignore_archive)
             markDirty()
         end
-        if ReflexMenuItem("Mirror TLT buttons", { id = "mirror_tlf_buttons", min_w = menu_w }) then
+        if NavMenuCheckItem("Mirror TLT buttons", nav_mirror, "mirror_tlf_buttons", menu_w) then
             nav_mirror = not nav_mirror
             SavePref("nav_mirror", nav_mirror)
+        end
+    end
+
+    local function NavDrawRecoveryOptions(menu_w)
+        local show_clicked, show_hov = ReflexMenuItem("Show all tracks", {
+            id = "show_all_tracks",
+            min_w = menu_w,
+        })
+        if show_hov then
+            NavPopupTip({
+                "Restore all tracks to Track Navigator",
+                "visibility in TCP and Mixer.",
+            })
+        end
+        if show_clicked then
+            ShowAllTracks()
+            r.ImGui_CloseCurrentPopup(ctx)
         end
     end
 
@@ -536,15 +813,6 @@ ReflexInstallNavViewCore = function(deps)
         local _, text_h = r.ImGui_CalcTextSize(ctx, label)
         text_h = text_h or r.ImGui_GetTextLineHeight(ctx)
         r.ImGui_DrawList_AddText(dl, x1 + pad_x, y1 + Round((row_h - text_h) / 2), hovered and C.text or C.text_dim, label)
-        local radius = math.max(S(6), math.floor(row_h * 0.32))
-        local cx = x2 - pad_x - radius
-        local cy = y1 + row_h / 2
-        local icon_col = hovered and C.text or C.text_dim
-        r.ImGui_DrawList_AddCircle(dl, cx, cy, radius, icon_col, 24, math.max(1, S(1)))
-        local q = "?"
-        local qw, qh = r.ImGui_CalcTextSize(ctx, q)
-        qh = qh or text_h
-        r.ImGui_DrawList_AddText(dl, cx - qw / 2, cy - qh / 2, icon_col, q)
         r.ImGui_PopID(ctx)
         if clicked then r.ImGui_OpenPopup(ctx, "##nav_help_manual") end
     end
@@ -713,6 +981,8 @@ ReflexInstallNavViewCore = function(deps)
             NavDrawResetCustomizations(menu_w)
             NavPopupSectionBreak(menu_w)
             NavDrawGlobalOptions(menu_w)
+            NavPopupSectionBreak(menu_w)
+            NavDrawRecoveryOptions(menu_w)
             NavPopupSectionBreak(menu_w)
             NavDrawHelpRow(menu_w)
             NavDrawHelpManualPopup()
@@ -932,7 +1202,8 @@ ReflexInstallNavViewCore = function(deps)
                   hit_w = ar_d,
                   hit_h = nav_single_row_h,
               })
-              local mods = r.ImGui_GetKeyMods(ctx)
+              local mods = NavClickMods()
+              local nav_mods = NavMods(mods)
               local fg_col
               if disabled then
                   fg_col = AR_DISABLED_FG
@@ -945,14 +1216,14 @@ ReflexInstallNavViewCore = function(deps)
               end
               local dl = r.ImGui_GetWindowDrawList(ctx)
               if not NavDrawArLabelImage(dl, cx, draw_cy, which, fg_col, mini_tlf_h) then
-                  r.ImGui_PushFont(ctx, ar_font)
+                  local ar_font_pushed = NavPushFont(ar_font)
                   local tw = r.ImGui_CalcTextSize(ctx, which)
                   local th = r.ImGui_GetTextLineHeight(ctx)
                   local nudge = AR_LABEL_TEXT_FALLBACK_NUDGE[which] or { x = 0, y = 0 }
                   local tx = cx - tw / 2 + nudge.x
                   local ty = draw_cy - th / 2 + nudge.y
                   r.ImGui_DrawList_AddText(dl, tx, ty, fg_col, which)
-                  r.ImGui_PopFont(ctx)
+                  NavPopFont(ar_font_pushed)
               end
               if clk then
                   NavDebugEvent("A/R." .. which, {
@@ -966,10 +1237,10 @@ ReflexInstallNavViewCore = function(deps)
                       -- Disabled A/R still owns the hitbox, but does not enter
                       -- the view mode; hover tooltip explains why.
                   elseif which == "A" then
-                      -- Opt+click on A while in active view exits to pre-entry view
+                      -- Alt-family modifier on A while in active view exits to pre-entry view
                       -- (replaces the X button that used to live in the footer).
                       -- Plain click toggles/refreshes via ActiveViewToggle.
-                      if active_view_active and IsAlt(mods) then
+                      if active_view_active and nav_mods.pin then
                           ActiveViewExit()
                       else
                           ActiveViewToggle()
@@ -983,7 +1254,7 @@ ReflexInstallNavViewCore = function(deps)
                       if disabled then
                           NavArTooltip("Active tracks view", "No levels detected")
                       else
-                          NavArTooltip("Active tracks view", active_view_active and "Opt: exit to previous view" or nil)
+                          NavArTooltip("Active tracks view", active_view_active and (NavPinLabel() .. ": exit to previous view") or nil)
                       end
                   else
                       NavArTooltip("Routing view", disabled and "No track selection" or nil)
@@ -1041,26 +1312,27 @@ ReflexInstallNavViewCore = function(deps)
               -- -S(2) total (2 logical px = ~3 retina px) lands the down-arrow
               -- one logical px further left than the right-arrow.
               local arrow_glyph_h = "\xE2\x96\xBC"
-              if nav_arrow_font_shared then r.ImGui_PushFont(ctx, nav_arrow_font_shared) end
+              local nav_arrow_font_pushed = NavPushFont(nav_arrow_font_shared)
               local arrow_gw_h = r.ImGui_CalcTextSize(ctx, arrow_glyph_h)
               local arrow_th_h = r.ImGui_GetTextLineHeight(ctx)
               local arrow_ty_h = nav_cy_h + Round((nav_single_row_h - arrow_th_h) / 2) - S(1.375)
               local arrow_tx_h = nav_cx_h + nav_left_pad_shared + Round((nav_arrow_area - arrow_gw_h) / 2) - S(2)
               local arrow_col_h = nav_hovered and C.text or COL_NAV_ARROW_REST
               r.ImGui_DrawList_AddText(dl_h, arrow_tx_h, arrow_ty_h, arrow_col_h, arrow_glyph_h)
-              if nav_arrow_font_shared then r.ImGui_PopFont(ctx) end
+              NavPopFont(nav_arrow_font_pushed)
               if nav_clicked then
-                  local mods = r.ImGui_GetKeyMods(ctx)
+                  local mods = NavClickMods()
+                  local nav_mods = NavMods(mods)
                   NavDebugEvent("NAV.arr.expanded", {
                       mods = mods,
                       label = "header",
                       item_active = r.ImGui_IsItemActive(ctx),
                   })
-                  if IsCmd(mods) and IsShift(mods) then
+                  if nav_mods.show_all then
                       ShowAllTracks()
-                  elseif IsCmd(mods) then
+                  elseif nav_mods.primary and not nav_mods.child_expand then
                       if current_page == "songs" then ShowAllSongsKeep() else ShowAllTLFs() end
-                  elseif IsAlt(mods) then
+                  elseif nav_mods.pin or nav_mods.child_expand then
                       -- Expand all visible tracks at every level
                       r.Undo_BeginBlock(); r.PreventUIRefresh(1)
                       local nt = r.CountTracks(0)
@@ -1073,7 +1345,7 @@ ReflexInstallNavViewCore = function(deps)
                       end
                       r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
                       r.Undo_EndBlock("Track Navigator: Expand All Deep", 0)
-                  elseif IsShift(mods) then
+                  elseif nav_mods.shift then
                       if current_page == "songs" then
                           r.Undo_BeginBlock(); r.PreventUIRefresh(1)
                           local all_c = true
@@ -1184,7 +1456,7 @@ ReflexInstallNavViewCore = function(deps)
               local hdr_font = scaled_fonts[hdr_step]
               local arrow_step = nav_arrow_step_shared
               local arrow_font = nav_arrow_font_shared
-              if hdr_font then r.ImGui_PushFont(ctx, hdr_font) end
+              local hdr_font_pushed = NavPushFont(hdr_font)
               r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Header(), 0x00000000)
               r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), 0x00000000)
               r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderActive(), 0x00000000)
@@ -1209,17 +1481,18 @@ ReflexInstallNavViewCore = function(deps)
                   r.ImGui_OpenPopup(ctx, "##navctx")
               end
               if nav_col_clicked then
-                  local mods = r.ImGui_GetKeyMods(ctx)
+                  local mods = NavClickMods()
+                  local nav_mods = NavMods(mods)
                   NavDebugEvent("NAV.arr.collapsed", {
                       mods = mods,
                       label = "arrow",
                       item_active = r.ImGui_IsItemActive(ctx),
                   })
-                  if IsCmd(mods) and IsShift(mods) then
+                  if nav_mods.show_all then
                       ShowAllTracks()
-                  elseif IsCmd(mods) then
+                  elseif nav_mods.primary and not nav_mods.child_expand then
                       if current_page == "songs" then ShowAllSongsKeep() else ShowAllTLFs() end
-                  elseif IsAlt(mods) then
+                  elseif nav_mods.pin or nav_mods.child_expand then
                       r.Undo_BeginBlock(); r.PreventUIRefresh(1)
                       local nt = r.CountTracks(0)
                       for ti = 0, nt - 1 do
@@ -1231,7 +1504,7 @@ ReflexInstallNavViewCore = function(deps)
                       end
                       r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
                       r.Undo_EndBlock("Track Navigator: Expand All Deep", 0)
-                  elseif IsShift(mods) then
+                  elseif nav_mods.shift then
                       if current_page == "songs" then
                           r.Undo_BeginBlock(); r.PreventUIRefresh(1)
                           local all_c = true
@@ -1256,11 +1529,11 @@ ReflexInstallNavViewCore = function(deps)
               end
               local arrow_hovered = r.ImGui_IsItemHovered(ctx)
               r.ImGui_PopStyleColor(ctx, 3)
-              if hdr_font then r.ImGui_PopFont(ctx) end
+              NavPopFont(hdr_font_pushed)
               -- Draw arrow glyph at 148% size, white on hover. Centered in the
               -- arrow column (which is one dot-step wide) so it sits in the same
               -- column slot that wrapped-row dots will occupy below it.
-              if arrow_font then r.ImGui_PushFont(ctx, arrow_font) end
+              local arrow_font_pushed = NavPushFont(arrow_font)
               local arrow_glyph = "\xE2\x96\xB6"
               local arrow_gw = r.ImGui_CalcTextSize(ctx, arrow_glyph)
               local arrow_th = r.ImGui_GetTextLineHeight(ctx)
@@ -1272,7 +1545,7 @@ ReflexInstallNavViewCore = function(deps)
               local arrow_tx = nav_cx + nav_left_pad + Round((arrow_area - arrow_gw) / 2) - S(1.375)
               local arrow_col = arrow_hovered and C.text or COL_NAV_ARROW_REST
               r.ImGui_DrawList_AddText(dl, arrow_tx, arrow_ty, arrow_col, arrow_glyph)
-              if arrow_font then r.ImGui_PopFont(ctx) end
+              NavPopFont(arrow_font_pushed)
 
               -- Mini TLT circles (flow layout with wrapping; rows 2+ flow under arrow)
               local dot_x = dot_start_x_first
@@ -1319,16 +1592,17 @@ ReflexInstallNavViewCore = function(deps)
                   local mini_hov = r.ImGui_IsItemHovered(ctx)
                   if mini_hov then nav_context_blocked = true end
                   if r.ImGui_IsItemClicked(ctx, 0) then
-                      local mods = r.ImGui_GetKeyMods(ctx)
+                      local mods = NavClickMods()
+                      local show_all, primary, shift, pin, child_expand = NavTrackClickMods(mods)
                       NavDebugEvent("NAV.dot", {
                           mods = mods,
                           label = item.label,
                           item_active = r.ImGui_IsItemActive(ctx),
                       })
-                      if IsCmd(mods) and IsShift(mods) then
+                      if show_all then
                           ShowAllTracks()
                       else
-                          HandleTracksClick(md.ri, IsCmd(mods), IsShift(mods), IsAlt(mods), IsCtrl(mods))
+                          HandleTracksClick(md.ri, primary, shift, pin, child_expand)
                       end
                   end
                   if r.ImGui_IsItemClicked(ctx, 1) then
@@ -1394,17 +1668,18 @@ ReflexInstallNavViewCore = function(deps)
                   r.ImGui_SetCursorPos(ctx, trail_x, last_row_sy)
                   r.ImGui_InvisibleButton(ctx, "##navtrail", trail_w, single_row_h)
                   if r.ImGui_IsItemClicked(ctx, 0) then
-                      local mods = r.ImGui_GetKeyMods(ctx)
+                      local mods = NavClickMods()
+                      local nav_mods = NavMods(mods)
                       NavDebugEvent("NAV.arr.trail", {
                           mods = mods,
                           label = "trailing_area",
                           item_active = r.ImGui_IsItemActive(ctx),
                       })
-                      if IsCmd(mods) and IsShift(mods) then
+                      if nav_mods.show_all then
                           ShowAllTracks()
-                      elseif IsCmd(mods) then
+                      elseif nav_mods.primary and not nav_mods.child_expand then
                           if current_page == "songs" then ShowAllSongsKeep() else ShowAllTLFs() end
-                      elseif IsAlt(mods) then
+                      elseif nav_mods.pin or nav_mods.child_expand then
                           r.Undo_BeginBlock(); r.PreventUIRefresh(1)
                           local nt = r.CountTracks(0)
                           for ti = 0, nt - 1 do
@@ -1416,7 +1691,7 @@ ReflexInstallNavViewCore = function(deps)
                           end
                           r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
                           r.Undo_EndBlock("Track Navigator: Expand All Deep", 0)
-                      elseif IsShift(mods) then
+                      elseif nav_mods.shift then
                           if current_page == "songs" then
                               r.Undo_BeginBlock(); r.PreventUIRefresh(1)
                               local all_c = true
@@ -1515,7 +1790,7 @@ ReflexInstallNavViewCore = function(deps)
           -- TLT rows: 85% scale font, 6px retina row spacing
           local tlf_font_step = math.max(5, math.min(20, Round(GetFontStep(0) * 0.85)))
           local tlf_font = scaled_fonts[tlf_font_step]
-          if tlf_font then r.ImGui_PushFont(ctx, tlf_font) end
+          local tlf_font_pushed = NavPushFont(tlf_font)
           r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ItemSpacing(), 0, Round(S(3.75)))
           for ri, item in ipairs(render_list) do
               -- Theme override: check nav_theme track_colors by label
@@ -1695,14 +1970,15 @@ ReflexInstallNavViewCore = function(deps)
 
                   if arrow_clicked then
                       local new_state = not sg.ui_expanded
-                      local mods = r.ImGui_GetKeyMods(ctx)
+                      local mods = NavClickMods()
+                      local nav_mods = NavMods(mods)
                       NavDebugEvent("NAV.pill.sg_arrow", {
                           mods = mods,
                           label = item.label,
                           item_active = r.ImGui_IsItemActive(ctx),
                           state = new_state and "expand" or "collapse",
                       })
-                      if IsAlt(mods) then
+                      if nav_mods.pin then
                           for _, s in ipairs(sub_groups) do
                               if #s.entries > 0 then
                                   s.ui_expanded = new_state; SavePref(MakePrefKey(s.parent_name), new_state)
@@ -1747,14 +2023,14 @@ ReflexInstallNavViewCore = function(deps)
                   r.ImGui_BeginTooltip(ctx)
                   r.ImGui_Text(ctx, item.label)
                   r.ImGui_Separator(ctx)
-                  r.ImGui_TextColored(ctx, C.text_dim, "Cmd: add/remove from view")
+                  r.ImGui_TextColored(ctx, C.text_dim, NavPrimaryLabel() .. ": add/remove from view")
                   if item.custom then
-                      r.ImGui_TextColored(ctx, C.text_dim, "Opt: expand all")
+                      r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. ": expand all")
                       r.ImGui_TextColored(ctx, C.text_dim, "Right-click: hide in Track Navigator")
                   else
-                      r.ImGui_TextColored(ctx, C.text_dim, "Opt: toggle pin")
+                      r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. ": toggle pin")
                   end
-                  r.ImGui_TextColored(ctx, C.text_dim, "Ctrl: expand/collapse children")
+                  r.ImGui_TextColored(ctx, C.text_dim, NavChildExpandLabel() .. ": expand/collapse children")
                   r.ImGui_TextColored(ctx, C.text_dim, "Shift: range select")
                   r.ImGui_EndTooltip(ctx)
                   PopTooltipStyle()
@@ -1779,25 +2055,22 @@ ReflexInstallNavViewCore = function(deps)
               PopPopupStyle()
 
               if clicked_main then
-                  local mods = r.ImGui_GetKeyMods(ctx)
+                  local mods = NavClickMods()
+                  local show_all, primary, shift, pin, child_expand = NavTrackClickMods(mods)
                   NavDebugEvent("NAV.pill", {
                       mods = mods,
                       label = item.label,
                       item_active = r.ImGui_IsItemActive(ctx),
                   })
-                  if IsCmd(mods) and IsShift(mods) then
+                  if show_all then
                       ShowAllTracks()
                   else
-                      HandleTracksClick(ri,
-                          IsCmd(mods),
-                          IsShift(mods),
-                          IsAlt(mods),
-                          IsCtrl(mods))
+                      HandleTracksClick(ri, primary, shift, pin, child_expand)
                   end
               end
           end
           r.ImGui_PopStyleVar(ctx, 1)  -- ItemSpacing
-          if tlf_font then r.ImGui_PopFont(ctx) end
+          NavPopFont(tlf_font_pushed)
 
           if opt_viewlock and viewlock_song ~= "" then
               r.ImGui_Spacing(ctx)
@@ -1831,7 +2104,8 @@ ReflexInstallNavViewCore = function(deps)
               local nhov = vis and sp_vis_hov or sp_hid_hov
               local ntxt = vis and C.text or 0xFFFFFF66
               if StyledButton(song.name .. "##sf" .. fi, bw, bh, nbg, nhov, C.btn_active, ntxt) then
-                  local mods = r.ImGui_GetKeyMods(ctx)
+                  local mods = NavClickMods()
+                  local nav_mods = NavMods(mods)
                   NavDebugEvent("songs.row", {
                       mods = mods,
                       label = song.name,
@@ -1839,9 +2113,9 @@ ReflexInstallNavViewCore = function(deps)
                       state = vis and "visible" or "hidden",
                   })
                   HandleSongsClick(filtered, fi,
-                      IsCmd(mods),
-                      IsShift(mods),
-                      IsAlt(mods))
+                      nav_mods.primary,
+                      nav_mods.shift,
+                      nav_mods.pin)
               end
           end
         end -- if/elseif page
@@ -1905,12 +2179,15 @@ ReflexInstallNavViewCore = function(deps)
           -- Nav bottom margin: position cursor S(UI.edge_pad) below NAV's
           -- bottom edge to provide the standard 16-retina gap to the first
           -- card, consistently in both expanded and collapsed states.
+          local nav_bottom_y
           if nav_visible then
-              r.ImGui_SetCursorPosY(ctx, nav_end_y + S(UI.edge_pad / 2))
+              nav_bottom_y = nav_end_y + S(UI.edge_pad / 2)
           else
-              r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + 1)
+              nav_bottom_y = r.ImGui_GetCursorPosY(ctx) + 1
           end
-          local nav_total_h = r.ImGui_GetCursorPosY(ctx) - nav_start_y
+          r.ImGui_SetCursorPosY(ctx, nav_bottom_y)
+          local nav_total_h = nav_bottom_y - nav_start_y
+          r.ImGui_Dummy(ctx, 1, 1)
           last_nav_h = nav_total_h
     end
 end

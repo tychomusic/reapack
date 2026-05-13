@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      Hansen (via Claude)
- * Version:     1.0
+ * Version:     1.8
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.0"
+TRACK_NAVIGATOR_VERSION = "1.8"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.7 or newer."
@@ -53,10 +53,82 @@ ntc = function(section, key, fallback)
     return fallback
 end
 
-IsCmd = function(mods)   return (mods & 0x8) ~= 0 end
-IsShift = function(mods) return (mods & 0x2) ~= 0 end
-IsAlt = function(mods)   return (mods & 0x4) ~= 0 end
-IsCtrl = function(mods)  return (mods & 0x1) ~= 0 end
+TrackNavigatorKeyValue = function(name)
+    local v = r[name]
+    if type(v) == "function" then
+        local ok, key = pcall(v)
+        if ok and type(key) == "number" then return key end
+    elseif type(v) == "number" then
+        return v
+    end
+    return nil
+end
+
+TrackNavigatorIsMacOS = function()
+    local os = r.GetOS and r.GetOS() or ""
+    return os:find("OSX", 1, true) ~= nil
+        or os:find("macOS", 1, true) ~= nil
+        or os:find("Mac", 1, true) ~= nil
+end
+
+TrackNavigatorModFlag = function(mods, fallback, ...)
+    mods = tonumber(mods) or 0
+    if fallback and (mods & fallback) ~= 0 then return true end
+    for i = 1, select("#", ...) do
+        local key = TrackNavigatorKeyValue(select(i, ...))
+        if key and (mods & key) ~= 0 then return true end
+    end
+    return false
+end
+
+TrackNavigatorKeyDown = function(...)
+    if not r.ImGui_IsKeyDown then return false end
+    for i = 1, select("#", ...) do
+        local key = TrackNavigatorKeyValue(select(i, ...))
+        if key then
+            local ok_down, down = pcall(r.ImGui_IsKeyDown, ctx, key)
+            if ok_down and down == true then return true end
+        end
+    end
+    return false
+end
+
+IsCmd = function(mods)
+    return TrackNavigatorModFlag(mods, 0x8, "ImGui_Mod_Super", "ImGui_Mod_Shortcut", "ImGui_KeyModFlags_Super")
+        or TrackNavigatorKeyDown("ImGui_Key_ModSuper", "ImGui_Key_LeftSuper", "ImGui_Key_RightSuper")
+end
+IsShift = function(mods)
+    return TrackNavigatorModFlag(mods, 0x2, "ImGui_Mod_Shift", "ImGui_KeyModFlags_Shift")
+        or TrackNavigatorKeyDown("ImGui_Key_ModShift", "ImGui_Key_LeftShift", "ImGui_Key_RightShift")
+end
+IsAlt = function(mods)
+    return TrackNavigatorModFlag(mods, 0x4, "ImGui_Mod_Alt", "ImGui_KeyModFlags_Alt")
+        or TrackNavigatorKeyDown("ImGui_Key_ModAlt", "ImGui_Key_LeftAlt", "ImGui_Key_RightAlt")
+end
+IsCtrl = function(mods)
+    return TrackNavigatorModFlag(mods, 0x1, "ImGui_Mod_Ctrl", "ImGui_KeyModFlags_Ctrl")
+        or TrackNavigatorKeyDown("ImGui_Key_ModCtrl", "ImGui_Key_LeftCtrl", "ImGui_Key_RightCtrl")
+end
+
+TrackNavigatorMacPrimaryAlias = function(mods)
+    return TrackNavigatorIsMacOS()
+        and TrackNavigatorModFlag(mods, 0x1000, "ImGui_Key_ModCtrl")
+end
+
+TrackNavigatorModState = function(mods)
+    mods = tonumber(mods) or 0
+    local ctrl = IsCtrl(mods)
+    -- Standalone macOS Cmd-click can report as raw Ctrl (0x1000).
+    local cmd_alias = TrackNavigatorMacPrimaryAlias(mods)
+    local cmd = IsCmd(mods) or cmd_alias
+    return {
+        raw = mods,
+        cmd = cmd,
+        shift = IsShift(mods),
+        alt = IsAlt(mods),
+        ctrl = ctrl and not cmd_alias,
+    }
+end
 
 local PREF = "reflex"
 
@@ -93,18 +165,25 @@ local body_family = (nav_theme.fonts and nav_theme.fonts.family) or 'SF Pro'
 local scaled_fonts = {}
 local scaled_fonts_italic = {}
 local scaled_fonts_regular = {}
+local scaled_font_sizes = {}
+CreateTrackNavigatorFont = function(family, flags)
+    return r.ImGui_CreateFont(family, flags)
+end
 for step = 5, 20 do
     local scale = step / 10
     local sz = math.floor(body_size * scale + 0.5)
-    local f = r.ImGui_CreateFont(body_family, sz, r.ImGui_FontFlags_Bold())
+    local f = CreateTrackNavigatorFont(body_family, r.ImGui_FontFlags_Bold())
     r.ImGui_Attach(ctx, f)
     scaled_fonts[step] = f
-    local fi = r.ImGui_CreateFont(body_family, sz, r.ImGui_FontFlags_Italic())
+    if f then scaled_font_sizes[f] = sz end
+    local fi = CreateTrackNavigatorFont(body_family, r.ImGui_FontFlags_Italic())
     r.ImGui_Attach(ctx, fi)
     scaled_fonts_italic[step] = fi
-    local fr = r.ImGui_CreateFont(body_family, sz, r.ImGui_FontFlags_None())
+    if fi then scaled_font_sizes[fi] = sz end
+    local fr = CreateTrackNavigatorFont(body_family, r.ImGui_FontFlags_None())
     r.ImGui_Attach(ctx, fr)
     scaled_fonts_regular[step] = fr
+    if fr then scaled_font_sizes[fr] = sz end
 end
 
 package.loaded["Reflex_FontCore"] = nil
@@ -114,6 +193,7 @@ require("Reflex_FontCore")({
     scaled_fonts = scaled_fonts,
     scaled_fonts_italic = scaled_fonts_italic,
     scaled_fonts_regular = scaled_fonts_regular,
+    font_sizes = scaled_font_sizes,
     get_ui_scale = function() return ui_scale end,
 })
 
@@ -452,6 +532,7 @@ nav_list_child_h = 0
 
 routing_view_active = false
 routing_view_source = nil
+routing_view_sources = {}
 routing_view_tracks = {}
 routing_view_depth = LoadPref("routing_depth", 1)
 routing_view_saved_snap = nil
@@ -593,6 +674,7 @@ require("Reflex_NavViewCore")({
     ctx = ctx,
     colors = C,
     scaled_fonts = scaled_fonts,
+    font_sizes = scaled_font_sizes,
     track_color_overrides = track_color_overrides,
     script_dir = script_dir,
     version = TRACK_NAVIGATOR_VERSION,
@@ -734,8 +816,6 @@ TrackNavigatorLoop = function()
     PopPopupStyle()
     r.ImGui_PopStyleVar(ctx, 7 + smooth_tess_count)
     r.ImGui_PopStyleColor(ctx, 5 + dock_color_count)
-
-    ReflexApplyKeyboardPassthrough()
 
     if open then r.defer(TrackNavigatorLoop) end
 end

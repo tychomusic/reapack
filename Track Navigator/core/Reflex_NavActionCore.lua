@@ -355,7 +355,7 @@ ReflexInstallNavActionCore = function(deps)
         if is_shift then HandleTracksShift(ri)
         elseif is_cmd then HandleTracksCmd(ri, is_alt)
         elseif is_ctrl and not is_cmd then
-            -- Ctrl+click: expand/collapse folder and all children
+            -- Child-expand chord: expand/collapse folder and all children.
             if item.custom and item.is_folder then
                 local is_collapsed = r.GetMediaTrackInfo_Value(item.track, "I_FOLDERCOMPACT") ~= 0
                 if is_collapsed then

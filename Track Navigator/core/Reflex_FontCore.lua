@@ -8,6 +8,7 @@ ReflexInstallFontCore = function(deps)
     local scaled_fonts = deps.scaled_fonts
     local scaled_fonts_italic = deps.scaled_fonts_italic
     local scaled_fonts_regular = deps.scaled_fonts_regular
+    local font_sizes = deps.font_sizes or {}
     local getUiScale = deps.get_ui_scale
 
     -- Font step computation: base step from effective scale + offset, clamped 5..20.
@@ -30,8 +31,11 @@ ReflexInstallFontCore = function(deps)
     GetScaledRegularFont = function() return GetSteppedFont(0, "regular") end
 
     PushFont = function(f)
-        if f then r.ImGui_PushFont(ctx, f); return true end
-        return false
+        if not f then return false end
+        local size = font_sizes[f]
+        if not size then return false end
+        r.ImGui_PushFont(ctx, f, size)
+        return true
     end
 
     PopFont = function(pushed)

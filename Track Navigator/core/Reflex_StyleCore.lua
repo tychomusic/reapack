@@ -87,13 +87,19 @@ ReflexInstallStyleCore = function(deps)
     end
 
     ShowModKeyTip = function()
+        local os = r.GetOS and r.GetOS() or ""
+        local is_mac = os:find("OSX", 1, true) ~= nil
+            or os:find("macOS", 1, true) ~= nil
+            or os:find("Mac", 1, true) ~= nil
+        local primary = is_mac and "Cmd" or "Ctrl"
+        local alt = is_mac and "Opt" or "Alt"
         PushTooltipStyle()
         r.ImGui_BeginTooltip(ctx)
         r.ImGui_Text(ctx, "Click: toggle navigator")
-        r.ImGui_Text(ctx, "Cmd: show all TLTs")
-        r.ImGui_Text(ctx, "Opt: expand all visible tracks")
+        r.ImGui_Text(ctx, primary .. ": show all TLTs")
+        r.ImGui_Text(ctx, alt .. ": expand all visible tracks")
         r.ImGui_Text(ctx, "Shift: toggle collapse TLTs")
-        r.ImGui_Text(ctx, "Cmd+Shift: show all tracks")
+        r.ImGui_Text(ctx, primary .. "+Shift: show all tracks")
         r.ImGui_EndTooltip(ctx)
         PopTooltipStyle()
     end
@@ -195,34 +201,6 @@ ReflexInstallStyleCore = function(deps)
         r.ImGui_Dummy(ctx, w or S(140), line_h)
     end
 
-    ReflexConfigureKeyboardPassthrough = function()
-        if r.ImGui_SetConfigVar and r.ImGui_ConfigVar_NavCaptureKeyboard then
-            r.ImGui_SetConfigVar(ctx, r.ImGui_ConfigVar_NavCaptureKeyboard(), 0)
-        end
-    end
-
-    ReflexApplyKeyboardPassthrough = function(opts)
-        opts = opts or {}
-        local active = r.ImGui_IsAnyItemActive(ctx)
-        local api = r.ImGui_SetNextFrameWantCaptureKeyboard ~= nil
-        local applied = false
-        if r.ImGui_SetNextFrameWantCaptureKeyboard then
-            r.ImGui_SetNextFrameWantCaptureKeyboard(ctx, active)
-            applied = true
-        end
-        if opts.debug then
-            opts.debug({
-                policy = "active_only",
-                api = api,
-                active = active,
-                requested = active,
-                applied = applied,
-            })
-        end
-        return active, applied
-    end
-
-    ReflexConfigureKeyboardPassthrough()
 end
 
 return ReflexInstallStyleCore
