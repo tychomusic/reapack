@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.4
+Current public version: 1.5
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -78,7 +78,7 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
 
 ## Floating Window Presentation
 - Floating windows use rounded corners; docked windows use square corners. The floating title bar is intentionally hidden, leaving only the Navigator content and uniform padding.
-- Floating internal right gap should match the left edge gap. Docked mode also keeps uniform edge gaps except for one chrome compensation case: macOS left-side REAPER docker uses the smaller right gap because REAPER leaves a blank chrome strip there.
+- Floating internal right gap should match the left edge gap. Docked mode also keeps uniform edge gaps except for two macOS chrome compensation cases: left-side REAPER docker uses the smaller right gap, and right-side REAPER docker uses the smaller left gap, because REAPER leaves blank chrome strips against the arrange view there.
 - The floating window outline is a custom 1 px line in `#525254`, not ImGui's normal border. Draw straight edges with filled rects and only use arc strokes for rounded corners. This avoids the fuzzy gradient / over-antialiased look ImGui can produce on straight lines.
 - Draw the floating outline on the foreground draw list when available so it traces the whole window edge. Keep `WindowBorderSize` at zero and let the custom outline define the visible edge.
 - Match resize grip colors to the outline color so the lower-right handle does not fall back to ImGui blue.

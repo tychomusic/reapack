@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.4
+ * Version:     1.5
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.4"
+TRACK_NAVIGATOR_VERSION = "1.5"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.7 or newer."
@@ -1001,13 +1001,20 @@ TrackNavigatorLoop = function()
         local fp = PushFont(GetScaledFont())
         local bw, win_h = r.ImGui_GetContentRegionAvail(ctx)
         local dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
-        local use_reaper_chrome_gap = nav_window_docked and TrackNavigatorIsMacOS() and dock_pos == 1
-        local nav_right_edge_gap = use_reaper_chrome_gap and 3 or S(UI.edge_pad)
-        bw = bw + S(UI.edge_pad) - nav_right_edge_gap
+        local use_mac_left_chrome_gap = nav_window_docked and TrackNavigatorIsMacOS() and dock_pos == 1
+        local use_mac_right_chrome_gap = nav_window_docked and TrackNavigatorIsMacOS() and dock_pos == 3
+        local nav_standard_edge_gap = S(UI.edge_pad)
+        local nav_left_edge_gap = use_mac_right_chrome_gap and 3 or nav_standard_edge_gap
+        local nav_right_edge_gap = use_mac_left_chrome_gap and 3 or nav_standard_edge_gap
+        local nav_left_gap_delta = nav_standard_edge_gap - nav_left_edge_gap
+        bw = bw + nav_left_gap_delta + nav_standard_edge_gap - nav_right_edge_gap
         if not nav_window_docked then
             bw = math.max(bw, min_nav_w)
         end
-        local nav_indicator_right_edge = use_reaper_chrome_gap and 0 or math.max(0, ww - S(UI.edge_pad) - bw)
+        if nav_left_gap_delta ~= 0 then
+            r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) - nav_left_gap_delta)
+        end
+        local nav_indicator_right_edge = use_mac_left_chrome_gap and 0 or math.max(0, ww - nav_left_edge_gap - bw)
         NavDrawSection({
             bw = bw,
             win_h = win_h,
