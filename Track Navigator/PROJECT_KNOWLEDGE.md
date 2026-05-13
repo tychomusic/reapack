@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.3
+Current public version: 1.4
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -66,18 +66,32 @@ Use this shorthand in discussion and bug reports.
 
 Important macOS detail: standalone Track Navigator can report Cmd-click as raw Ctrl (`mods=0x1000`, `Key_LeftCtrl=1`). `TrackNavigatorModState()` treats that Ctrl path as primary/Cmd on macOS. Do not remove this behavior without retesting Cmd-click and Cmd+Shift-click in standalone Track Navigator.
 
-## Docking
-- Track Navigator v1.1 added standalone docking controls in `NAV.menu`:
-  - `Float window`
-  - `Dock left`
-  - `Dock right`
-  - `Dock top`
-  - `Dock bottom`
-  - `Quit Track Navigator`
+## Standalone Window And Docking Lessons
 - Docking is requested with `ImGui_SetNextWindowDockID` before `ImGui_Begin`.
 - Docking availability is enabled through ReaImGui config flags when supported.
 - Docked state is detected with `ImGui_IsWindowDocked` / `ImGui_GetWindowDockID`.
-- Floating windows use more rounded corners; docked windows use square corners.
+- Track Navigator is currently designed as a vertical navigator. Standalone docking controls should remain side-only until a horizontal layout exists. The current `NAV.menu` dock pad uses left/right arrow buttons plus a center `Dock` / `Undock` button.
+- The center `Dock` action should dock to the last known side dock when available, otherwise left. Do not restore top/bottom dock IDs from history while horizontal mode is unsupported.
+- Resolve side dock targets from `DockGetPosition`; do not blindly send `ImGui_SetNextWindowDockID` to hardcoded fallback docker indices. On installs with no left/right docker, only provision the expected side docker when SWS config helpers are available; otherwise keep the dock control disabled instead of docking somewhere arbitrary.
+- `Quit` belongs at the bottom of the standalone global menu. The old `Current:` dock status is not useful user-facing information and should stay out of the UI.
+- `Esc key to close` is a standalone global option. When disabled, the main script ignores Esc for quitting. Earlier attempts to make Esc close nested globals/help before quitting were unreliable and were removed.
+
+## Floating Window Presentation
+- Floating windows use rounded corners; docked windows use square corners. The floating title bar is intentionally hidden, leaving only the Navigator content and uniform padding.
+- Floating internal right gap should match the left edge gap. Docked mode also keeps uniform edge gaps except for one chrome compensation case: macOS left-side REAPER docker uses the smaller right gap because REAPER leaves a blank chrome strip there.
+- The floating window outline is a custom 1 px line in `#525254`, not ImGui's normal border. Draw straight edges with filled rects and only use arc strokes for rounded corners. This avoids the fuzzy gradient / over-antialiased look ImGui can produce on straight lines.
+- Draw the floating outline on the foreground draw list when available so it traces the whole window edge. Keep `WindowBorderSize` at zero and let the custom outline define the visible edge.
+- Match resize grip colors to the outline color so the lower-right handle does not fall back to ImGui blue.
+- Collapsed width can become very narrow when TLTs are circles. The minimum width should be based on the minimum NAV content width plus edge padding, not a large arbitrary ImGui window minimum.
+- Collapsed minimum height should follow the number of wrapped dot rows. Expanded minimum height should fit the visible NAV rows when reasonable, capped to the usable viewport so a very large project does not force an oversized window.
+- Height limits should be one-way: enforce a viable minimum, but allow the user to resize the floating window taller for future tracks.
+- When undocking, ReaImGui can preserve the docker height, which is usually wrong for Track Navigator. On dock-to-float transitions, snap to a meaningful floating size: use the user's last explicitly resized floating size when known, otherwise use the current content-fit/minimum viable height. Never record docked dimensions as a floating user size.
+- Save floating user size only from actual floating resize gestures, not from automatic snap/auto-fit frames.
+
+## Context Menu Access
+- `NAV.menu` is normally opened by right-clicking blank Navigator space or `NAV.arr`, but at some scale and width combinations there may be no blank area left because `NAV.arr`, `NAV.R`, and `NAV.A` occupy the available surface.
+- Local right-click menus such as TLT menus include a bottom separator plus `Options`. `Options` opens the global `NAV.menu`, giving users a reliable path to settings even when no blank right-click target is available.
+- Keep this as a deliberate fallback action, not a replacement for item-specific context menus. The item menu should retain its local actions first, then expose `Options` at the bottom.
 
 ## ReaPack Release Workflow
 1. Make code changes.
@@ -106,9 +120,15 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
 - Test `NAV.menu`:
   - Help / Manual opens/closes
   - Show all tracks
-  - Dock left/right/top/bottom
-  - Float window
-  - Quit Track Navigator while docked
+  - Dock left/right and Undock
+  - Esc key to close option
+  - Quit while docked
+  - TLT context menu bottom `Options` opens global `NAV.menu`
+- Test floating window behavior:
+  - right gap matches left gap when undocked
+  - outline traces rounded corners without fuzzy straight edges
+  - resize grip matches outline color
+  - undock snaps to content-fit height or remembered floating user size
 - Confirm installed script shows the expected public version.
 
 ## Known Notes

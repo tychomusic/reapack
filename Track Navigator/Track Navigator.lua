@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.3
+ * Version:     1.4
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.3"
+TRACK_NAVIGATOR_VERSION = "1.4"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.7 or newer."
@@ -69,6 +69,13 @@ TrackNavigatorIsMacOS = function()
     return os:find("OSX", 1, true) ~= nil
         or os:find("macOS", 1, true) ~= nil
         or os:find("Mac", 1, true) ~= nil
+end
+
+TrackNavigatorDockPosition = function(dock_id)
+    if type(dock_id) ~= "number" or dock_id >= 0 or not r.DockGetPosition then return nil end
+    local ok, dock_pos = pcall(r.DockGetPosition, ~dock_id)
+    if ok and type(dock_pos) == "number" then return dock_pos end
+    return nil
 end
 
 TrackNavigatorModFlag = function(mods, fallback, ...)
@@ -722,6 +729,12 @@ nav_window_docked = false
 nav_current_dock_id = 0
 last_window_w = 0
 last_window_h = 0
+nav_floating_user_w = LoadPref("navigator_floating_user_w_v1", 0)
+nav_floating_user_h = LoadPref("navigator_floating_user_h_v1", 0)
+nav_floating_observed_w = 0
+nav_floating_observed_h = 0
+nav_pending_undock_snap = false
+nav_suppress_floating_size_save = 0
 
 package.loaded["Reflex_NavViewCore"] = nil
 require("Reflex_NavViewCore")({
@@ -760,6 +773,32 @@ TrackNavigatorMaxAutoWindowHeight = function()
         end
     end
     return fallback
+end
+
+TrackNavigatorMouseDown = function()
+    if not r.ImGui_IsMouseDown then return false end
+    local ok_down, down = pcall(r.ImGui_IsMouseDown, ctx, 0)
+    return ok_down and down == true
+end
+
+TrackNavigatorSaveFloatingUserSize = function(w, h)
+    if type(w) ~= "number" or type(h) ~= "number" then return end
+    if w < S(40) or h < S(40) then return end
+    nav_floating_user_w = Round(w)
+    nav_floating_user_h = Round(h)
+    SavePref("navigator_floating_user_w_v1", nav_floating_user_w)
+    SavePref("navigator_floating_user_h_v1", nav_floating_user_h)
+end
+
+TrackNavigatorFloatingSnapSize = function(min_window_w, content_fit_h)
+    local has_user_size = nav_floating_user_w and nav_floating_user_w > 0
+        and nav_floating_user_h and nav_floating_user_h > 0
+    local target_w = has_user_size and nav_floating_user_w or last_window_w
+    if not target_w or target_w < min_window_w then target_w = S(240) end
+    local target_h = has_user_size and nav_floating_user_h or content_fit_h
+    target_w = math.max(min_window_w, target_w)
+    target_h = math.max(content_fit_h, target_h)
+    return target_w, target_h
 end
 
 TrackNavigatorEnsureDockingEnabled = function()
@@ -880,6 +919,9 @@ TrackNavigatorLoop = function()
     end
     TrackNavigatorEnsureDockingEnabled()
     if nav_dock_request ~= nil and r.ImGui_SetNextWindowDockID then
+        if nav_dock_request == 0 then
+            nav_pending_undock_snap = true
+        end
         pcall(r.ImGui_SetNextWindowDockID, ctx, nav_dock_request)
         nav_dock_request = nil
     end
@@ -892,15 +934,22 @@ TrackNavigatorLoop = function()
         min_nav_visible_h = math.max(min_nav_visible_h, last_nav_collapsed_visible_h)
     end
     local min_window_h = S(UI.edge_pad) + S(1.25) + min_nav_visible_h + S(UI.edge_pad)
+    local content_fit_window_h = min_window_h
+    if navigator_expanded and last_nav_expanded_visible_h and last_nav_expanded_visible_h > 0 then
+        local desired_window_h = S(UI.edge_pad) + S(1.25) + last_nav_expanded_visible_h + S(UI.edge_pad)
+        content_fit_window_h = math.max(content_fit_window_h, math.min(desired_window_h, TrackNavigatorMaxAutoWindowHeight()))
+    end
     if not nav_window_docked and navigator_expanded then
-        if last_nav_expanded_visible_h and last_nav_expanded_visible_h > 0 then
-            local desired_window_h = S(UI.edge_pad) + S(1.25) + last_nav_expanded_visible_h + S(UI.edge_pad)
-            local target_window_h = math.min(desired_window_h, TrackNavigatorMaxAutoWindowHeight())
-            min_window_h = math.max(min_window_h, target_window_h)
-            if last_window_w and last_window_w > 0 and (not last_window_h or last_window_h < target_window_h - 1) then
-                r.ImGui_SetNextWindowSize(ctx, math.max(last_window_w, min_window_w), target_window_h)
-            end
+        min_window_h = math.max(min_window_h, content_fit_window_h)
+        if last_window_w and last_window_w > 0 and (not last_window_h or last_window_h < content_fit_window_h - 1) then
+            r.ImGui_SetNextWindowSize(ctx, math.max(last_window_w, min_window_w), content_fit_window_h)
         end
+    end
+    if nav_pending_undock_snap then
+        local snap_w, snap_h = TrackNavigatorFloatingSnapSize(min_window_w, content_fit_window_h)
+        r.ImGui_SetNextWindowSize(ctx, snap_w, snap_h)
+        nav_suppress_floating_size_save = 3
+        nav_pending_undock_snap = false
     end
     r.ImGui_SetNextWindowSizeConstraints(ctx, min_window_w, min_window_h, 99999, 99999)
 
@@ -913,6 +962,7 @@ TrackNavigatorLoop = function()
     end
     local visible, open = r.ImGui_Begin(ctx, "Track Navigator", true, wflags)
     if visible then
+        local was_docked = nav_window_docked
         nav_window_docked = r.ImGui_IsWindowDocked and r.ImGui_IsWindowDocked(ctx) or false
         if r.ImGui_GetWindowDockID then
             local ok_dock, dock_id = pcall(r.ImGui_GetWindowDockID, ctx)
@@ -930,14 +980,34 @@ TrackNavigatorLoop = function()
         local ww, wh = r.ImGui_GetWindowSize(ctx)
         last_window_w = ww
         last_window_h = wh
+        if was_docked and not nav_window_docked then
+            nav_pending_undock_snap = true
+            nav_suppress_floating_size_save = 3
+        end
+        if nav_window_docked then
+            nav_floating_observed_w = 0
+            nav_floating_observed_h = 0
+        else
+            local size_changed = nav_floating_observed_w > 0
+                and (math.abs(ww - nav_floating_observed_w) > 1 or math.abs(wh - nav_floating_observed_h) > 1)
+            if nav_suppress_floating_size_save > 0 then
+                nav_suppress_floating_size_save = nav_suppress_floating_size_save - 1
+            elseif size_changed and TrackNavigatorMouseDown() then
+                TrackNavigatorSaveFloatingUserSize(ww, wh)
+            end
+            nav_floating_observed_w = ww
+            nav_floating_observed_h = wh
+        end
         local fp = PushFont(GetScaledFont())
         local bw, win_h = r.ImGui_GetContentRegionAvail(ctx)
-        local nav_right_edge_gap = nav_window_docked and 3 or S(UI.edge_pad)
+        local dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
+        local use_reaper_chrome_gap = nav_window_docked and TrackNavigatorIsMacOS() and dock_pos == 1
+        local nav_right_edge_gap = use_reaper_chrome_gap and 3 or S(UI.edge_pad)
         bw = bw + S(UI.edge_pad) - nav_right_edge_gap
         if not nav_window_docked then
             bw = math.max(bw, min_nav_w)
         end
-        local nav_indicator_right_edge = nav_window_docked and 0 or math.max(0, ww - S(UI.edge_pad) - bw)
+        local nav_indicator_right_edge = use_reaper_chrome_gap and 0 or math.max(0, ww - S(UI.edge_pad) - bw)
         NavDrawSection({
             bw = bw,
             win_h = win_h,

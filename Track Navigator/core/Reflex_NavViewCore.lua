@@ -64,6 +64,7 @@ ReflexInstallNavViewCore = function(deps)
     local nav_help_manual_close_requested = false
     local nav_help_manual_hovered = false
     local nav_last_dock_id = nil
+    local nav_open_global_menu = false
 
     local function NavGetArLabelImage(which)
         if ar_label_images[which] ~= nil then
@@ -387,32 +388,107 @@ ReflexInstallNavViewCore = function(deps)
         return 0
     end
 
-    local function NavDockIDForPosition(pos, fallback)
+    local DOCK_FALLBACK_DOCKER_BY_POS = {
+        [1] = 1,
+        [3] = 3,
+    }
+
+    local function NavDockIDForDocker(docker)
+        return type(docker) == "number" and ~docker or nil
+    end
+
+    local function NavDockerForPosition(pos)
         if r.DockGetPosition then
             for docker = 0, 15 do
                 local ok, dock_pos = pcall(r.DockGetPosition, docker)
-                if ok and dock_pos == pos then return ~docker end
+                if ok and dock_pos == pos then return docker end
             end
         end
-        return fallback
+        return nil
+    end
+
+    local function NavDockIDForPosition(pos)
+        return NavDockIDForDocker(NavDockerForPosition(pos))
+    end
+
+    local function NavDockIDHasPosition(dock_id, pos)
+        if type(dock_id) ~= "number" or dock_id >= 0 or not r.DockGetPosition then return false end
+        local ok, dock_pos = pcall(r.DockGetPosition, ~dock_id)
+        return ok and dock_pos == pos
+    end
+
+    local function NavCanProvisionSideDocker()
+        return r.DockGetPosition ~= nil
+            and r.SNM_GetIntConfigVar ~= nil
+            and r.SNM_SetIntConfigVar ~= nil
+    end
+
+    local function NavProvisionSideDocker(pos)
+        if not NavCanProvisionSideDocker() then return nil end
+        local docker = DOCK_FALLBACK_DOCKER_BY_POS[pos]
+        if type(docker) ~= "number" then return nil end
+
+        local existing = NavDockIDForPosition(pos)
+        if existing then return existing end
+
+        local key = "dockermode" .. tostring(docker)
+        local ok_get, old_mode = pcall(r.SNM_GetIntConfigVar, key, 0)
+        old_mode = ok_get and type(old_mode) == "number" and math.floor(old_mode) or 0
+        local new_mode = (old_mode & ~0xF) | pos
+        local ok_set, did_set = pcall(r.SNM_SetIntConfigVar, key, new_mode)
+        if ok_set and did_set ~= false then
+            if r.DockWindowRefresh then pcall(r.DockWindowRefresh) end
+            if NavDockIDHasPosition(~docker, pos) then return ~docker end
+        end
+
+        return nil
+    end
+
+    local function NavProspectiveDockIDForPosition(pos)
+        return NavDockIDForPosition(pos)
+            or (NavCanProvisionSideDocker() and NavDockIDForDocker(DOCK_FALLBACK_DOCKER_BY_POS[pos]) or nil)
+    end
+
+    local function NavResolveDockIDForPosition(pos)
+        return NavDockIDForPosition(pos) or NavProvisionSideDocker(pos)
     end
 
     local function NavIsSideDockID(dock_id)
         if type(dock_id) ~= "number" or dock_id == 0 then return false end
-        if r.DockGetPosition and dock_id < 0 then
-            local ok, dock_pos = pcall(r.DockGetPosition, ~dock_id)
-            if ok then return dock_pos == 1 or dock_pos == 3 end
-        end
-        return dock_id == NavDockIDForPosition(1, -2) or dock_id == NavDockIDForPosition(3, -4)
+        return NavDockIDHasPosition(dock_id, 1) or NavDockIDHasPosition(dock_id, 3)
     end
 
     local function NavRequestDock(dock_id)
+        if type(dock_id) ~= "number" then return end
         if requestDock then requestDock(dock_id) end
         r.ImGui_CloseCurrentPopup(ctx)
     end
 
-    local function NavDockArrowButton(id, glyph, tooltip, dock_id, current_dock_id, x, y, btn_sz)
-        local enabled = requestDock ~= nil and dock_id ~= current_dock_id
+    local function NavDrawDockArrowIcon(dl, x, y, btn_sz, direction, col)
+        local cx = x + btn_sz * 0.5
+        local cy = y + btn_sz * 0.5
+        local half_w = math.max(S(4), Round(btn_sz * 0.2))
+        local half_h = math.max(S(5), Round(btn_sz * 0.28))
+        if direction == "left" then
+            r.ImGui_DrawList_AddTriangleFilled(dl,
+                cx - half_w, cy,
+                cx + half_w, cy - half_h,
+                cx + half_w, cy + half_h,
+                col)
+        else
+            r.ImGui_DrawList_AddTriangleFilled(dl,
+                cx + half_w, cy,
+                cx - half_w, cy - half_h,
+                cx - half_w, cy + half_h,
+                col)
+        end
+    end
+
+    local function NavDockArrowButton(id, direction, tooltip, pos, current_dock_id, x, y, btn_sz)
+        local dock_id = NavProspectiveDockIDForPosition(pos)
+        local enabled = requestDock ~= nil
+            and type(dock_id) == "number"
+            and not NavDockIDHasPosition(current_dock_id, pos)
         r.ImGui_SetCursorScreenPos(ctx, x, y)
         r.ImGui_InvisibleButton(ctx, id, btn_sz, btn_sz)
         local hovered = r.ImGui_IsItemHovered(ctx)
@@ -432,12 +508,12 @@ ReflexInstallNavViewCore = function(deps)
             fg = C.text
         end
         r.ImGui_DrawList_AddRectFilled(dl, x, y, x + btn_sz, y + btn_sz, bg, S(4))
-        local tw, th = r.ImGui_CalcTextSize(ctx, glyph)
-        th = th or r.ImGui_GetTextLineHeight(ctx)
-        r.ImGui_DrawList_AddText(dl, x + Round((btn_sz - tw) / 2), y + Round((btn_sz - th) / 2), fg, glyph)
-        if hovered then TipDirect(tooltip) end
+        NavDrawDockArrowIcon(dl, x, y, btn_sz, direction, fg)
+        if hovered then
+            TipDirect(enabled and tooltip or (tooltip .. " unavailable"))
+        end
         if enabled and clicked then
-            NavRequestDock(dock_id)
+            NavRequestDock(NavResolveDockIDForPosition(pos))
         end
     end
 
@@ -455,32 +531,36 @@ ReflexInstallNavViewCore = function(deps)
         local sx, sy = r.ImGui_GetCursorScreenPos(ctx)
         local x = sx
         local center_x = x + btn_sz + gap
+        local center_enabled = docked or NavIsSideDockID(nav_last_dock_id) or NavProspectiveDockIDForPosition(1) ~= nil
 
-        NavDockArrowButton("##dock_left", "\xE2\x97\x80", "Dock left",
-            NavDockIDForPosition(1, -2), current_dock_id, x, sy, btn_sz)
+        NavDockArrowButton("##dock_left", "left", "Dock left",
+            1, current_dock_id, x, sy, btn_sz)
 
         r.ImGui_SetCursorScreenPos(ctx, center_x, sy)
         local _, dock_clicked = NavRect("##dock_center", label_w, btn_sz, label, {
-            bg = C.fx_ctrl_bg,
-            hov = C.fx_ctrl_hover,
-            active = C.fx_ctrl_active,
-            fg = C.text,
-            fg_hov = C.text,
+            bg = center_enabled and C.fx_ctrl_bg or NavWithAlpha(C.fx_ctrl_bg, 0x66),
+            hov = center_enabled and C.fx_ctrl_hover or NavWithAlpha(C.fx_ctrl_bg, 0x66),
+            active = center_enabled and C.fx_ctrl_active or NavWithAlpha(C.fx_ctrl_bg, 0x66),
+            fg = center_enabled and C.text or NavWithAlpha(C.text_dim, 0x66),
+            fg_hov = center_enabled and C.text or NavWithAlpha(C.text_dim, 0x66),
         })
-        if dock_clicked and requestDock then
+        if r.ImGui_IsItemHovered(ctx) and not center_enabled then
+            TipDirect("Dock unavailable")
+        end
+        if center_enabled and dock_clicked and requestDock then
             if docked then
                 NavRequestDock(0)
             else
                 local preferred_dock_id = nav_last_dock_id
                 if not NavIsSideDockID(preferred_dock_id) then
-                    preferred_dock_id = NavDockIDForPosition(1, -2)
+                    preferred_dock_id = NavResolveDockIDForPosition(1)
                 end
                 NavRequestDock(preferred_dock_id)
             end
         end
 
-        NavDockArrowButton("##dock_right", "\xE2\x96\xB6", "Dock right",
-            NavDockIDForPosition(3, -4), current_dock_id, sx + menu_w - btn_sz, sy, btn_sz)
+        NavDockArrowButton("##dock_right", "right", "Dock right",
+            3, current_dock_id, sx + menu_w - btn_sz, sy, btn_sz)
 
         r.ImGui_SetCursorScreenPos(ctx, sx, sy)
         r.ImGui_Dummy(ctx, menu_w, pad_h)
@@ -748,10 +828,16 @@ ReflexInstallNavViewCore = function(deps)
     end
 
     local function NavTlfMenuWidth(pin_label, ignore_label, ghost_parent, custom_item)
-        if custom_item then return r.ImGui_CalcTextSize(ctx, "Hide in Track Navigator") + S(16) end
+        if custom_item then
+            return math.max(
+                r.ImGui_CalcTextSize(ctx, "Hide in Track Navigator") + S(16),
+                r.ImGui_CalcTextSize(ctx, "Options") + S(16)
+            )
+        end
         local w = math.max(
             r.ImGui_CalcTextSize(ctx, pin_label) + S(16),
-            r.ImGui_CalcTextSize(ctx, "Unpin all") + S(16)
+            r.ImGui_CalcTextSize(ctx, "Unpin all") + S(16),
+            r.ImGui_CalcTextSize(ctx, "Options") + S(16)
         )
         if ignore_label then w = math.max(w, r.ImGui_CalcTextSize(ctx, ignore_label) + S(16)) end
         if ghost_parent then w = math.max(w, r.ImGui_CalcTextSize(ctx, "Show parent in Track Navigator") + S(16)) end
@@ -1116,6 +1202,14 @@ ReflexInstallNavViewCore = function(deps)
         PopPopupStyle()
     end
 
+    local function NavDrawOptionsMenuItem(menu_w)
+        ReflexPopupSeparator(menu_w)
+        if ReflexMenuItem("Options", { id = "open_nav_options", min_w = menu_w }) then
+            nav_open_global_menu = true
+            r.ImGui_CloseCurrentPopup(ctx)
+        end
+    end
+
     local function NavDrawTlfContextItems(track, name, has_sub_group, ghost_parent, custom_item)
         if not track or not r.ValidatePtr(track, "MediaTrack*") then return end
         if custom_item then
@@ -1128,6 +1222,7 @@ ReflexInstallNavViewCore = function(deps)
                 if NavSetTrackIncluded then NavSetTrackIncluded(track, false) end
                 r.ImGui_CloseCurrentPopup(ctx)
             end
+            NavDrawOptionsMenuItem(menu_w)
             return
         end
         local guid = r.GetTrackGUID(track)
@@ -1205,6 +1300,7 @@ ReflexInstallNavViewCore = function(deps)
                 end
             end
         end
+        NavDrawOptionsMenuItem(menu_w)
     end
 
     NavDrawSection = function(params)
@@ -2200,6 +2296,10 @@ ReflexInstallNavViewCore = function(deps)
                   })
                   r.ImGui_OpenPopup(ctx, "##navctx")
               end
+          end
+          if nav_open_global_menu then
+              r.ImGui_OpenPopup(ctx, "##navctx")
+              nav_open_global_menu = false
           end
           NavDrawMainContextPopup()
 
