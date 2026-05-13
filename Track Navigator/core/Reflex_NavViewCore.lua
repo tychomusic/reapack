@@ -56,15 +56,14 @@ ReflexInstallNavViewCore = function(deps)
         A = "Nav.Active.A.png",
         R = "Nav.Route.R.png",
     }
-    local NAVIGATOR_MARK_FILE = "Navigator.mark.png"
     local TYCHO_DOTS_FILE = "Tycho-Logo-dots.png"
-    local NAVIGATOR_MARK_SCALE = 0.2175
+    local TYCHO_DOTS_SCALE = 0.2175
     local ar_label_images = {}
-    local navigator_mark_image = nil
     local tycho_dots_image = nil
     local nav_reset_confirm = false
     local nav_help_manual_close_requested = false
     local nav_help_manual_hovered = false
+    local nav_last_dock_id = nil
 
     local function NavGetArLabelImage(which)
         if ar_label_images[which] ~= nil then
@@ -87,29 +86,6 @@ ReflexInstallNavViewCore = function(deps)
             end
         end
         ar_label_images[which] = false
-        return nil
-    end
-
-    local function NavGetNavigatorMarkImage()
-        if navigator_mark_image ~= nil then
-            return navigator_mark_image or nil
-        end
-        if script_dir == "" then
-            navigator_mark_image = false
-            return nil
-        end
-        local path = script_dir .. "icons/" .. NAVIGATOR_MARK_FILE
-        local f = io.open(path, "rb")
-        if f then
-            f:close()
-            local ok, img = pcall(r.ImGui_CreateImage, path)
-            if ok and img then
-                r.ImGui_Attach(ctx, img)
-                navigator_mark_image = img
-                return img
-            end
-        end
-        navigator_mark_image = false
         return nil
     end
 
@@ -141,13 +117,7 @@ ReflexInstallNavViewCore = function(deps)
         local iw, ih = r.ImGui_Image_GetSize(img)
         if not iw or not ih or iw < 1 or ih < 1 then return nil, nil end
         local scale = getNavScale and getNavScale() or 1.0
-        return (iw * NAVIGATOR_MARK_SCALE) * scale, (ih * NAVIGATOR_MARK_SCALE) * scale
-    end
-
-    local function NavNavigatorMarkSize()
-        -- Navigator.mark.png is a high-density export; 0.2175 is the mockup-matched
-        -- popup coordinate scale (the previous quarter scale reduced to 87%).
-        return NavScaledImageSize(NavGetNavigatorMarkImage())
+        return (iw * TYCHO_DOTS_SCALE) * scale, (ih * TYCHO_DOTS_SCALE) * scale
     end
 
     local function NavTychoDotsSize()
@@ -377,23 +347,8 @@ ReflexInstallNavViewCore = function(deps)
     end
 
     local function NavDrawStandaloneTitle(menu_w)
-        local img = NavGetNavigatorMarkImage()
-        local natural_w, natural_h = NavNavigatorMarkSize()
-        if img and natural_w and natural_w > 0 and natural_h and natural_h > 0 then
-            local x, y = r.ImGui_GetCursorScreenPos(ctx)
-            local draw_h = menu_w * (natural_h / natural_w)
-            local dl = r.ImGui_GetWindowDrawList(ctx)
-            local _, ih = r.ImGui_Image_GetSize(img)
-            local uv_y2 = (ih and ih > 2) and ((ih - 1) / ih) or 1
-            r.ImGui_DrawList_AddImage(dl, img, x, y, x + menu_w, y + draw_h, 0, 0, 1, uv_y2, 0xFFFFFFFF)
-            r.ImGui_Dummy(ctx, menu_w, draw_h)
-            ReflexPopupGap(S(47))
-            NavDrawVersionRow(menu_w)
-            return
-        end
-
         ReflexPopupLabel("Track Navigator", { col = C.text, min_w = menu_w })
-        ReflexPopupGap(S(47))
+        ReflexPopupGap(S(8))
         NavDrawVersionRow(menu_w)
     end
 
@@ -432,21 +387,6 @@ ReflexInstallNavViewCore = function(deps)
         return 0
     end
 
-    local function NavDockPositionName(pos)
-        return ({ [0] = "Bottom", [1] = "Left", [2] = "Top", [3] = "Right", [4] = "Floating" })[pos] or "Unknown"
-    end
-
-    local function NavDockName(dock_id)
-        if dock_id == 0 then return "Floating" end
-        if dock_id > 0 then return "ImGui docker " .. tostring(dock_id) end
-        local position = "Unknown"
-        if r.DockGetPosition then
-            local ok, pos = pcall(r.DockGetPosition, ~dock_id)
-            if ok then position = NavDockPositionName(pos) end
-        end
-        return "REAPER docker " .. tostring(-dock_id) .. " (" .. position .. ")"
-    end
-
     local function NavDockIDForPosition(pos, fallback)
         if r.DockGetPosition then
             for docker = 0, 15 do
@@ -457,37 +397,104 @@ ReflexInstallNavViewCore = function(deps)
         return fallback
     end
 
+    local function NavIsSideDockID(dock_id)
+        if type(dock_id) ~= "number" or dock_id == 0 then return false end
+        if r.DockGetPosition and dock_id < 0 then
+            local ok, dock_pos = pcall(r.DockGetPosition, ~dock_id)
+            if ok then return dock_pos == 1 or dock_pos == 3 end
+        end
+        return dock_id == NavDockIDForPosition(1, -2) or dock_id == NavDockIDForPosition(3, -4)
+    end
+
     local function NavRequestDock(dock_id)
         if requestDock then requestDock(dock_id) end
         r.ImGui_CloseCurrentPopup(ctx)
     end
 
-    local function NavDockMenuItem(label, dock_id, current_dock_id, menu_w)
-        local clicked = ReflexMenuItem(label, {
-            id = "dock_" .. tostring(dock_id),
-            min_w = menu_w,
-            enabled = requestDock ~= nil and dock_id ~= current_dock_id,
+    local function NavDockArrowButton(id, glyph, tooltip, dock_id, current_dock_id, x, y, btn_sz)
+        local enabled = requestDock ~= nil and dock_id ~= current_dock_id
+        r.ImGui_SetCursorScreenPos(ctx, x, y)
+        r.ImGui_InvisibleButton(ctx, id, btn_sz, btn_sz)
+        local hovered = r.ImGui_IsItemHovered(ctx)
+        local active = r.ImGui_IsItemActive(ctx)
+        local clicked = r.ImGui_IsItemClicked(ctx, 0)
+        local dl = r.ImGui_GetWindowDrawList(ctx)
+        local bg = C.fx_ctrl_bg
+        local fg = C.text_dim
+        if not enabled then
+            bg = NavWithAlpha(C.fx_ctrl_bg, 0x66)
+            fg = NavWithAlpha(C.text_dim, 0x66)
+        elseif active then
+            bg = C.fx_ctrl_active
+            fg = C.text
+        elseif hovered then
+            bg = C.fx_ctrl_hover
+            fg = C.text
+        end
+        r.ImGui_DrawList_AddRectFilled(dl, x, y, x + btn_sz, y + btn_sz, bg, S(4))
+        local tw, th = r.ImGui_CalcTextSize(ctx, glyph)
+        th = th or r.ImGui_GetTextLineHeight(ctx)
+        r.ImGui_DrawList_AddText(dl, x + Round((btn_sz - tw) / 2), y + Round((btn_sz - th) / 2), fg, glyph)
+        if hovered then TipDirect(tooltip) end
+        if enabled and clicked then
+            NavRequestDock(dock_id)
+        end
+    end
+
+    local function NavDrawDockPad(menu_w)
+        local current_dock_id = NavCurrentDockID()
+        if NavIsSideDockID(current_dock_id) then
+            nav_last_dock_id = current_dock_id
+        end
+        local docked = current_dock_id ~= 0
+        local btn_sz = S(UI.btn_h or 26)
+        local gap = S(2)
+        local label = docked and "Undock" or "Dock"
+        local label_w = math.max(btn_sz, menu_w - btn_sz * 2 - gap * 2)
+        local pad_h = btn_sz
+        local sx, sy = r.ImGui_GetCursorScreenPos(ctx)
+        local x = sx
+        local center_x = x + btn_sz + gap
+
+        NavDockArrowButton("##dock_left", "\xE2\x97\x80", "Dock left",
+            NavDockIDForPosition(1, -2), current_dock_id, x, sy, btn_sz)
+
+        r.ImGui_SetCursorScreenPos(ctx, center_x, sy)
+        local _, dock_clicked = NavRect("##dock_center", label_w, btn_sz, label, {
+            bg = C.fx_ctrl_bg,
+            hov = C.fx_ctrl_hover,
+            active = C.fx_ctrl_active,
+            fg = C.text,
+            fg_hov = C.text,
         })
-        if clicked then NavRequestDock(dock_id) end
+        if dock_clicked and requestDock then
+            if docked then
+                NavRequestDock(0)
+            else
+                local preferred_dock_id = nav_last_dock_id
+                if not NavIsSideDockID(preferred_dock_id) then
+                    preferred_dock_id = NavDockIDForPosition(1, -2)
+                end
+                NavRequestDock(preferred_dock_id)
+            end
+        end
+
+        NavDockArrowButton("##dock_right", "\xE2\x96\xB6", "Dock right",
+            NavDockIDForPosition(3, -4), current_dock_id, sx + menu_w - btn_sz, sy, btn_sz)
+
+        r.ImGui_SetCursorScreenPos(ctx, sx, sy)
+        r.ImGui_Dummy(ctx, menu_w, pad_h)
     end
 
     local function NavDrawStandaloneWindowOptions(menu_w)
         if nav_menu_context ~= "standalone" then return end
-        ReflexPopupLabel("Window", { col = C.text, min_w = menu_w })
-        ReflexPopupGap(S(4))
-        local current_dock_id = NavCurrentDockID()
-        ReflexPopupLabel("Current: " .. NavDockName(current_dock_id), { col = C.text_dim, min_w = menu_w })
-        ReflexPopupStackGap(S(4))
+        NavDrawDockPad(menu_w)
+    end
 
-        NavDockMenuItem("Float window", 0, current_dock_id, menu_w)
-        NavDockMenuItem("Dock left", NavDockIDForPosition(1, -2), current_dock_id, menu_w)
-        NavDockMenuItem("Dock right", NavDockIDForPosition(3, -4), current_dock_id, menu_w)
-        NavDockMenuItem("Dock top", NavDockIDForPosition(2, -3), current_dock_id, menu_w)
-        NavDockMenuItem("Dock bottom", NavDockIDForPosition(0, -1), current_dock_id, menu_w)
-
+    local function NavDrawStandaloneQuit(menu_w)
+        if nav_menu_context ~= "standalone" then return end
         if requestQuit then
-            ReflexPopupStackGap(S(4))
-            local clicked = ReflexMenuItem("Quit Track Navigator", {
+            local clicked = ReflexMenuItem("Quit", {
                 id = "quit_track_navigator",
                 min_w = menu_w,
                 hover_text_col = COL_NAV_REMOVE,
@@ -653,12 +660,11 @@ ReflexInstallNavViewCore = function(deps)
             }, manual_w)
             if nav_menu_context == "standalone" then
                 ReflexPopupStackGap(S(9))
-                NavHelpInfoBlock("Dock / Float window", {
+                NavHelpInfoBlock("Dock", {
                     "Moves Track Navigator into a REAPER docker",
-                    "or returns it to a floating window",
                 }, manual_w)
                 ReflexPopupStackGap(S(9))
-                NavHelpInfoBlock("Quit Track Navigator", {
+                NavHelpInfoBlock("Quit", {
                     "Stops the standalone script, useful while docked",
                 }, manual_w)
             end
@@ -679,8 +685,7 @@ ReflexInstallNavViewCore = function(deps)
         local controls_w = row_h + S(2) + label_w + S(2) + row_h
         local title_w = 0
         if nav_menu_context == "standalone" then
-            local mark_w = select(1, NavNavigatorMarkSize())
-            title_w = mark_w or r.ImGui_CalcTextSize(ctx, "Track Navigator v" .. tostring(nav_version))
+            title_w = r.ImGui_CalcTextSize(ctx, "Track Navigator")
         end
         local size_label = nav_menu_context == "standalone" and "UI size" or "Navigator size"
         local ui_w = r.ImGui_CalcTextSize(ctx, size_label)
@@ -688,16 +693,20 @@ ReflexInstallNavViewCore = function(deps)
         local check_w = r.ImGui_CalcTextSize(ctx, "\xE2\x9C\x93")
         local ignore_archive_w = r.ImGui_CalcTextSize(ctx, "Ignore ARCHIVE") + check_w + S(30)
         local mirror_w = r.ImGui_CalcTextSize(ctx, "Mirror TLT buttons") + check_w + S(30)
+        local esc_close_w = 0
+        if nav_menu_context == "standalone" then
+            esc_close_w = r.ImGui_CalcTextSize(ctx, "Esc key to close") + check_w + S(30)
+        end
         local show_all_w = r.ImGui_CalcTextSize(ctx, "Show all tracks") + S(16)
         local help_w = r.ImGui_CalcTextSize(ctx, "Help / Manual") + S(42)
         local include_w = r.ImGui_CalcTextSize(ctx, "Show selected tracks") + S(16)
         local window_w = 0
         if nav_menu_context == "standalone" then
+            local dock_label_w = math.max(row_h, r.ImGui_CalcTextSize(ctx, "Undock") + S(12))
+            local dock_pad_w = row_h + S(2) + dock_label_w + S(2) + row_h
             window_w = math.max(
-                r.ImGui_CalcTextSize(ctx, "Current: REAPER docker 16 (Floating)") + S(16),
-                r.ImGui_CalcTextSize(ctx, "Float window") + S(16),
-                r.ImGui_CalcTextSize(ctx, "Dock bottom") + S(16),
-                r.ImGui_CalcTextSize(ctx, "Quit Track Navigator") + S(16)
+                dock_pad_w,
+                r.ImGui_CalcTextSize(ctx, "Quit") + S(16)
             )
         end
         include_w = math.max(include_w, r.ImGui_CalcTextSize(ctx, "No tracks selected") + S(16))
@@ -734,7 +743,7 @@ ReflexInstallNavViewCore = function(deps)
                 end
             end
         end
-        return math.max(S(180), size_row_w, title_w, ignore_archive_w, mirror_w, show_all_w,
+        return math.max(S(180), size_row_w, title_w, ignore_archive_w, mirror_w, esc_close_w, show_all_w,
             help_w, include_w, custom_w, hidden_w, promoted_w, reset_w, confirm_w, window_w)
     end
 
@@ -869,6 +878,12 @@ ReflexInstallNavViewCore = function(deps)
         if NavMenuCheckItem("Mirror TLT buttons", nav_mirror, "mirror_tlf_buttons", menu_w) then
             nav_mirror = not nav_mirror
             SavePref("nav_mirror", nav_mirror)
+        end
+        if nav_menu_context == "standalone" then
+            if NavMenuCheckItem("Esc key to close", opt_esc_key_to_close, "esc_key_to_close", menu_w) then
+                opt_esc_key_to_close = not opt_esc_key_to_close
+                SavePref("esc_key_to_close", opt_esc_key_to_close)
+            end
         end
     end
 
@@ -1088,6 +1103,10 @@ ReflexInstallNavViewCore = function(deps)
             NavDrawRecoveryOptions(menu_w)
             NavPopupSectionBreak(menu_w)
             NavDrawHelpRow(menu_w)
+            if nav_menu_context == "standalone" then
+                NavPopupSectionBreak(menu_w)
+                NavDrawStandaloneQuit(menu_w)
+            end
             NavDrawHelpManualPopup()
             ReflexPopPopupLayout()
             r.ImGui_EndPopup(ctx)
@@ -1370,34 +1389,25 @@ ReflexInstallNavViewCore = function(deps)
           -- flow and wrapped below row 1. Consumed by the cursor advance before
           -- the TLT pills.
           local nav_ar_flow_rows = 1
+          local nav_render_expanded = navigator_expanded
 
-          if navigator_expanded then
+          if nav_render_expanded then
               -- Custom header: a single_row_h-tall row with the down-arrow drawn
               -- at the exact same screen position the collapsed-state right-arrow
               -- uses. Visually the arrow rotates in place; row height stays
-              -- constant across the toggle. Click region spans full bw (matches
-              -- the previous full-width click semantics from InspDrawSectionHeader).
-              local nav_sx_h = r.ImGui_GetCursorPosX(ctx)
+              -- constant across the toggle.
               local nav_cx_h, nav_cy_h = r.ImGui_GetCursorScreenPos(ctx)
               local dl_h = r.ImGui_GetWindowDrawList(ctx)
 
-              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Header(), 0x00000000)
-              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), 0x00000000)
-              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderActive(), 0x00000000)
-              r.ImGui_SetCursorPosX(ctx, nav_sx_h + nav_left_pad_shared)
-              -- Click region width: in fixed mode reserve A/R at right. When
-              -- A/R move below, the arrow owns only its column so the A/R hit
-              -- boxes can live on lower rows without overlap.
-              local nav_sel_w
-              if ar_fixed then
-                  nav_sel_w = bw - nav_left_pad_shared - ar_reserved_w - ar_gap
-              else
-                  nav_sel_w = nav_arrow_area
-              end
-              local nav_clicked = r.ImGui_Selectable(ctx, "##nav", false, 0, nav_sel_w, nav_single_row_h)
+              local nav_arrow_hit = mini_tlf_h
+              local nav_arrow_cx = nav_cx_h + nav_left_pad_shared + nav_dot_r
+              local nav_arrow_cy = nav_cy_h + nav_single_row_h * 0.5
+              r.ImGui_SetCursorScreenPos(ctx, nav_arrow_cx - nav_arrow_hit * 0.5, nav_arrow_cy - nav_arrow_hit * 0.5)
+              r.ImGui_InvisibleButton(ctx, "##nav", nav_arrow_hit, nav_arrow_hit)
+              local nav_clicked = r.ImGui_IsItemClicked(ctx, 0)
               local nav_rclicked = r.ImGui_IsItemClicked(ctx, 1)
               local nav_hovered = r.ImGui_IsItemHovered(ctx)
-              r.ImGui_PopStyleColor(ctx, 3)
+              if nav_hovered then nav_context_blocked = true end
               if nav_rclicked then
                   NavDebugEvent("NAV.global_popup.open", {
                       popup_id = "##navctx",
@@ -1556,26 +1566,16 @@ ReflexInstallNavViewCore = function(deps)
 
               -- Arrow button (uses the SHARED arrow font so the glyph stays
               -- the same size when toggling expanded/collapsed).
-              local hdr_step = GetFontStep(UI.font_title)
-              local hdr_font = scaled_fonts[hdr_step]
-              local arrow_step = nav_arrow_step_shared
               local arrow_font = nav_arrow_font_shared
-              local hdr_font_pushed = NavPushFont(hdr_font)
-              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Header(), 0x00000000)
-              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), 0x00000000)
-              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderActive(), 0x00000000)
-              -- Position arrow Selectable at the start of its column (after
-              -- nav_left_pad outer margin) so the hit box matches the visual
-              -- column slot.
-              r.ImGui_SetCursorPosX(ctx, nav_sx + nav_left_pad)
-              -- Arrow Selectable height = single_row_h (NOT row_h). When the
-              -- nav wraps to multiple rows, dots below the arrow share its X
-              -- column. If the arrow's hit box spanned all rows, ImGui would
-              -- route those dot clicks to the arrow (earlier registration wins
-              -- overlap unless AllowOverlap is opted in). Single-row hit box
-              -- keeps the arrow's click area in row 1 only.
-              local nav_col_clicked = r.ImGui_Selectable(ctx, "##navcol", false, 0, arrow_area, single_row_h)
+              local arrow_hit = mini_tlf_h
+              local arrow_cx = nav_cx + nav_left_pad + dot_r
+              local arrow_cy = nav_cy + single_row_h * 0.5
+              r.ImGui_SetCursorScreenPos(ctx, arrow_cx - arrow_hit * 0.5, arrow_cy - arrow_hit * 0.5)
+              r.ImGui_InvisibleButton(ctx, "##navcol", arrow_hit, arrow_hit)
+              local nav_col_clicked = r.ImGui_IsItemClicked(ctx, 0)
               local nav_col_rclicked = r.ImGui_IsItemClicked(ctx, 1)
+              local arrow_hovered = r.ImGui_IsItemHovered(ctx)
+              if arrow_hovered then nav_context_blocked = true end
               if nav_col_rclicked then
                   NavDebugEvent("NAV.global_popup.open", {
                       popup_id = "##navctx",
@@ -1631,9 +1631,6 @@ ReflexInstallNavViewCore = function(deps)
                       SavePref("navigator_expanded", true)
                   end
               end
-              local arrow_hovered = r.ImGui_IsItemHovered(ctx)
-              r.ImGui_PopStyleColor(ctx, 3)
-              NavPopFont(hdr_font_pushed)
               -- Draw arrow glyph at 148% size, white on hover. Centered in the
               -- arrow column (which is one dot-step wide) so it sits in the same
               -- column slot that wrapped-row dots will occupy below it.
@@ -1763,77 +1760,7 @@ ReflexInstallNavViewCore = function(deps)
                   r.ImGui_EndPopup(ctx)
               end
               PopPopupStyle()
-              -- Trailing click area (fills remaining width on last row).
-              local last_row_sy = nav_sy + (num_rows - 1) * single_row_h
-              local trail_x = dot_x - nav_cx + nav_sx
-              local trail_right = bw
-              local trail_w = trail_right - (dot_x - nav_cx)
-              if trail_w > S(4) then
-                  r.ImGui_SetCursorPos(ctx, trail_x, last_row_sy)
-                  r.ImGui_InvisibleButton(ctx, "##navtrail", trail_w, single_row_h)
-                  if r.ImGui_IsItemClicked(ctx, 0) then
-                      local mods = NavClickMods()
-                      local nav_mods = NavMods(mods)
-                      NavDebugEvent("NAV.arr.trail", {
-                          mods = mods,
-                          label = "trailing_area",
-                          item_active = r.ImGui_IsItemActive(ctx),
-                      })
-                      if nav_mods.show_all then
-                          ShowAllTracks()
-                      elseif nav_mods.primary and not nav_mods.child_expand then
-                          if current_page == "songs" then ShowAllSongsKeep() else ShowAllTLFs() end
-                      elseif nav_mods.pin or nav_mods.child_expand then
-                          r.Undo_BeginBlock(); r.PreventUIRefresh(1)
-                          local nt = r.CountTracks(0)
-                          for ti = 0, nt - 1 do
-                              local t = r.GetTrack(0, ti)
-                              if r.GetMediaTrackInfo_Value(t, "B_SHOWINTCP") == 1
-                                 and r.GetMediaTrackInfo_Value(t, "I_FOLDERDEPTH") == 1 then
-                                  r.SetMediaTrackInfo_Value(t, "I_FOLDERCOMPACT", 0)
-                              end
-                          end
-                          r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-                          r.Undo_EndBlock("Track Navigator: Expand All Deep", 0)
-                      elseif nav_mods.shift then
-                          if current_page == "songs" then
-                              r.Undo_BeginBlock(); r.PreventUIRefresh(1)
-                              local all_c = true
-                              for _, s in ipairs(song_entries) do
-                                  if r.GetMediaTrackInfo_Value(s.track, "B_SHOWINTCP") == 1 and s.is_folder
-                                     and r.GetMediaTrackInfo_Value(s.track, "I_FOLDERCOMPACT") == 0 then all_c = false; break end
-                              end
-                              for _, s in ipairs(song_entries) do
-                                  if r.GetMediaTrackInfo_Value(s.track, "B_SHOWINTCP") == 1 and s.is_folder then
-                                      r.SetMediaTrackInfo_Value(s.track, "I_FOLDERCOMPACT", all_c and 0 or 2)
-                                  end
-                              end
-                              r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-                              r.Undo_EndBlock("Track Navigator: Toggle Collapse Songs", 0)
-                          else
-                              ToggleCollapseAll()
-                          end
-                      else
-                          navigator_expanded = true
-                          SavePref("navigator_expanded", true)
-                      end
-                  end
-                  if r.ImGui_IsItemClicked(ctx, 1) then
-                      NavDebugEvent("NAV.global_popup.open", {
-                          popup_id = "##navctx",
-                          label = "trailing_area",
-                          item_active = r.ImGui_IsItemActive(ctx),
-                      })
-                      r.ImGui_OpenPopup(ctx, "##navctx")
-                  end
-                  local trail_hovered = r.ImGui_IsItemHovered(ctx)
-                  -- Show tooltip on arrow or trailing area
-                  if (arrow_hovered or trail_hovered) and opt_tooltips then
-                      ShowModKeyTip()
-                  end
-              end
-              -- Show tooltip on arrow when trailing area is too small
-              if arrow_hovered and trail_w <= S(4) and opt_tooltips then
+              if arrow_hovered and opt_tooltips then
                   ShowModKeyTip()
               end
               -- Reset cursor below the row
@@ -1841,17 +1768,18 @@ ReflexInstallNavViewCore = function(deps)
               -- Bottom edge of last NAV element in collapsed mode = nav_sy + row_h.
               nav_end_y = nav_sy + row_h
               nav_ctx_y2 = nav_cy + row_h
+              last_nav_collapsed_visible_h = row_h
           end
 
           -- ── A/R nav buttons ──
           -- Expanded fixed mode: drawn at top-right of row 1 via DrawArButton.
           -- Collapsed NAV and expanded non-fixed modes draw A/R inline.
-          if navigator_expanded and ar_fixed then
+          if nav_render_expanded and ar_fixed then
               DrawArButton(ar_a_cx, ar_cy, "A")
               DrawArButton(ar_r_cx, ar_cy, "R")
           end
 
-        if navigator_expanded then
+        if nav_render_expanded then
 
           -- Force cursor below the header/A-R flow rows. The explicit S(3.75)
           -- gap matches the expanded TLT inter-row spacing, so a wrapped A/R
@@ -1990,20 +1918,25 @@ ReflexInstallNavViewCore = function(deps)
                   end
               end
 
-              -- Arrow click detection for sub-groups. Region flips with mirror:
-              -- normal = right portion of pill (just left of circle endcap),
-              -- mirror = left portion of pill (just right of circle endcap).
-              -- Suppressed when display_label is nil so super-narrow pills don't
-              -- have a hidden expand action with no visual cue.
+              -- Arrow click detection for sub-groups. Keep the hit target to a
+              -- square centered on the drawn arrow slot, instead of the whole
+              -- side strip, so narrow scaling states don't steal pill clicks.
               local arrow_clicked = false
               if has_arrow and display_label and clicked_main then
-                  local mx = r.ImGui_GetMousePos(ctx)
-                  local in_arrow_region
+                  local mx, my = r.ImGui_GetMousePos(ctx)
+                  local arrow_hit = math.min(tlf_h, math.max(S(14), arrow_w))
+                  local arrow_cx
                   if nav_mirror then
-                      in_arrow_region = mx < row_cx + tlf_h + arrow_w
+                      arrow_cx = text_left_anchor - arrow_w * 0.5
                   else
-                      in_arrow_region = mx > row_cx + pill_w - arrow_w
+                      arrow_cx = text_right_anchor + arrow_w * 0.5
                   end
+                  local arrow_cy = row_cy + tlf_h * 0.5
+                  local half_hit = arrow_hit * 0.5
+                  local in_arrow_region = mx >= arrow_cx - half_hit
+                      and mx <= arrow_cx + half_hit
+                      and my >= arrow_cy - half_hit
+                      and my <= arrow_cy + half_hit
                   if in_arrow_region then
                       arrow_clicked = true
                       clicked_main = false
@@ -2222,6 +2155,7 @@ ReflexInstallNavViewCore = function(deps)
           r.ImGui_PopStyleVar(ctx, 2)
 
               last_nav_natural_h = r.ImGui_GetCursorPosY(ctx) - _nav_child_y0
+              last_nav_expanded_visible_h = (nav_body_y - nav_start_y) + last_nav_natural_h
               -- Capture scroll metrics before EndChild for the indicator.
               nav_list_scroll_y = r.ImGui_GetScrollY(ctx)
               nav_list_scroll_max = r.ImGui_GetScrollMaxY(ctx)
@@ -2249,7 +2183,7 @@ ReflexInstallNavViewCore = function(deps)
           if nav_ctx_y2 <= nav_ctx_y1 then
               nav_ctx_y2 = nav_ctx_y1 + (nav_end_y - nav_start_y)
           end
-        end -- navigator_expanded
+        end -- nav_render_expanded
 
           if r.ImGui_IsMouseClicked(ctx, 1) and not nav_context_blocked then
               local mx, my = r.ImGui_GetMousePos(ctx)

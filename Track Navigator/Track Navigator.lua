@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2
+ * Version:     1.3
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2"
+TRACK_NAVIGATOR_VERSION = "1.3"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.7 or newer."
@@ -149,6 +149,7 @@ opt_tooltips = LoadPref("tooltips", true)
 opt_viewlock = LoadPref("view_lock", false)
 opt_live_mode = LoadPref("tycho_live_mode", false)
 opt_nav_ignore_archive = LoadPref("nav_ignore_archive", true)
+opt_esc_key_to_close = LoadPref("esc_key_to_close", true)
 local ui_scale = LoadPref("navigator_scale_v1", nil)
 if ui_scale == nil then
     local old = LoadPref("ui_scale_v2", nil)
@@ -418,16 +419,48 @@ DrawScrollIndicator = function(dl, region_y1, region_y2, scroll_y, scroll_max, c
     r.ImGui_DrawList_AddRectFilled(dl, ind_x, ind_y, ind_x + ind_w, ind_y + ind_h, color, ind_w / 2)
 end
 
-DrawTrackNavigatorWindowOutline = function(dl, x, y, w, h, col)
+DrawTrackNavigatorWindowOutline = function(dl, x, y, w, h, rounding, col)
     local x1 = Round(x)
     local y1 = Round(y)
     local x2 = Round(x + w)
     local y2 = Round(y + h)
     local t = 1
-    r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y1 + t, col)
-    r.ImGui_DrawList_AddRectFilled(dl, x1, y2 - t, x2, y2, col)
-    r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x1 + t, y2, col)
-    r.ImGui_DrawList_AddRectFilled(dl, x2 - t, y1, x2, y2, col)
+    local has_arc = r.ImGui_DrawList_PathClear and r.ImGui_DrawList_PathArcTo and r.ImGui_DrawList_PathStroke
+    local cr = has_arc and math.max(0, math.min(Round(rounding or 0), math.floor(math.min(x2 - x1, y2 - y1) / 2))) or 0
+    local straight_x1 = x1 + cr
+    local straight_x2 = x2 - cr
+    local straight_y1 = y1 + cr
+    local straight_y2 = y2 - cr
+
+    r.ImGui_DrawList_PushClipRect(dl, x1, y1, x2, y2, false)
+    r.ImGui_DrawList_AddRectFilled(dl, straight_x1, y1, straight_x2, y1 + t, col)
+    r.ImGui_DrawList_AddRectFilled(dl, straight_x1, y2 - t, straight_x2, y2, col)
+    r.ImGui_DrawList_AddRectFilled(dl, x1, straight_y1, x1 + t, straight_y2, col)
+    r.ImGui_DrawList_AddRectFilled(dl, x2 - t, straight_y1, x2, straight_y2, col)
+
+    if cr > 1 then
+        local radius = cr - 0.5
+        local segs = math.max(6, Round(cr * 1.25))
+        local pi = math.pi
+        r.ImGui_DrawList_PathClear(dl)
+        r.ImGui_DrawList_PathArcTo(dl, x1 + cr, y1 + cr, radius, pi, pi * 1.5, segs)
+        r.ImGui_DrawList_PathStroke(dl, col, 0, t)
+        r.ImGui_DrawList_PathClear(dl)
+        r.ImGui_DrawList_PathArcTo(dl, x2 - cr, y1 + cr, radius, pi * 1.5, pi * 2, segs)
+        r.ImGui_DrawList_PathStroke(dl, col, 0, t)
+        r.ImGui_DrawList_PathClear(dl)
+        r.ImGui_DrawList_PathArcTo(dl, x2 - cr, y2 - cr, radius, 0, pi * 0.5, segs)
+        r.ImGui_DrawList_PathStroke(dl, col, 0, t)
+        r.ImGui_DrawList_PathClear(dl)
+        r.ImGui_DrawList_PathArcTo(dl, x1 + cr, y2 - cr, radius, pi * 0.5, pi, segs)
+        r.ImGui_DrawList_PathStroke(dl, col, 0, t)
+    else
+        r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x1 + t, y1 + t, col)
+        r.ImGui_DrawList_AddRectFilled(dl, x2 - t, y1, x2, y1 + t, col)
+        r.ImGui_DrawList_AddRectFilled(dl, x2 - t, y2 - t, x2, y2, col)
+        r.ImGui_DrawList_AddRectFilled(dl, x1, y2 - t, x1 + t, y2, col)
+    end
+    r.ImGui_DrawList_PopClipRect(dl)
 end
 
 package.loaded["Reflex_StyleCore"] = nil
@@ -537,6 +570,8 @@ remote_ctx_tlf_ghost_parent = nil
 remote_ctx_tlf_custom = false
 last_nav_h = 0
 last_nav_natural_h = 0
+last_nav_collapsed_visible_h = 0
+last_nav_expanded_visible_h = 0
 nav_list_scroll_prev_y = -1
 nav_list_scroll_fade = 0
 nav_list_scroll_y = 0
@@ -685,6 +720,8 @@ nav_dock_request = nil
 nav_quit_requested = false
 nav_window_docked = false
 nav_current_dock_id = 0
+last_window_w = 0
+last_window_h = 0
 
 package.loaded["Reflex_NavViewCore"] = nil
 require("Reflex_NavViewCore")({
@@ -711,6 +748,20 @@ local last_project_state = 0
 local last_rescan_time = 0
 local RESCAN_THROTTLE = 0.5
 
+TrackNavigatorMaxAutoWindowHeight = function()
+    local fallback = S(760)
+    if r.ImGui_GetMainViewport and r.ImGui_Viewport_GetWorkSize then
+        local ok_vp, viewport = pcall(r.ImGui_GetMainViewport, ctx)
+        if ok_vp and viewport then
+            local ok_size, _, work_h = pcall(r.ImGui_Viewport_GetWorkSize, viewport)
+            if ok_size and type(work_h) == "number" and work_h > 0 then
+                return math.max(S(220), Round(work_h * 0.86))
+            end
+        end
+    end
+    return fallback
+end
+
 TrackNavigatorEnsureDockingEnabled = function()
     if not (r.ImGui_GetConfigVar and r.ImGui_SetConfigVar
         and r.ImGui_ConfigVar_Flags and r.ImGui_ConfigFlags_DockingEnable) then
@@ -725,6 +776,14 @@ TrackNavigatorEnsureDockingEnabled = function()
     if (flags & dock_flag) == 0 then
         pcall(r.ImGui_SetConfigVar, ctx, flags_var, flags | dock_flag)
     end
+end
+
+TrackNavigatorEscapePressed = function()
+    if not (r.ImGui_IsKeyPressed and r.ImGui_Key_Escape) then return false end
+    local ok_key, key = pcall(r.ImGui_Key_Escape)
+    if not ok_key then return false end
+    local ok_pressed, pressed = pcall(r.ImGui_IsKeyPressed, ctx, key)
+    return ok_pressed and pressed == true
 end
 
 TrackNavigatorLoop = function()
@@ -824,14 +883,35 @@ TrackNavigatorLoop = function()
         pcall(r.ImGui_SetNextWindowDockID, ctx, nav_dock_request)
         nav_dock_request = nil
     end
-    r.ImGui_SetNextWindowSizeConstraints(ctx, S(70), S(48), 99999, 99999)
+    local min_nav_w = S(34)
+    local min_window_w = S(UI.edge_pad) + min_nav_w + S(UI.edge_pad / 2)
+    local min_nav_dot_r = math.floor(min_nav_w / 2)
+    local min_nav_row_h = min_nav_dot_r * 2 + S(3.75)
+    local min_nav_visible_h = min_nav_row_h
+    if not navigator_expanded and last_nav_collapsed_visible_h and last_nav_collapsed_visible_h > 0 then
+        min_nav_visible_h = math.max(min_nav_visible_h, last_nav_collapsed_visible_h)
+    end
+    local min_window_h = S(UI.edge_pad) + S(1.25) + min_nav_visible_h + S(UI.edge_pad)
+    if not nav_window_docked and navigator_expanded then
+        if last_nav_expanded_visible_h and last_nav_expanded_visible_h > 0 then
+            local desired_window_h = S(UI.edge_pad) + S(1.25) + last_nav_expanded_visible_h + S(UI.edge_pad)
+            local target_window_h = math.min(desired_window_h, TrackNavigatorMaxAutoWindowHeight())
+            min_window_h = math.max(min_window_h, target_window_h)
+            if last_window_w and last_window_w > 0 and (not last_window_h or last_window_h < target_window_h - 1) then
+                r.ImGui_SetNextWindowSize(ctx, math.max(last_window_w, min_window_w), target_window_h)
+            end
+        end
+    end
+    r.ImGui_SetNextWindowSizeConstraints(ctx, min_window_w, min_window_h, 99999, 99999)
 
     local wflags = r.ImGui_WindowFlags_NoCollapse() | r.ImGui_WindowFlags_NoScrollbar() | r.ImGui_WindowFlags_NoScrollWithMouse()
+    if r.ImGui_WindowFlags_NoTitleBar then
+        wflags = wflags | r.ImGui_WindowFlags_NoTitleBar()
+    end
     if r.ImGui_WindowFlags_NoFocusOnAppearing then
         wflags = wflags | r.ImGui_WindowFlags_NoFocusOnAppearing()
     end
-    local window_title = nav_window_docked and "Track Navigator###Track Navigator" or "###Track Navigator"
-    local visible, open = r.ImGui_Begin(ctx, window_title, true, wflags)
+    local visible, open = r.ImGui_Begin(ctx, "Track Navigator", true, wflags)
     if visible then
         nav_window_docked = r.ImGui_IsWindowDocked and r.ImGui_IsWindowDocked(ctx) or false
         if r.ImGui_GetWindowDockID then
@@ -842,14 +922,22 @@ TrackNavigatorLoop = function()
         else
             nav_current_dock_id = nav_window_docked and -1 or 0
         end
+        if opt_esc_key_to_close and TrackNavigatorEscapePressed() then
+            nav_quit_requested = true
+        end
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
         local wx, wy = r.ImGui_GetWindowPos(ctx)
         local ww, wh = r.ImGui_GetWindowSize(ctx)
+        last_window_w = ww
+        last_window_h = wh
         local fp = PushFont(GetScaledFont())
         local bw, win_h = r.ImGui_GetContentRegionAvail(ctx)
         local nav_right_edge_gap = nav_window_docked and 3 or S(UI.edge_pad)
-        local nav_indicator_right_edge = nav_window_docked and 0 or nav_right_edge_gap
         bw = bw + S(UI.edge_pad) - nav_right_edge_gap
+        if not nav_window_docked then
+            bw = math.max(bw, min_nav_w)
+        end
+        local nav_indicator_right_edge = nav_window_docked and 0 or math.max(0, ww - S(UI.edge_pad) - bw)
         NavDrawSection({
             bw = bw,
             win_h = win_h,
@@ -867,7 +955,8 @@ TrackNavigatorLoop = function()
         })
         PopFont(fp)
         if not nav_window_docked then
-            DrawTrackNavigatorWindowOutline(r.ImGui_GetWindowDrawList(ctx), wx, wy, ww, wh, C.window_outline)
+            local outline_dl = r.ImGui_GetForegroundDrawList and r.ImGui_GetForegroundDrawList(ctx) or r.ImGui_GetWindowDrawList(ctx)
+            DrawTrackNavigatorWindowOutline(outline_dl, wx, wy, ww, wh, S(10), C.window_outline)
         end
         r.ImGui_PopStyleColor(ctx, 1)
         r.ImGui_End(ctx)

@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2
+Current public version: 1.3
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
