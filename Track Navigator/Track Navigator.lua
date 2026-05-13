@@ -78,6 +78,20 @@ TrackNavigatorDockPosition = function(dock_id)
     return nil
 end
 
+TrackNavigatorVisualSideDockPosition = function(wx, ww)
+    if not (r.ImGui_GetMainViewport and r.ImGui_Viewport_GetWorkPos and r.ImGui_Viewport_GetWorkSize) then
+        return nil
+    end
+    local ok_vp, viewport = pcall(r.ImGui_GetMainViewport, ctx)
+    if not ok_vp or not viewport then return nil end
+    local ok_pos, work_x = pcall(r.ImGui_Viewport_GetWorkPos, viewport)
+    local ok_size, work_w = pcall(r.ImGui_Viewport_GetWorkSize, viewport)
+    if not ok_pos or not ok_size or type(work_x) ~= "number" or type(work_w) ~= "number" or work_w <= 0 then
+        return nil
+    end
+    return (wx + ww * 0.5) < (work_x + work_w * 0.5) and 1 or 3
+end
+
 TrackNavigatorModFlag = function(mods, fallback, ...)
     mods = tonumber(mods) or 0
     if fallback and (mods & fallback) ~= 0 then return true end
@@ -999,22 +1013,29 @@ TrackNavigatorLoop = function()
             nav_floating_observed_h = wh
         end
         local fp = PushFont(GetScaledFont())
-        local bw, win_h = r.ImGui_GetContentRegionAvail(ctx)
-        local dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
-        local use_mac_left_chrome_gap = nav_window_docked and TrackNavigatorIsMacOS() and dock_pos == 1
-        local use_mac_right_chrome_gap = nav_window_docked and TrackNavigatorIsMacOS() and dock_pos == 3
+        local _, win_h = r.ImGui_GetContentRegionAvail(ctx)
         local nav_standard_edge_gap = S(UI.edge_pad)
-        local nav_left_edge_gap = use_mac_right_chrome_gap and 3 or nav_standard_edge_gap
-        local nav_right_edge_gap = use_mac_left_chrome_gap and 3 or nav_standard_edge_gap
-        local nav_left_gap_delta = nav_standard_edge_gap - nav_left_edge_gap
-        bw = bw + nav_left_gap_delta + nav_standard_edge_gap - nav_right_edge_gap
+        local nav_left_edge_gap = nav_standard_edge_gap
+        local nav_right_edge_gap = nav_standard_edge_gap
+        local dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
+        if nav_window_docked and TrackNavigatorIsMacOS() and (dock_pos == 1 or dock_pos == 3) then
+            local visual_dock_pos = TrackNavigatorVisualSideDockPosition(wx, ww) or dock_pos
+            if visual_dock_pos == 1 then
+                nav_right_edge_gap = 3
+            elseif visual_dock_pos == 3 then
+                nav_left_edge_gap = 3
+            end
+        end
+        local bw = math.max(0, ww - nav_left_edge_gap - nav_right_edge_gap)
         if not nav_window_docked then
             bw = math.max(bw, min_nav_w)
         end
+        local nav_left_gap_delta = nav_left_edge_gap - nav_standard_edge_gap
         if nav_left_gap_delta ~= 0 then
-            r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) - nav_left_gap_delta)
+            r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) + nav_left_gap_delta)
         end
-        local nav_indicator_right_edge = use_mac_left_chrome_gap and 0 or math.max(0, ww - nav_left_edge_gap - bw)
+        local nav_indicator_right_edge = (nav_window_docked and TrackNavigatorIsMacOS() and nav_right_edge_gap == 3)
+            and 0 or nav_right_edge_gap
         NavDrawSection({
             bw = bw,
             win_h = win_h,
