@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<index version="1" name="Tycho ReaPack">
+  <category name="Envision">
+    <reapack name="Envision package.lua" type="script" desc="Envision">
+      <metadata>
+        <link rel="website" href="https://github.com/tychomusic/reapack">GitHub repository</link>
+      </metadata>
+      <version name="20.619" author="Hansen / Tycho" time="2026-05-13T03:43:58Z">
+        <source main="main" file="Envision.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/Envision.lua</source>
+        <source file="Envision_Theme_Default.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/Envision_Theme_Default.lua</source>
+        <source file="core/Reflex_FontCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_FontCore.lua</source>
+        <source file="core/Reflex_StyleCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_StyleCore.lua</source>
+        <source file="core/Reflex_ColorCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_ColorCore.lua</source>
+        <source file="core/Reflex_PinCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_PinCore.lua</source>
+        <source file="core/Reflex_NavExclusionCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_NavExclusionCore.lua</source>
+        <source file="core/Reflex_NavInclusionCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_NavInclusionCore.lua</source>
+        <source file="core/Reflex_RealistCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_RealistCore.lua</source>
+        <source file="core/Reflex_TrackScanCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_TrackScanCore.lua</source>
+        <source file="core/Reflex_TrackUtilCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_TrackUtilCore.lua</source>
+        <source file="core/Reflex_SongCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_SongCore.lua</source>
+        <source file="core/Reflex_SubGroupCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_SubGroupCore.lua</source>
+        <source file="core/Reflex_ViewHistory.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_ViewHistory.lua</source>
+        <source file="core/Reflex_NavActionCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_NavActionCore.lua</source>
+        <source file="core/Reflex_ViewModes.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_ViewModes.lua</source>
+        <source file="core/Reflex_NavViewCore.lua">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/core/Reflex_NavViewCore.lua</source>
+        <source file="icons/Nav.Active.A.png">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/icons/Nav.Active.A.png</source>
+        <source file="icons/Nav.Route.R.png">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/icons/Nav.Route.R.png</source>
+        <source file="icons/Navigator.mark.png">https://github.com/tychomusic/reapack/raw/19a9952b7f514b83cea51e9df67ae28730410049/Envision/icons/Navigator.mark.png</source>
+      </version>
+    </reapack>
+  </category>
+</index>
