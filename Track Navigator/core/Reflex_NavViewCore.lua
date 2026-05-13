@@ -11,7 +11,7 @@ ReflexInstallNavViewCore = function(deps)
     local getNavScale = deps.get_nav_scale
     local setNavScale = deps.set_nav_scale
     local script_dir = deps.script_dir or ""
-    local nav_version = deps.version or ENVISION_VERSION or REFLEX_VERSION or "?"
+    local nav_version = deps.version or TRACK_NAVIGATOR_VERSION or REFLEX_VERSION or "?"
     local nav_menu_context = deps.menu_context or "reflex"
     local markDirty = deps.mark_dirty or function() end
     local openIoManager = deps.open_io_manager
@@ -236,7 +236,7 @@ ReflexInstallNavViewCore = function(deps)
         local version = "v" .. tostring(nav_version)
         local version_w, version_h = r.ImGui_CalcTextSize(ctx, version)
         version_h = version_h or r.ImGui_GetTextLineHeight(ctx)
-        local title = "Envision"
+        local title = "Track Navigator"
         local title_w = r.ImGui_CalcTextSize(ctx, title)
         local row_h = math.max(r.ImGui_GetTextLineHeight(ctx), version_h)
         local x, y = r.ImGui_GetCursorScreenPos(ctx)
@@ -251,7 +251,7 @@ ReflexInstallNavViewCore = function(deps)
         r.ImGui_BeginTooltip(ctx)
         r.ImGui_Text(ctx, 'Any track named "ARCHIVE"')
         r.ImGui_Text(ctx, "and all of its children")
-        r.ImGui_Text(ctx, "will be excluded from Envision")
+        r.ImGui_Text(ctx, "will be excluded from Track Navigator")
         r.ImGui_EndTooltip(ctx)
         PopTooltipStyle()
     end
@@ -316,7 +316,7 @@ ReflexInstallNavViewCore = function(deps)
             ReflexPopupGap(S(3))
             NavHelpLine("Quick reference for NAV, visibility, inspector, and routing.", C.text_dim, manual_w)
 
-            NavHelpSection("Envision", C.text, manual_w, true)
+            NavHelpSection("Track Navigator", C.text, manual_w, true)
             NavHelpLine("NAV shows natural top-level tracks (TLTs).", C.text_dim, manual_w)
             NavHelpRow("Click", "Focus/show that section", C.text, manual_w)
             NavHelpRow("Cmd-click", "Add/remove from visible set", C.text, manual_w)
@@ -366,7 +366,7 @@ ReflexInstallNavViewCore = function(deps)
         local controls_w = row_h + S(2) + label_w + S(2) + row_h
         local title_w = 0
         if nav_menu_context == "standalone" then
-            title_w = r.ImGui_CalcTextSize(ctx, "Envision v" .. tostring(nav_version))
+            title_w = r.ImGui_CalcTextSize(ctx, "Track Navigator v" .. tostring(nav_version))
         end
         local size_label = nav_menu_context == "standalone" and "UI size" or "Navigator size"
         local ui_w = r.ImGui_CalcTextSize(ctx, size_label)
@@ -374,12 +374,12 @@ ReflexInstallNavViewCore = function(deps)
         local ignore_archive_w = r.ImGui_CalcTextSize(ctx, "\xE2\x9C\x93 Ignore ARCHIVE") + S(16)
         local mirror_w = r.ImGui_CalcTextSize(ctx, "Mirror TLT buttons") + S(16)
         local help_w = r.ImGui_CalcTextSize(ctx, "Help / Manual") + S(42)
-        local hide_tlt_w = r.ImGui_CalcTextSize(ctx, "Hide in Envision") + S(16)
-        local promote_tlt_w = r.ImGui_CalcTextSize(ctx, "Hide in Envision - show children") + S(16)
+        local hide_tlt_w = r.ImGui_CalcTextSize(ctx, "Hide in Track Navigator") + S(16)
+        local promote_tlt_w = r.ImGui_CalcTextSize(ctx, "Hide in Track Navigator - show children") + S(16)
         local include_w = r.ImGui_CalcTextSize(ctx, "Show selected tracks") + S(16)
         include_w = math.max(include_w, r.ImGui_CalcTextSize(ctx, "No tracks selected") + S(16))
         local custom_w = r.ImGui_CalcTextSize(ctx, "Manually shown tracks") + S(16)
-        local hidden_w = r.ImGui_CalcTextSize(ctx, "Hidden in Envision") + S(16)
+        local hidden_w = r.ImGui_CalcTextSize(ctx, "Hidden in Track Navigator") + S(16)
         local promoted_w = r.ImGui_CalcTextSize(ctx, "Showing children instead") + S(16)
         local reset_w = r.ImGui_CalcTextSize(ctx, "Reset custom visibility") + S(16)
         local confirm_w = 0
@@ -392,7 +392,7 @@ ReflexInstallNavViewCore = function(deps)
         end
         if NavIncludedEntries then
             for _, entry in ipairs(NavIncludedEntries({ include_blocked = true })) do
-                local label = "Hide " .. entry.name .. " in Envision"
+                local label = "Hide " .. entry.name .. " in Track Navigator"
                 if entry.blocked then label = label .. " (ignored)" end
                 custom_w = math.max(custom_w, r.ImGui_CalcTextSize(ctx, label) + S(16))
             end
@@ -416,13 +416,13 @@ ReflexInstallNavViewCore = function(deps)
     end
 
     local function NavTlfMenuWidth(pin_label, ignore_label, ghost_parent, custom_item)
-        if custom_item then return r.ImGui_CalcTextSize(ctx, "Hide in Envision") + S(16) end
+        if custom_item then return r.ImGui_CalcTextSize(ctx, "Hide in Track Navigator") + S(16) end
         local w = math.max(
             r.ImGui_CalcTextSize(ctx, pin_label) + S(16),
             r.ImGui_CalcTextSize(ctx, "Unpin all") + S(16)
         )
         if ignore_label then w = math.max(w, r.ImGui_CalcTextSize(ctx, ignore_label) + S(16)) end
-        if ghost_parent then w = math.max(w, r.ImGui_CalcTextSize(ctx, "Show parent in Envision") + S(16)) end
+        if ghost_parent then w = math.max(w, r.ImGui_CalcTextSize(ctx, "Show parent in Track Navigator") + S(16)) end
         return w
     end
 
@@ -445,7 +445,7 @@ ReflexInstallNavViewCore = function(deps)
 
         if #hidden > 0 then
             NavPopupSectionBreak(menu_w)
-            ReflexPopupLabel("Hidden in Envision", { col = C.text, min_w = menu_w })
+            ReflexPopupLabel("Hidden in Track Navigator", { col = C.text, min_w = menu_w })
             ReflexPopupGap(S(4))
             for _, entry in ipairs(hidden) do
                 local guid = r.GetTrackGUID(entry.track)
@@ -459,7 +459,7 @@ ReflexInstallNavViewCore = function(deps)
                     NavPopupTip({
                         "Remove this full-hide rule",
                         "The TLT and all descendants return",
-                        "to Envision as normal.",
+                        "to Track Navigator as normal.",
                     })
                 end
                 if clicked then
@@ -484,7 +484,7 @@ ReflexInstallNavViewCore = function(deps)
                 if hovered then
                     NavPopupTip({
                         "Remove this show-children rule",
-                        "The TLT returns to Envision;",
+                        "The TLT returns to Track Navigator;",
                         "its children stop being promoted.",
                     })
                 end
@@ -596,7 +596,7 @@ ReflexInstallNavViewCore = function(deps)
         ReflexPopupLabel("Manually shown tracks", { col = C.text, min_w = menu_w })
         ReflexPopupStackGap(S(4))
         for _, entry in ipairs(included) do
-            local label = "Hide " .. entry.name .. " in Envision"
+            local label = "Hide " .. entry.name .. " in Track Navigator"
             if entry.blocked then label = label .. " (ignored)" end
             if ReflexMenuItem(label, {
                 id = "included_" .. entry.guid,
@@ -728,7 +728,7 @@ ReflexInstallNavViewCore = function(deps)
         if not track or not r.ValidatePtr(track, "MediaTrack*") then return end
         if custom_item then
             local menu_w = NavTlfMenuWidth(nil, nil, nil, true)
-            if ReflexMenuItem("Hide in Envision", {
+            if ReflexMenuItem("Hide in Track Navigator", {
                 id = "tlf_remove_custom",
                 min_w = menu_w,
                 hover_text_col = COL_NAV_REMOVE,
@@ -746,9 +746,9 @@ ReflexInstallNavViewCore = function(deps)
         local ignore_label = nil
         if NavCanExcludeTrack and NavCanExcludeTrack(track, name, has_sub_group) then
             if is_hidden or is_excluded then
-                ignore_label = "Show in Envision"
+                ignore_label = "Show in Track Navigator"
             else
-                ignore_label = "Hide in Envision - show children"
+                ignore_label = "Hide in Track Navigator - show children"
             end
         end
         local menu_w = NavTlfMenuWidth(pin_label, ignore_label, ghost_parent, false)
@@ -764,7 +764,7 @@ ReflexInstallNavViewCore = function(deps)
 
         if ghost_parent and ghost_parent.track and r.ValidatePtr(ghost_parent.track, "MediaTrack*") then
             ReflexPopupSeparator(menu_w)
-            if ReflexMenuItem("Show parent in Envision", { id = "tlf_unignore_parent", min_w = menu_w }) then
+            if ReflexMenuItem("Show parent in Track Navigator", { id = "tlf_unignore_parent", min_w = menu_w }) then
                 NavSetTrackExcluded(ghost_parent.track, false)
                 r.ImGui_CloseCurrentPopup(ctx)
             end
@@ -773,13 +773,13 @@ ReflexInstallNavViewCore = function(deps)
         if ignore_label then
             ReflexPopupSeparator(menu_w)
             if is_hidden or is_excluded then
-                if ReflexMenuItem("Show in Envision", { id = "tlf_show_in_nav", min_w = menu_w }) then
+                if ReflexMenuItem("Show in Track Navigator", { id = "tlf_show_in_nav", min_w = menu_w }) then
                     if is_hidden and NavSetTrackHidden then NavSetTrackHidden(track, false) end
                     if is_excluded and NavSetTrackExcluded then NavSetTrackExcluded(track, false) end
                     r.ImGui_CloseCurrentPopup(ctx)
                 end
             else
-                local hide_clicked, hide_hov = ReflexMenuItem("Hide in Envision", {
+                local hide_clicked, hide_hov = ReflexMenuItem("Hide in Track Navigator", {
                     id = "tlf_hide_subtree",
                     min_w = menu_w,
                     hover_text_col = COL_NAV_REMOVE,
@@ -795,7 +795,7 @@ ReflexInstallNavViewCore = function(deps)
                     if NavSetTrackHidden then NavSetTrackHidden(track, true) end
                     r.ImGui_CloseCurrentPopup(ctx)
                 end
-                local promote_clicked, promote_hov = ReflexMenuItem("Hide in Envision - show children", {
+                local promote_clicked, promote_hov = ReflexMenuItem("Hide in Track Navigator - show children", {
                     id = "tlf_promote_children",
                     min_w = menu_w,
                     hover_text_col = COL_NAV_REMOVE,
@@ -1072,7 +1072,7 @@ ReflexInstallNavViewCore = function(deps)
                           end
                       end
                       r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-                      r.Undo_EndBlock("Envision: Expand All Deep", 0)
+                      r.Undo_EndBlock("Track Navigator: Expand All Deep", 0)
                   elseif IsShift(mods) then
                       if current_page == "songs" then
                           r.Undo_BeginBlock(); r.PreventUIRefresh(1)
@@ -1087,7 +1087,7 @@ ReflexInstallNavViewCore = function(deps)
                               end
                           end
                           r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-                          r.Undo_EndBlock("Envision: Toggle Collapse Songs", 0)
+                          r.Undo_EndBlock("Track Navigator: Toggle Collapse Songs", 0)
                       else
                           ToggleCollapseAll()
                       end
@@ -1230,7 +1230,7 @@ ReflexInstallNavViewCore = function(deps)
                           end
                       end
                       r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-                      r.Undo_EndBlock("Envision: Expand All Deep", 0)
+                      r.Undo_EndBlock("Track Navigator: Expand All Deep", 0)
                   elseif IsShift(mods) then
                       if current_page == "songs" then
                           r.Undo_BeginBlock(); r.PreventUIRefresh(1)
@@ -1245,7 +1245,7 @@ ReflexInstallNavViewCore = function(deps)
                               end
                           end
                           r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-                          r.Undo_EndBlock("Envision: Toggle Collapse Songs", 0)
+                          r.Undo_EndBlock("Track Navigator: Toggle Collapse Songs", 0)
                       else
                           ToggleCollapseAll()
                       end
@@ -1415,7 +1415,7 @@ ReflexInstallNavViewCore = function(deps)
                               end
                           end
                           r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-                          r.Undo_EndBlock("Envision: Expand All Deep", 0)
+                          r.Undo_EndBlock("Track Navigator: Expand All Deep", 0)
                       elseif IsShift(mods) then
                           if current_page == "songs" then
                               r.Undo_BeginBlock(); r.PreventUIRefresh(1)
@@ -1430,7 +1430,7 @@ ReflexInstallNavViewCore = function(deps)
                                   end
                               end
                               r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-                              r.Undo_EndBlock("Envision: Toggle Collapse Songs", 0)
+                              r.Undo_EndBlock("Track Navigator: Toggle Collapse Songs", 0)
                           else
                               ToggleCollapseAll()
                           end
@@ -1750,7 +1750,7 @@ ReflexInstallNavViewCore = function(deps)
                   r.ImGui_TextColored(ctx, C.text_dim, "Cmd: add/remove from view")
                   if item.custom then
                       r.ImGui_TextColored(ctx, C.text_dim, "Opt: expand all")
-                      r.ImGui_TextColored(ctx, C.text_dim, "Right-click: hide in Envision")
+                      r.ImGui_TextColored(ctx, C.text_dim, "Right-click: hide in Track Navigator")
                   else
                       r.ImGui_TextColored(ctx, C.text_dim, "Opt: toggle pin")
                   end

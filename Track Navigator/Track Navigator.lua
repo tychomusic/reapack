@@ -1,46 +1,46 @@
 -- @noindex
 --[[
- * Description: Envision.
+ * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      Hansen (via Claude)
- * Version:     20.619
+ * Version:     20.620
 --]]
 
 local r = reaper
-ENVISION_VERSION = "20.619"
+TRACK_NAVIGATOR_VERSION = "20.620"
 
-EnvisionDependencyError = function(detail)
-    local msg = "Envision requires ReaImGui 0.7 or newer."
+TrackNavigatorDependencyError = function(detail)
+    local msg = "Track Navigator requires ReaImGui 0.7 or newer."
     if detail and detail ~= "" then msg = msg .. "\n\n" .. tostring(detail) end
     if r.ReaPack_BrowsePackages then
-        local choice = r.MB(msg .. "\n\nOpen ReaPack package browser for ReaImGui?", "Envision: Missing dependency", 4)
+        local choice = r.MB(msg .. "\n\nOpen ReaPack package browser for ReaImGui?", "Track Navigator: Missing dependency", 4)
         if choice == 6 then r.ReaPack_BrowsePackages("ReaImGui") end
     else
-        r.MB(msg .. "\n\nInstall ReaImGui via ReaPack, then run Envision again.", "Envision: Missing dependency", 0)
+        r.MB(msg .. "\n\nInstall ReaImGui via ReaPack, then run Track Navigator again.", "Track Navigator: Missing dependency", 0)
     end
 end
 
 local imgui_api = r.GetResourcePath() .. '/Scripts/ReaTeam Extensions/API/imgui.lua'
 local imgui_loader, imgui_load_err = loadfile(imgui_api)
 if not imgui_loader then
-    EnvisionDependencyError(imgui_load_err)
+    TrackNavigatorDependencyError(imgui_load_err)
     return
 end
 
 local imgui_ok, imgui_err = pcall(function() imgui_loader('0.7') end)
 if not imgui_ok or not r.ImGui_CreateContext then
-    EnvisionDependencyError(imgui_err)
+    TrackNavigatorDependencyError(imgui_err)
     return
 end
 
-local ctx = r.ImGui_CreateContext("Envision")
+local ctx = r.ImGui_CreateContext("Track Navigator")
 
 local script_dir = debug.getinfo(1, 'S').source:match('@?(.*[/\\])') or ''
 package.path = script_dir .. 'core/?.lua;' .. script_dir .. '?.lua;' .. package.path
 
-local nt_ok, nav_theme = pcall(dofile, script_dir .. 'Envision_Theme.lua')
+local nt_ok, nav_theme = pcall(dofile, script_dir .. 'Track Navigator_Theme.lua')
 if not nt_ok or type(nav_theme) ~= "table" then
-    nt_ok, nav_theme = pcall(dofile, script_dir .. 'Envision_Theme_Default.lua')
+    nt_ok, nav_theme = pcall(dofile, script_dir .. 'Track Navigator_Theme_Default.lua')
 end
 if not nt_ok or type(nav_theme) ~= "table" then nav_theme = {} end
 
@@ -595,7 +595,7 @@ require("Reflex_NavViewCore")({
     scaled_fonts = scaled_fonts,
     track_color_overrides = track_color_overrides,
     script_dir = script_dir,
-    version = ENVISION_VERSION,
+    version = TRACK_NAVIGATOR_VERSION,
     menu_context = "standalone",
     mark_dirty = function() needs_rescan = true; needs_song_rescan = true end,
     get_nav_scale = function() return ui_scale end,
@@ -608,7 +608,7 @@ local last_project_state = 0
 local last_rescan_time = 0
 local RESCAN_THROTTLE = 0.5
 
-EnvisionLoop = function()
+TrackNavigatorLoop = function()
     MaybeReloadPins()
     MaybeReloadNavExcluded()
     MaybeReloadNavIncluded()
@@ -703,7 +703,7 @@ EnvisionLoop = function()
     if r.ImGui_WindowFlags_NoFocusOnAppearing then
         wflags = wflags | r.ImGui_WindowFlags_NoFocusOnAppearing()
     end
-    local visible, open = r.ImGui_Begin(ctx, "Envision", true, wflags)
+    local visible, open = r.ImGui_Begin(ctx, "Track Navigator", true, wflags)
     if visible then
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
         local wx, _wy = r.ImGui_GetWindowPos(ctx)
@@ -737,10 +737,10 @@ EnvisionLoop = function()
 
     ReflexApplyKeyboardPassthrough()
 
-    if open then r.defer(EnvisionLoop) end
+    if open then r.defer(TrackNavigatorLoop) end
 end
 
 ScanTopFolders()
 ScanSubGroups()
 BuildRenderList()
-EnvisionLoop()
+TrackNavigatorLoop()

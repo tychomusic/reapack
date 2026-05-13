@@ -48,7 +48,7 @@ ReflexInstallNavActionCore = function(deps)
                     local target = math.max(0, math.floor(sp + ty + tkh/2 - th/2))
                     r.JS_Window_SetScrollPos(tcp, "v", target)
                 end
-                r.Undo_EndBlock("Envision: Scroll to track", 0)
+                r.Undo_EndBlock("Track Navigator: Scroll to track", 0)
                 return
             end
         end
@@ -56,7 +56,7 @@ ReflexInstallNavActionCore = function(deps)
         -- "vertical scroll selected tracks into view" lands tracks in the
         -- bottom third, but it's the best we can do without JS_Window APIs.
         r.Main_OnCommand(40913, 0)
-        r.Undo_EndBlock("Envision: Scroll to track", 0)
+        r.Undo_EndBlock("Track Navigator: Scroll to track", 0)
     end
 
     -- =========================================================================
@@ -410,7 +410,7 @@ ReflexInstallNavActionCore = function(deps)
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
         tracks_last_click = item.label
         if do_scroll then local st = item.track; r.defer(function() ScrollTrackToCenter(st) end) end
-        r.Undo_EndBlock("Envision: " .. item.label, 0)
+        r.Undo_EndBlock("Track Navigator: " .. item.label, 0)
     end
 
     -- =========================================================================
@@ -484,7 +484,7 @@ ReflexInstallNavActionCore = function(deps)
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
         songs_last_click = fi
         if do_scroll then local st = song.track; r.defer(function() ScrollTrackToCenter(st) end) end
-        r.Undo_EndBlock("Envision: " .. song.name, 0)
+        r.Undo_EndBlock("Track Navigator: " .. song.name, 0)
     end
 
     -- =========================================================================
@@ -507,7 +507,7 @@ ReflexInstallNavActionCore = function(deps)
         for _, e in ipairs(songs_sub.entries) do songs_sub.selected[e.display_name] = true end
         SyncGhostVisibility()
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-        r.Undo_EndBlock("Envision: Show All TLTs", 0)
+        r.Undo_EndBlock("Track Navigator: Show All TLTs", 0)
     end
 
     HideAllTLFs = function()
@@ -515,7 +515,7 @@ ReflexInstallNavActionCore = function(deps)
         r.Undo_BeginBlock(); r.PreventUIRefresh(1); HideEverything()
         SyncGhostVisibility()
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-        r.Undo_EndBlock("Envision: Hide All", 0)
+        r.Undo_EndBlock("Track Navigator: Hide All", 0)
     end
 
     ShowAllTracks = function()
@@ -541,7 +541,7 @@ ReflexInstallNavActionCore = function(deps)
         songs_follow_active = false; songs_section_mode = false
         SyncGhostVisibility()
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-        r.Undo_EndBlock("Envision: Show All Tracks", 0)
+        r.Undo_EndBlock("Track Navigator: Show All Tracks", 0)
     end
 
     -- Show all songs, retaining each song folder's current collapsed/expanded state.
@@ -554,7 +554,7 @@ ReflexInstallNavActionCore = function(deps)
         end
         EnsureSongsParentVisible()
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-        r.Undo_EndBlock("Envision: Show All Songs", 0)
+        r.Undo_EndBlock("Track Navigator: Show All Songs", 0)
     end
 
     HideAllSongs = function()
@@ -562,7 +562,7 @@ ReflexInstallNavActionCore = function(deps)
         r.Undo_BeginBlock(); r.PreventUIRefresh(1)
         for _, s in ipairs(song_entries) do SetFolderVisible(s, false) end
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-        r.Undo_EndBlock("Envision: Hide All Songs", 0)
+        r.Undo_EndBlock("Track Navigator: Hide All Songs", 0)
     end
 
     ToggleCollapseAll = function()
@@ -584,7 +584,7 @@ ReflexInstallNavActionCore = function(deps)
         end
         SyncGhostVisibility()
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-        r.Undo_EndBlock("Envision: Toggle Collapse", 0)
+        r.Undo_EndBlock("Track Navigator: Toggle Collapse", 0)
     end
 
     ExpandAllTracks = function()
@@ -593,7 +593,7 @@ ReflexInstallNavActionCore = function(deps)
         for _, entry in ipairs(top_folders) do if IsFolderVisible(entry) then SetFolderCollapsed(entry, false) end end
         SyncGhostVisibility()
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-        r.Undo_EndBlock("Envision: Expand All", 0)
+        r.Undo_EndBlock("Track Navigator: Expand All", 0)
     end
 
     ExpandAllSongs = function()
@@ -603,7 +603,7 @@ ReflexInstallNavActionCore = function(deps)
             if r.GetMediaTrackInfo_Value(s.track, "B_SHOWINTCP") == 1 then SetFolderCollapsed(s, false) end
         end
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
-        r.Undo_EndBlock("Envision: Expand All Songs", 0)
+        r.Undo_EndBlock("Track Navigator: Expand All Songs", 0)
     end
 end
 

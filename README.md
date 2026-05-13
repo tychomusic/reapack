@@ -10,4 +10,4 @@ https://github.com/tychomusic/reapack/raw/main/index.xml
 
 ## Packages
 
-- **Envision** - standalone ReaImGui NAV track visibility manager for REAPER.
+- **Track Navigator** - standalone ReaImGui NAV track visibility manager for REAPER.

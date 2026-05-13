@@ -1,11 +1,11 @@
--- @description Envision
--- @version 20.619
+-- @description Track Navigator
+-- @version 20.620
 -- @author Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @metapackage
 -- @provides
---   [main] Envision.lua
---   [nomain] Envision_Theme_Default.lua
+--   [main] Track Navigator.lua
+--   [nomain] Track Navigator_Theme_Default.lua
 --   [nomain] core/Reflex_FontCore.lua
 --   [nomain] core/Reflex_StyleCore.lua
 --   [nomain] core/Reflex_ColorCore.lua

@@ -1,23 +1,23 @@
 -- @noindex
 -- =======================================================================================
--- ENVISION THEME v1.0
+-- TRACK NAVIGATOR THEME v1.0
 -- =======================================================================================
--- Copy this file to Envision_Theme.lua to customize Envision's appearance.
--- Envision_Theme.lua is optional and is not installed by the ReaPack package.
+-- Copy this file to Track Navigator_Theme.lua to customize Track Navigator's appearance.
+-- Track Navigator_Theme.lua is optional and is not installed by the ReaPack package.
 --
 -- COLOR FORMAT: 0xRRGGBB (alpha is added automatically)
 --
 -- Track Color Overrides:
 --   Key: exact track name (case-sensitive, matches REAPER track name)
 --   Value: 0xRRGGBB hex color, or nil to use REAPER track color
---   These override the color shown on Envision buttons, not in REAPER.
+--   These override the color shown on Track Navigator buttons, not in REAPER.
 
 return {
 
   -- =====================================================
   -- FONTS
   -- =====================================================
-  -- Base UI text size. Envision pre-creates scaled fonts
+  -- Base UI text size. Track Navigator pre-creates scaled fonts
   -- at steps 0.5x – 2.0x around this value.
   -- family: font family name passed to ImGui_CreateFont. Default "SF Pro"
   -- (macOS system font). ReaImGui falls back to system sans-serif if the
@@ -31,7 +31,7 @@ return {
   -- =====================================================
   -- COLORS
   -- =====================================================
-  -- Override any Envision UI color. Delete or comment out
+  -- Override any Track Navigator UI color. Delete or comment out
   -- a line to use the default. Key must match exactly.
   colors = {
     -- Background / Text
