@@ -1013,29 +1013,24 @@ TrackNavigatorLoop = function()
             nav_floating_observed_h = wh
         end
         local fp = PushFont(GetScaledFont())
-        local _, win_h = r.ImGui_GetContentRegionAvail(ctx)
+        local bw, win_h = r.ImGui_GetContentRegionAvail(ctx)
         local nav_standard_edge_gap = S(UI.edge_pad)
-        local nav_left_edge_gap = nav_standard_edge_gap
-        local nav_right_edge_gap = nav_standard_edge_gap
+        local nav_chrome_gap_delta = nav_standard_edge_gap - 3
         local dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
-        if nav_window_docked and TrackNavigatorIsMacOS() and (dock_pos == 1 or dock_pos == 3) then
-            local visual_dock_pos = TrackNavigatorVisualSideDockPosition(wx, ww) or dock_pos
-            if visual_dock_pos == 1 then
-                nav_right_edge_gap = 3
-            elseif visual_dock_pos == 3 then
-                nav_left_edge_gap = 3
-            end
+        local visual_dock_pos = nil
+        if nav_window_docked and TrackNavigatorIsMacOS() then
+            visual_dock_pos = TrackNavigatorVisualSideDockPosition(wx, ww) or dock_pos
         end
-        local bw = math.max(0, ww - nav_left_edge_gap - nav_right_edge_gap)
+        if visual_dock_pos == 1 then
+            bw = bw + nav_chrome_gap_delta
+        elseif visual_dock_pos == 3 then
+            r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) - nav_chrome_gap_delta)
+            bw = bw + nav_chrome_gap_delta
+        end
         if not nav_window_docked then
             bw = math.max(bw, min_nav_w)
         end
-        local nav_left_gap_delta = nav_left_edge_gap - nav_standard_edge_gap
-        if nav_left_gap_delta ~= 0 then
-            r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) + nav_left_gap_delta)
-        end
-        local nav_indicator_right_edge = (nav_window_docked and TrackNavigatorIsMacOS() and nav_right_edge_gap == 3)
-            and 0 or nav_right_edge_gap
+        local nav_indicator_right_edge = visual_dock_pos == 1 and 0 or nav_standard_edge_gap
         NavDrawSection({
             bw = bw,
             win_h = win_h,
