@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.1
+ * Version:     1.2
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.1"
+TRACK_NAVIGATOR_VERSION = "1.2"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.7 or newer."
@@ -200,6 +200,7 @@ require("Reflex_FontCore")({
 C = {
     bg = rgb(0x171B22),
     window_bg = rgb(0x3E3E3F),
+    window_outline = rgb(0x525254),
     border = rgb(0x30363D),
     text = rgb(0xE6EDF3),
     text_dim = rgb(0x8B949E),
@@ -415,6 +416,18 @@ DrawScrollIndicator = function(dl, region_y1, region_y2, scroll_y, scroll_max, c
     local alpha = math.floor(math.min(1, fade) * 255)
     local color = (C.border & 0xFFFFFF00) | alpha
     r.ImGui_DrawList_AddRectFilled(dl, ind_x, ind_y, ind_x + ind_w, ind_y + ind_h, color, ind_w / 2)
+end
+
+DrawTrackNavigatorWindowOutline = function(dl, x, y, w, h, col)
+    local x1 = Round(x)
+    local y1 = Round(y)
+    local x2 = Round(x + w)
+    local y2 = Round(y + h)
+    local t = 1
+    r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y1 + t, col)
+    r.ImGui_DrawList_AddRectFilled(dl, x1, y2 - t, x2, y2, col)
+    r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x1 + t, y2, col)
+    r.ImGui_DrawList_AddRectFilled(dl, x2 - t, y1, x2, y2, col)
 end
 
 package.loaded["Reflex_StyleCore"] = nil
@@ -785,6 +798,9 @@ TrackNavigatorLoop = function()
     pushDockColor(r.ImGui_Col_ButtonActive, main_bg)
     pushDockColor(r.ImGui_Col_NavWindowingHighlight, 0x00000000)
     pushDockColor(r.ImGui_Col_NavWindowingDimBg, 0x00000000)
+    pushDockColor(r.ImGui_Col_ResizeGrip, C.window_outline)
+    pushDockColor(r.ImGui_Col_ResizeGripHovered, C.window_outline)
+    pushDockColor(r.ImGui_Col_ResizeGripActive, C.window_outline)
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), S(UI.edge_pad), S(UI.edge_pad))
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FramePadding(), S(BASE_PAD_X), S(BASE_PAD_Y))
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ItemSpacing(), S(BASE_SPACING), S(BASE_SPACING))
@@ -814,7 +830,8 @@ TrackNavigatorLoop = function()
     if r.ImGui_WindowFlags_NoFocusOnAppearing then
         wflags = wflags | r.ImGui_WindowFlags_NoFocusOnAppearing()
     end
-    local visible, open = r.ImGui_Begin(ctx, "Track Navigator", true, wflags)
+    local window_title = nav_window_docked and "Track Navigator###Track Navigator" or "###Track Navigator"
+    local visible, open = r.ImGui_Begin(ctx, window_title, true, wflags)
     if visible then
         nav_window_docked = r.ImGui_IsWindowDocked and r.ImGui_IsWindowDocked(ctx) or false
         if r.ImGui_GetWindowDockID then
@@ -826,12 +843,13 @@ TrackNavigatorLoop = function()
             nav_current_dock_id = nav_window_docked and -1 or 0
         end
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
-        local wx, _wy = r.ImGui_GetWindowPos(ctx)
-        local ww, _wh = r.ImGui_GetWindowSize(ctx)
+        local wx, wy = r.ImGui_GetWindowPos(ctx)
+        local ww, wh = r.ImGui_GetWindowSize(ctx)
         local fp = PushFont(GetScaledFont())
         local bw, win_h = r.ImGui_GetContentRegionAvail(ctx)
-        local sb_inset = -(S(UI.edge_pad) - 3)
-        bw = bw - sb_inset
+        local nav_right_edge_gap = nav_window_docked and 3 or S(UI.edge_pad)
+        local nav_indicator_right_edge = nav_window_docked and 0 or nav_right_edge_gap
+        bw = bw + S(UI.edge_pad) - nav_right_edge_gap
         NavDrawSection({
             bw = bw,
             win_h = win_h,
@@ -845,8 +863,12 @@ TrackNavigatorLoop = function()
             base_pad_y = BASE_PAD_Y,
             nav_bottom_extra = 0,
             nav_context_scope = "window",
+            nav_indicator_right_edge = nav_indicator_right_edge,
         })
         PopFont(fp)
+        if not nav_window_docked then
+            DrawTrackNavigatorWindowOutline(r.ImGui_GetWindowDrawList(ctx), wx, wy, ww, wh, C.window_outline)
+        end
         r.ImGui_PopStyleColor(ctx, 1)
         r.ImGui_End(ctx)
     end

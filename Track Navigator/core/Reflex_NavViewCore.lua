@@ -1201,6 +1201,7 @@ ReflexInstallNavViewCore = function(deps)
         local BASE_PAD_Y = params.base_pad_y
         local nav_bottom_extra = params.nav_bottom_extra or S(180)
         local nav_context_scope = params.nav_context_scope or "nav"
+        local nav_indicator_right_edge = params.nav_indicator_right_edge or 0
 
           -- ── NAVIGATOR SECTION (fixed, non-scrolling) ──
           local nav_start_y = r.ImGui_GetCursorPosY(ctx)
@@ -1873,13 +1874,9 @@ ReflexInstallNavViewCore = function(deps)
 
           r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, 0)
 
-          -- Width MUST extend past the parent's natural content region by
-          -- S(edge_pad) - 3 so the child reaches wx + ww - 3 (3px from window
-          -- right edge), matching how ##content is sized. `bw` here was already
-          -- computed as GetContentRegionAvail(parent) - sb_inset = avail + 9, so
-          -- passing it directly gives the right child width. Without this, child
-          -- is 9 logical px narrower than the inspector card area below, and
-          -- TLT buttons fail to right-align with cards.
+          -- Standalone callers pass a width already adjusted for their current
+          -- chrome: docked keeps the REAPER edge blend, floating keeps the
+          -- standard left/right window padding.
           local _nav_child_visible = r.ImGui_BeginChild(ctx, "##nav_scroll", bw, _nav_h, 0, r.ImGui_WindowFlags_NoScrollbar())
           if _nav_child_visible then
               local _nav_child_y0 = r.ImGui_GetCursorPosY(ctx)
@@ -2233,12 +2230,7 @@ ReflexInstallNavViewCore = function(deps)
           end
           r.ImGui_PopStyleVar(ctx, 1)
 
-          -- Draw thin scroll indicator. Matches the inspector/sends pattern:
-          -- positioned at wx + ww - S(3), the same 3px sliver from the window's
-          -- right edge that the inspector single-col + sends-col indicators use.
-          -- That sliver is intentionally narrow on the right side because Reflex
-          -- mimics REAPER's docker frame edge - widening it for centering would
-          -- break the visual blend with REAPER.
+          -- Draw thin scroll indicator ending at the caller-provided chrome edge.
           if _nav_child_visible then
               local _, _iy1 = r.ImGui_GetItemRectMin(ctx)
               local _, _iy2 = r.ImGui_GetItemRectMax(ctx)
@@ -2247,7 +2239,7 @@ ReflexInstallNavViewCore = function(deps)
               nav_list_scroll_prev_y = nav_list_scroll_y
               local _ndt = r.ImGui_GetDeltaTime(ctx) or 0
               if nav_list_scroll_fade > 0 then nav_list_scroll_fade = math.max(0, nav_list_scroll_fade - _ndt * 2.5) end
-              local _ind_x = wx + ww - S(3)
+              local _ind_x = wx + ww - nav_indicator_right_edge - S(3)
               local _nav_dl = r.ImGui_GetWindowDrawList(ctx)
               DrawScrollIndicator(_nav_dl, _iy1, _iy2, nav_list_scroll_y, nav_list_scroll_max, nav_list_child_h, nav_list_scroll_fade, _ind_x)
           end
