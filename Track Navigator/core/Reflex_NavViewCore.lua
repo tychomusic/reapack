@@ -17,6 +17,9 @@ ReflexInstallNavViewCore = function(deps)
     local markDirty = deps.mark_dirty or function() end
     local openIoManager = deps.open_io_manager
     local debugEvent = deps.debug_event
+    local getDockID = deps.get_dock_id
+    local requestDock = deps.request_dock
+    local requestQuit = deps.request_quit
 
     local function NavDebugEvent(source, opts)
         if debugEvent then debugEvent(source, opts or {}) end
@@ -418,6 +421,84 @@ ReflexInstallNavViewCore = function(deps)
         PopTooltipStyle()
     end
 
+    local function NavCurrentDockID()
+        if getDockID then
+            local dock_id = getDockID()
+            if type(dock_id) == "number" then return dock_id end
+        end
+        if not r.ImGui_GetWindowDockID then return 0 end
+        local ok, dock_id = pcall(r.ImGui_GetWindowDockID, ctx)
+        if ok and type(dock_id) == "number" then return dock_id end
+        return 0
+    end
+
+    local function NavDockPositionName(pos)
+        return ({ [0] = "Bottom", [1] = "Left", [2] = "Top", [3] = "Right", [4] = "Floating" })[pos] or "Unknown"
+    end
+
+    local function NavDockName(dock_id)
+        if dock_id == 0 then return "Floating" end
+        if dock_id > 0 then return "ImGui docker " .. tostring(dock_id) end
+        local position = "Unknown"
+        if r.DockGetPosition then
+            local ok, pos = pcall(r.DockGetPosition, ~dock_id)
+            if ok then position = NavDockPositionName(pos) end
+        end
+        return "REAPER docker " .. tostring(-dock_id) .. " (" .. position .. ")"
+    end
+
+    local function NavDockIDForPosition(pos, fallback)
+        if r.DockGetPosition then
+            for docker = 0, 15 do
+                local ok, dock_pos = pcall(r.DockGetPosition, docker)
+                if ok and dock_pos == pos then return ~docker end
+            end
+        end
+        return fallback
+    end
+
+    local function NavRequestDock(dock_id)
+        if requestDock then requestDock(dock_id) end
+        r.ImGui_CloseCurrentPopup(ctx)
+    end
+
+    local function NavDockMenuItem(label, dock_id, current_dock_id, menu_w)
+        local clicked = ReflexMenuItem(label, {
+            id = "dock_" .. tostring(dock_id),
+            min_w = menu_w,
+            enabled = requestDock ~= nil and dock_id ~= current_dock_id,
+        })
+        if clicked then NavRequestDock(dock_id) end
+    end
+
+    local function NavDrawStandaloneWindowOptions(menu_w)
+        if nav_menu_context ~= "standalone" then return end
+        ReflexPopupLabel("Window", { col = C.text, min_w = menu_w })
+        ReflexPopupGap(S(4))
+        local current_dock_id = NavCurrentDockID()
+        ReflexPopupLabel("Current: " .. NavDockName(current_dock_id), { col = C.text_dim, min_w = menu_w })
+        ReflexPopupStackGap(S(4))
+
+        NavDockMenuItem("Float window", 0, current_dock_id, menu_w)
+        NavDockMenuItem("Dock left", NavDockIDForPosition(1, -2), current_dock_id, menu_w)
+        NavDockMenuItem("Dock right", NavDockIDForPosition(3, -4), current_dock_id, menu_w)
+        NavDockMenuItem("Dock top", NavDockIDForPosition(2, -3), current_dock_id, menu_w)
+        NavDockMenuItem("Dock bottom", NavDockIDForPosition(0, -1), current_dock_id, menu_w)
+
+        if requestQuit then
+            ReflexPopupStackGap(S(4))
+            local clicked = ReflexMenuItem("Quit Track Navigator", {
+                id = "quit_track_navigator",
+                min_w = menu_w,
+                hover_text_col = COL_NAV_REMOVE,
+            })
+            if clicked then
+                requestQuit()
+                r.ImGui_CloseCurrentPopup(ctx)
+            end
+        end
+    end
+
     local function NavHelpLine(text, manual_w, col)
         ReflexPopupLabel(text, { col = col or C.text_dim, min_w = manual_w })
     end
@@ -570,6 +651,17 @@ ReflexInstallNavViewCore = function(deps)
             NavHelpInfoBlock("Mirror TLT buttons", {
                 "Mirrors TLT button layout",
             }, manual_w)
+            if nav_menu_context == "standalone" then
+                ReflexPopupStackGap(S(9))
+                NavHelpInfoBlock("Dock / Float window", {
+                    "Moves Track Navigator into a REAPER docker",
+                    "or returns it to a floating window",
+                }, manual_w)
+                ReflexPopupStackGap(S(9))
+                NavHelpInfoBlock("Quit Track Navigator", {
+                    "Stops the standalone script, useful while docked",
+                }, manual_w)
+            end
 
             ReflexPopPopupLayout()
             r.ImGui_EndPopup(ctx)
@@ -599,6 +691,15 @@ ReflexInstallNavViewCore = function(deps)
         local show_all_w = r.ImGui_CalcTextSize(ctx, "Show all tracks") + S(16)
         local help_w = r.ImGui_CalcTextSize(ctx, "Help / Manual") + S(42)
         local include_w = r.ImGui_CalcTextSize(ctx, "Show selected tracks") + S(16)
+        local window_w = 0
+        if nav_menu_context == "standalone" then
+            window_w = math.max(
+                r.ImGui_CalcTextSize(ctx, "Current: REAPER docker 16 (Floating)") + S(16),
+                r.ImGui_CalcTextSize(ctx, "Float window") + S(16),
+                r.ImGui_CalcTextSize(ctx, "Dock bottom") + S(16),
+                r.ImGui_CalcTextSize(ctx, "Quit Track Navigator") + S(16)
+            )
+        end
         include_w = math.max(include_w, r.ImGui_CalcTextSize(ctx, "No tracks selected") + S(16))
         local custom_w = r.ImGui_CalcTextSize(ctx, "Manually shown tracks") + S(16)
         local hidden_w = r.ImGui_CalcTextSize(ctx, "Hidden in Track Navigator") + S(16)
@@ -634,7 +735,7 @@ ReflexInstallNavViewCore = function(deps)
             end
         end
         return math.max(S(180), size_row_w, title_w, ignore_archive_w, mirror_w, show_all_w,
-            help_w, include_w, custom_w, hidden_w, promoted_w, reset_w, confirm_w)
+            help_w, include_w, custom_w, hidden_w, promoted_w, reset_w, confirm_w, window_w)
     end
 
     local function NavTlfMenuWidth(pin_label, ignore_label, ghost_parent, custom_item)
@@ -982,6 +1083,8 @@ ReflexInstallNavViewCore = function(deps)
             NavPopupSectionBreak(menu_w)
             NavDrawGlobalOptions(menu_w)
             NavPopupSectionBreak(menu_w)
+            NavDrawStandaloneWindowOptions(menu_w)
+            if nav_menu_context == "standalone" then NavPopupSectionBreak(menu_w) end
             NavDrawRecoveryOptions(menu_w)
             NavPopupSectionBreak(menu_w)
             NavDrawHelpRow(menu_w)

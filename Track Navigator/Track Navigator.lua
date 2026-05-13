@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.0
+ * Version:     1.1
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.0"
+TRACK_NAVIGATOR_VERSION = "1.1"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.7 or newer."
@@ -668,6 +668,11 @@ require("Reflex_NavActionCore")({ r = r })
 package.loaded["Reflex_ViewModes"] = nil
 require("Reflex_ViewModes")({ r = r })
 
+nav_dock_request = nil
+nav_quit_requested = false
+nav_window_docked = false
+nav_current_dock_id = 0
+
 package.loaded["Reflex_NavViewCore"] = nil
 require("Reflex_NavViewCore")({
     r = r,
@@ -682,6 +687,9 @@ require("Reflex_NavViewCore")({
     mark_dirty = function() needs_rescan = true; needs_song_rescan = true end,
     get_nav_scale = function() return ui_scale end,
     set_nav_scale = function(v) ui_scale = v; SavePref("navigator_scale_v1", v) end,
+    get_dock_id = function() return nav_current_dock_id end,
+    request_dock = function(dock_id) nav_dock_request = dock_id end,
+    request_quit = function() nav_quit_requested = true end,
 })
 
 local window_initialized = false
@@ -689,6 +697,22 @@ local last_track_count = 0
 local last_project_state = 0
 local last_rescan_time = 0
 local RESCAN_THROTTLE = 0.5
+
+TrackNavigatorEnsureDockingEnabled = function()
+    if not (r.ImGui_GetConfigVar and r.ImGui_SetConfigVar
+        and r.ImGui_ConfigVar_Flags and r.ImGui_ConfigFlags_DockingEnable) then
+        return
+    end
+    local ok_var, flags_var = pcall(r.ImGui_ConfigVar_Flags)
+    local ok_flag, dock_flag = pcall(r.ImGui_ConfigFlags_DockingEnable)
+    if not ok_var or not ok_flag then return end
+    local ok_flags, flags = pcall(r.ImGui_GetConfigVar, ctx, flags_var)
+    if not ok_flags or type(flags) ~= "number" then return end
+    flags = math.floor(flags)
+    if (flags & dock_flag) == 0 then
+        pcall(r.ImGui_SetConfigVar, ctx, flags_var, flags | dock_flag)
+    end
+end
 
 TrackNavigatorLoop = function()
     MaybeReloadPins()
@@ -764,7 +788,7 @@ TrackNavigatorLoop = function()
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), S(UI.edge_pad), S(UI.edge_pad))
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FramePadding(), S(BASE_PAD_X), S(BASE_PAD_Y))
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ItemSpacing(), S(BASE_SPACING), S(BASE_SPACING))
-    r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowRounding(), 4)
+    r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowRounding(), nav_window_docked and 0 or S(10))
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FrameRounding(), 0)
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ButtonTextAlign(), 0, 0.5)
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowBorderSize(), 0)
@@ -779,6 +803,11 @@ TrackNavigatorLoop = function()
         r.ImGui_SetNextWindowSize(ctx, S(240), S(420))
         window_initialized = true
     end
+    TrackNavigatorEnsureDockingEnabled()
+    if nav_dock_request ~= nil and r.ImGui_SetNextWindowDockID then
+        pcall(r.ImGui_SetNextWindowDockID, ctx, nav_dock_request)
+        nav_dock_request = nil
+    end
     r.ImGui_SetNextWindowSizeConstraints(ctx, S(70), S(48), 99999, 99999)
 
     local wflags = r.ImGui_WindowFlags_NoCollapse() | r.ImGui_WindowFlags_NoScrollbar() | r.ImGui_WindowFlags_NoScrollWithMouse()
@@ -787,6 +816,15 @@ TrackNavigatorLoop = function()
     end
     local visible, open = r.ImGui_Begin(ctx, "Track Navigator", true, wflags)
     if visible then
+        nav_window_docked = r.ImGui_IsWindowDocked and r.ImGui_IsWindowDocked(ctx) or false
+        if r.ImGui_GetWindowDockID then
+            local ok_dock, dock_id = pcall(r.ImGui_GetWindowDockID, ctx)
+            if ok_dock and type(dock_id) == "number" then
+                nav_current_dock_id = dock_id
+            end
+        else
+            nav_current_dock_id = nav_window_docked and -1 or 0
+        end
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
         local wx, _wy = r.ImGui_GetWindowPos(ctx)
         local ww, _wh = r.ImGui_GetWindowSize(ctx)
@@ -817,7 +855,7 @@ TrackNavigatorLoop = function()
     r.ImGui_PopStyleVar(ctx, 7 + smooth_tess_count)
     r.ImGui_PopStyleColor(ctx, 5 + dock_color_count)
 
-    if open then r.defer(TrackNavigatorLoop) end
+    if open and not nav_quit_requested then r.defer(TrackNavigatorLoop) end
 end
 
 ScanTopFolders()
