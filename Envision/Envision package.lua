@@ -1,0 +1,26 @@
+-- @description Envision
+-- @version 20.619
+-- @author Hansen / Tycho
+-- @link GitHub repository https://github.com/tychomusic/reapack
+-- @metapackage
+-- @provides
+--   [main] Envision.lua
+--   [nomain] Envision_Theme_Default.lua
+--   [nomain] core/Reflex_FontCore.lua
+--   [nomain] core/Reflex_StyleCore.lua
+--   [nomain] core/Reflex_ColorCore.lua
+--   [nomain] core/Reflex_PinCore.lua
+--   [nomain] core/Reflex_NavExclusionCore.lua
+--   [nomain] core/Reflex_NavInclusionCore.lua
+--   [nomain] core/Reflex_RealistCore.lua
+--   [nomain] core/Reflex_TrackScanCore.lua
+--   [nomain] core/Reflex_TrackUtilCore.lua
+--   [nomain] core/Reflex_SongCore.lua
+--   [nomain] core/Reflex_SubGroupCore.lua
+--   [nomain] core/Reflex_ViewHistory.lua
+--   [nomain] core/Reflex_NavActionCore.lua
+--   [nomain] core/Reflex_ViewModes.lua
+--   [nomain] core/Reflex_NavViewCore.lua
+--   [nomain] icons/Nav.Active.A.png
+--   [nomain] icons/Nav.Route.R.png
+--   [nomain] icons/Navigator.mark.png
