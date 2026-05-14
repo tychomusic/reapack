@@ -78,7 +78,18 @@ TrackNavigatorDockPosition = function(dock_id)
     return nil
 end
 
-TrackNavigatorVisualSideDockPosition = function(wx, ww)
+TrackNavigatorVisualSideDockPosition = function(wx, ww, dock_pos)
+    local win_cx = wx + ww * 0.5
+    if r.GetMainHwnd and r.JS_Window_GetRect then
+        local ok_hwnd, hwnd = pcall(r.GetMainHwnd)
+        if ok_hwnd and hwnd then
+            local ok_rect, ok, left, _, right = pcall(r.JS_Window_GetRect, hwnd)
+            if ok_rect and ok and type(left) == "number" and type(right) == "number" and right > left then
+                return win_cx < ((left + right) * 0.5) and 1 or 3
+            end
+        end
+    end
+    if dock_pos == 1 or dock_pos == 3 then return dock_pos end
     if not (r.ImGui_GetMainViewport and r.ImGui_Viewport_GetWorkPos and r.ImGui_Viewport_GetWorkSize) then
         return nil
     end
@@ -89,7 +100,9 @@ TrackNavigatorVisualSideDockPosition = function(wx, ww)
     if not ok_pos or not ok_size or type(work_x) ~= "number" or type(work_w) ~= "number" or work_w <= 0 then
         return nil
     end
-    return (wx + ww * 0.5) < (work_x + work_w * 0.5) and 1 or 3
+    local center_delta = win_cx - (work_x + work_w * 0.5)
+    if math.abs(center_delta) <= math.max(1, ww * 0.25) then return nil end
+    return center_delta < 0 and 1 or 3
 end
 
 TrackNavigatorModFlag = function(mods, fallback, ...)
@@ -1019,7 +1032,7 @@ TrackNavigatorLoop = function()
         local dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
         local visual_dock_pos = nil
         if nav_window_docked and TrackNavigatorIsMacOS() then
-            visual_dock_pos = TrackNavigatorVisualSideDockPosition(wx, ww) or dock_pos
+            visual_dock_pos = TrackNavigatorVisualSideDockPosition(wx, ww, dock_pos)
         end
         if visual_dock_pos == 1 then
             bw = bw + nav_chrome_gap_delta
