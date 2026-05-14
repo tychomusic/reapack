@@ -78,11 +78,6 @@ TrackNavigatorDockPosition = function(dock_id)
     return nil
 end
 
-TrackNavigatorSideDockPosition = function(dock_id)
-    local dock_pos = TrackNavigatorDockPosition(dock_id)
-    return (dock_pos == 1 or dock_pos == 3) and dock_pos or nil
-end
-
 TrackNavigatorVisualSideDockPosition = function(wx, ww, dock_pos)
     if dock_pos == 1 or dock_pos == 3 then return dock_pos end
     local win_cx = wx + ww * 0.5
@@ -760,7 +755,6 @@ nav_quit_requested = false
 nav_window_docked = false
 nav_current_dock_id = 0
 nav_last_side_dock_pos = nil
-nav_pending_side_dock_pos = nil
 last_window_w = 0
 last_window_h = 0
 nav_floating_user_w = LoadPref("navigator_floating_user_w_v1", 0)
@@ -785,11 +779,7 @@ require("Reflex_NavViewCore")({
     get_nav_scale = function() return ui_scale end,
     set_nav_scale = function(v) ui_scale = v; SavePref("navigator_scale_v1", v) end,
     get_dock_id = function() return nav_current_dock_id end,
-    request_dock = function(dock_id)
-        nav_dock_request = dock_id
-        nav_pending_side_dock_pos = TrackNavigatorSideDockPosition(dock_id)
-        if nav_pending_side_dock_pos then nav_last_side_dock_pos = nav_pending_side_dock_pos end
-    end,
+    request_dock = function(dock_id) nav_dock_request = dock_id end,
     request_quit = function() nav_quit_requested = true end,
 })
 
@@ -907,16 +897,12 @@ TrackNavigatorLoop = function()
     local main_bg = C.window_bg
     local nav_is_mac = TrackNavigatorIsMacOS()
     local nav_standard_edge_gap = S(UI.edge_pad)
-    local nav_chrome_edge_gap = 3
-    local nav_chrome_gap_delta = math.max(0, nav_standard_edge_gap - nav_chrome_edge_gap)
-    local nav_pre_begin_side_dock_pos = nil
-    if nav_dock_request ~= 0 then
-        nav_pre_begin_side_dock_pos = nav_pending_side_dock_pos
-            or TrackNavigatorSideDockPosition(nav_current_dock_id)
-            or (nav_window_docked and nav_last_side_dock_pos or nil)
-    end
-    local nav_window_pad_x = (nav_is_mac and nav_pre_begin_side_dock_pos ~= nil)
-        and nav_chrome_edge_gap or nav_standard_edge_gap
+    local nav_chrome_gap_delta = nav_standard_edge_gap - 3
+    local nav_pre_begin_dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
+    local nav_pre_begin_side_dock_pos = (nav_pre_begin_dock_pos == 1 or nav_pre_begin_dock_pos == 3)
+        and nav_pre_begin_dock_pos or nav_last_side_dock_pos
+    local nav_window_pad_x = (nav_window_docked and nav_is_mac and nav_pre_begin_side_dock_pos == 3)
+        and 3 or nav_standard_edge_gap
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_WindowBg(), main_bg)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Border(), C.border)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), main_bg)
@@ -1054,23 +1040,12 @@ TrackNavigatorLoop = function()
         local visual_dock_pos = nil
         if nav_window_docked and nav_is_mac then
             visual_dock_pos = TrackNavigatorVisualSideDockPosition(wx, ww, dock_pos)
-            visual_dock_pos = visual_dock_pos or nav_pre_begin_side_dock_pos
         end
-        if visual_dock_pos == 1 or visual_dock_pos == 3 then
-            nav_last_side_dock_pos = visual_dock_pos
-        elseif dock_pos ~= nil then
-            nav_last_side_dock_pos = nil
-        end
-        nav_pending_side_dock_pos = nil
+        nav_last_side_dock_pos = (visual_dock_pos == 1 or visual_dock_pos == 3) and visual_dock_pos or nil
         if visual_dock_pos == 1 then
-            if nav_window_pad_x == nav_chrome_edge_gap then
-                r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) + nav_chrome_gap_delta)
-                bw = math.max(0, bw - nav_chrome_gap_delta)
-            else
-                bw = bw + nav_chrome_gap_delta
-            end
+            bw = bw + nav_chrome_gap_delta
         elseif visual_dock_pos == 3 then
-            if nav_window_pad_x == nav_chrome_edge_gap then
+            if nav_window_pad_x == 3 then
                 bw = math.max(0, bw - nav_chrome_gap_delta)
             else
                 r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) - nav_chrome_gap_delta)
