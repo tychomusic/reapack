@@ -1587,7 +1587,6 @@ ReflexInstallNavViewCore = function(deps)
         local BASE_PAD_Y = params.base_pad_y
         local nav_bottom_extra = params.nav_bottom_extra or S(180)
         local nav_context_scope = params.nav_context_scope or "nav"
-        local nav_indicator_right_edge = params.nav_indicator_right_edge or 0
         local nav_body_x_offset = params.nav_body_x_offset or 0
         local nav_header_x_offset = params.nav_header_x_offset or 0
         local nav_ar_x_offset = params.nav_ar_x_offset or nav_header_x_offset
@@ -2626,26 +2625,14 @@ ReflexInstallNavViewCore = function(deps)
 
               last_nav_natural_h = r.ImGui_GetCursorPosY(ctx) - _nav_child_y0
               last_nav_expanded_visible_h = (nav_body_y - nav_start_y) + last_nav_natural_h
-              -- Capture scroll metrics before EndChild for the indicator.
-              nav_list_scroll_y = r.ImGui_GetScrollY(ctx)
-              nav_list_scroll_max = r.ImGui_GetScrollMaxY(ctx)
-              nav_list_child_h = select(2, r.ImGui_GetWindowSize(ctx))
               r.ImGui_EndChild(ctx)
           end
           r.ImGui_PopStyleVar(ctx, 1)
 
-          -- Draw thin scroll indicator ending at the caller-provided chrome edge.
           if _nav_child_visible then
               local _, _iy1 = r.ImGui_GetItemRectMin(ctx)
               local _, _iy2 = r.ImGui_GetItemRectMax(ctx)
               nav_ctx_y2 = _iy2
-              if nav_list_scroll_y ~= nav_list_scroll_prev_y then nav_list_scroll_fade = 1.8 end
-              nav_list_scroll_prev_y = nav_list_scroll_y
-              local _ndt = r.ImGui_GetDeltaTime(ctx) or 0
-              if nav_list_scroll_fade > 0 then nav_list_scroll_fade = math.max(0, nav_list_scroll_fade - _ndt * 2.5) end
-              local _ind_x = wx + ww - nav_indicator_right_edge - S(3)
-              local _nav_dl = r.ImGui_GetWindowDrawList(ctx)
-              DrawScrollIndicator(_nav_dl, _iy1, _iy2, nav_list_scroll_y, nav_list_scroll_max, nav_list_child_h, nav_list_scroll_fade, _ind_x)
           end
           -- Bottom edge of last NAV element in expanded mode = TLT body top
           -- (after header/A/S/R flow rows) + body child height.

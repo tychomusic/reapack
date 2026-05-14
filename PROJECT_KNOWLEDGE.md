@@ -7,7 +7,7 @@ This is the repo-level knowledge file for the Tycho ReaPack repository. It descr
 - GitHub remote: `https://github.com/tychomusic/reapack.git`
 - ReaPack import URL: `https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml`
 - Current package in this repo: Track Navigator
-- Current Track Navigator public version: 1.1
+- Current Track Navigator public version: 1.2
 - Future package expected here: Reflex
 
 ## Package Knowledge Convention
@@ -90,7 +90,7 @@ Current package:
 Track Navigator
 
 Current Track Navigator version:
-1.1
+1.2
 
 ReaPack import URL:
 https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml

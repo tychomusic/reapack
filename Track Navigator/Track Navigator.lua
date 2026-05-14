@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.1
+ * Version:     1.2
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.1"
+TRACK_NAVIGATOR_VERSION = "1.2"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -450,23 +450,6 @@ end
 
 NavInitDefaults()
 
-DrawScrollIndicator = function(dl, region_y1, region_y2, scroll_y, scroll_max, child_h, fade, ind_x)
-    if scroll_max <= 0 or fade <= 0 then return end
-    local ind_w = S(3)
-    local ind_pad = S(4)
-    local ind_top = region_y1 + ind_pad
-    local ind_track_h = (region_y2 - region_y1) - ind_pad * 2
-    if ind_track_h < S(40) then return end
-    local total_content = child_h + scroll_max
-    local ind_h = math.max(S(20), (child_h / total_content) * ind_track_h)
-    local scrollable = ind_track_h - ind_h
-    local ratio = scroll_y / scroll_max
-    local ind_y = ind_top + ratio * scrollable
-    local alpha = math.floor(math.min(1, fade) * 255)
-    local color = (C.border & 0xFFFFFF00) | alpha
-    r.ImGui_DrawList_AddRectFilled(dl, ind_x, ind_y, ind_x + ind_w, ind_y + ind_h, color, ind_w / 2)
-end
-
 DrawTrackNavigatorWindowOutline = function(dl, x, y, w, h, rounding, col)
     local x1 = Round(x)
     local y1 = Round(y)
@@ -620,12 +603,6 @@ last_nav_h = 0
 last_nav_natural_h = 0
 last_nav_collapsed_visible_h = 0
 last_nav_expanded_visible_h = 0
-nav_list_scroll_prev_y = -1
-nav_list_scroll_fade = 0
-nav_list_scroll_y = 0
-nav_list_scroll_max = 0
-nav_list_child_h = 0
-
 routing_view_active = false
 routing_view_source = nil
 routing_view_sources = {}
@@ -1097,9 +1074,6 @@ TrackNavigatorLoop = function()
         if not nav_window_docked then
             bw = math.max(bw, min_nav_w)
         end
-        local nav_indicator_right_edge = visual_dock_pos == 1 and 0
-            or (visual_dock_pos == 3 and nav_standard_edge_gap - nav_right_dock_width_offset - nav_right_dock_gap_offset)
-            or nav_standard_edge_gap
         local nav_body_x_offset = 0
         local nav_header_x_offset = 0
         local nav_ar_x_offset = 0
@@ -1126,7 +1100,6 @@ TrackNavigatorLoop = function()
             base_pad_y = BASE_PAD_Y,
             nav_bottom_extra = 0,
             nav_context_scope = "window",
-            nav_indicator_right_edge = nav_indicator_right_edge,
             nav_body_x_offset = nav_body_x_offset,
             nav_header_x_offset = nav_header_x_offset,
             nav_ar_x_offset = nav_ar_x_offset,
