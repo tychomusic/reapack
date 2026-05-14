@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2
+ * Version:     1.2.1
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2"
+TRACK_NAVIGATOR_VERSION = "1.2.1"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -177,6 +177,14 @@ SavePref = function(key, val)
     r.SetExtState(PREF, key, type(val) == "boolean" and (val and "1" or "0") or tostring(val), true)
 end
 
+TrackNavigatorClampScale = function(v)
+    local n = tonumber(v)
+    if not n or n ~= n then return 1.0 end
+    if n < 0.5 then return 0.5 end
+    if n > 2.5 then return 2.5 end
+    return math.floor(n * 100 + 0.5) / 100
+end
+
 local TRACK_NAVIGATOR_INSTANCE_KEY = "track_navigator_instance_token"
 local track_navigator_instance_token = tostring({}) .. ":" .. tostring(r.time_precise and r.time_precise() or os.clock())
 r.SetExtState(PREF, TRACK_NAVIGATOR_INSTANCE_KEY, track_navigator_instance_token, false)
@@ -208,6 +216,9 @@ if ui_scale == nil then
     ui_scale = old
     SavePref("navigator_scale_v1", ui_scale)
 end
+local unclamped_ui_scale = ui_scale
+ui_scale = TrackNavigatorClampScale(ui_scale)
+if ui_scale ~= unclamped_ui_scale then SavePref("navigator_scale_v1", ui_scale) end
 
 local body_size = (nav_theme.fonts and nav_theme.fonts.body_size) or 14
 local body_family = (nav_theme.fonts and nav_theme.fonts.family) or 'SF Pro'
@@ -776,7 +787,7 @@ require("Reflex_NavViewCore")({
     menu_context = "standalone",
     mark_dirty = function() needs_rescan = true; needs_song_rescan = true end,
     get_nav_scale = function() return ui_scale end,
-    set_nav_scale = function(v) ui_scale = v; SavePref("navigator_scale_v1", v) end,
+    set_nav_scale = function(v) ui_scale = TrackNavigatorClampScale(v); SavePref("navigator_scale_v1", ui_scale) end,
     get_dock_id = function() return nav_current_dock_id end,
     request_dock = function(dock_id) nav_dock_request = dock_id end,
     request_quit = function() nav_quit_requested = true end,
@@ -930,8 +941,11 @@ TrackNavigatorLoop = function()
     local dock_color_count = 0
     local function pushDockColor(col_fn, color)
         if col_fn then
-            r.ImGui_PushStyleColor(ctx, col_fn(), color)
-            dock_color_count = dock_color_count + 1
+            local ok_col, col = pcall(col_fn)
+            if ok_col and type(col) == "number" then
+                local ok_push = pcall(r.ImGui_PushStyleColor, ctx, col, color)
+                if ok_push then dock_color_count = dock_color_count + 1 end
+            end
         end
     end
     local col_tab = r.ImGui_Col_Tab

@@ -7,7 +7,7 @@ This is the repo-level knowledge file for the Tycho ReaPack repository. It descr
 - GitHub remote: `https://github.com/tychomusic/reapack.git`
 - ReaPack import URL: `https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml`
 - Current package in this repo: Track Navigator
-- Current Track Navigator public version: 1.2
+- Current Track Navigator public version: 1.2.1
 - Future package expected here: Reflex
 
 ## Package Knowledge Convention
@@ -49,7 +49,7 @@ Reflex is not currently managed from this repo. Until it is moved here, use `/Ap
 
 ## Versioning
 - Packages use their own version schemes.
-- Track Navigator uses simple public versions such as `1.0`, `1.1`, `1.2`.
+- Track Navigator uses public versions such as `1.0`, `1.1`, and `1.2`; use patch versions such as `1.2.1` for small fixes and reserve whole minor bumps for more meaningful user-facing releases.
 - Reflex historically uses `v20.xxx`; do not apply Reflex version numbers to Track Navigator.
 - For every release, update the package's declared version sources, then regenerate `index.xml`.
 
@@ -90,7 +90,7 @@ Current package:
 Track Navigator
 
 Current Track Navigator version:
-1.2
+1.2.1
 
 ReaPack import URL:
 https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml
