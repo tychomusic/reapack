@@ -754,6 +754,7 @@ nav_dock_request = nil
 nav_quit_requested = false
 nav_window_docked = false
 nav_current_dock_id = 0
+nav_last_side_dock_pos = nil
 last_window_w = 0
 last_window_h = 0
 nav_floating_user_w = LoadPref("navigator_floating_user_w_v1", 0)
@@ -894,6 +895,14 @@ TrackNavigatorLoop = function()
     if (not opt_live_mode or not songs_entry_ref) and current_page == "songs" then current_page = "tracks" end
 
     local main_bg = C.window_bg
+    local nav_is_mac = TrackNavigatorIsMacOS()
+    local nav_standard_edge_gap = S(UI.edge_pad)
+    local nav_chrome_gap_delta = nav_standard_edge_gap - 3
+    local nav_pre_begin_dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
+    local nav_pre_begin_side_dock_pos = (nav_pre_begin_dock_pos == 1 or nav_pre_begin_dock_pos == 3)
+        and nav_pre_begin_dock_pos or nav_last_side_dock_pos
+    local nav_window_pad_x = (nav_window_docked and nav_is_mac and nav_pre_begin_side_dock_pos == 3)
+        and 3 or nav_standard_edge_gap
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_WindowBg(), main_bg)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Border(), C.border)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), main_bg)
@@ -926,7 +935,7 @@ TrackNavigatorLoop = function()
     pushDockColor(r.ImGui_Col_ResizeGrip, C.window_outline)
     pushDockColor(r.ImGui_Col_ResizeGripHovered, C.window_outline)
     pushDockColor(r.ImGui_Col_ResizeGripActive, C.window_outline)
-    r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), S(UI.edge_pad), S(UI.edge_pad))
+    r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), nav_window_pad_x, nav_standard_edge_gap)
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FramePadding(), S(BASE_PAD_X), S(BASE_PAD_Y))
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ItemSpacing(), S(BASE_SPACING), S(BASE_SPACING))
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowRounding(), nav_window_docked and 0 or S(10))
@@ -1027,18 +1036,21 @@ TrackNavigatorLoop = function()
         end
         local fp = PushFont(GetScaledFont())
         local bw, win_h = r.ImGui_GetContentRegionAvail(ctx)
-        local nav_standard_edge_gap = S(UI.edge_pad)
-        local nav_chrome_gap_delta = nav_standard_edge_gap - 3
         local dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
         local visual_dock_pos = nil
-        if nav_window_docked and TrackNavigatorIsMacOS() then
+        if nav_window_docked and nav_is_mac then
             visual_dock_pos = TrackNavigatorVisualSideDockPosition(wx, ww, dock_pos)
         end
+        nav_last_side_dock_pos = (visual_dock_pos == 1 or visual_dock_pos == 3) and visual_dock_pos or nil
         if visual_dock_pos == 1 then
             bw = bw + nav_chrome_gap_delta
         elseif visual_dock_pos == 3 then
-            r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) - nav_chrome_gap_delta)
-            bw = bw + nav_chrome_gap_delta
+            if nav_window_pad_x == 3 then
+                bw = math.max(0, bw - nav_chrome_gap_delta)
+            else
+                r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) - nav_chrome_gap_delta)
+                bw = bw + nav_chrome_gap_delta
+            end
         end
         if not nav_window_docked then
             bw = math.max(bw, min_nav_w)
