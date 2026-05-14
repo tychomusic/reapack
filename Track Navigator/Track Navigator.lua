@@ -776,6 +776,8 @@ nav_floating_observed_w = 0
 nav_floating_observed_h = 0
 nav_pending_undock_snap = false
 nav_suppress_floating_size_save = 0
+nav_popup_active_this_frame = false
+nav_popup_active_previous_frame = false
 
 package.loaded["Reflex_NavViewCore"] = nil
 require("Reflex_NavViewCore")({
@@ -794,6 +796,7 @@ require("Reflex_NavViewCore")({
     get_dock_id = function() return nav_current_dock_id end,
     request_dock = function(dock_id) nav_dock_request = dock_id end,
     request_quit = function() nav_quit_requested = true end,
+    note_popup_active = function() nav_popup_active_this_frame = true end,
 })
 
 local window_initialized = false
@@ -864,6 +867,14 @@ TrackNavigatorEscapePressed = function()
     if not ok_key then return false end
     local ok_pressed, pressed = pcall(r.ImGui_IsKeyPressed, ctx, key)
     return ok_pressed and pressed == true
+end
+
+TrackNavigatorAnyPopupOpen = function()
+    if not (r.ImGui_IsPopupOpen and r.ImGui_PopupFlags_AnyPopup) then return false end
+    local ok_flags, flags = pcall(r.ImGui_PopupFlags_AnyPopup)
+    if not ok_flags or type(flags) ~= "number" then return false end
+    local ok_open, popup_open = pcall(r.ImGui_IsPopupOpen, ctx, "", flags)
+    return ok_open and popup_open == true
 end
 
 TrackNavigatorLoop = function()
@@ -1025,9 +1036,7 @@ TrackNavigatorLoop = function()
         else
             nav_current_dock_id = nav_window_docked and -1 or 0
         end
-        if opt_esc_key_to_close and TrackNavigatorEscapePressed() then
-            nav_quit_requested = true
-        end
+        local nav_esc_pressed = opt_esc_key_to_close and TrackNavigatorEscapePressed()
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
         local wx, wy = r.ImGui_GetWindowPos(ctx)
         local ww, wh = r.ImGui_GetWindowSize(ctx)
@@ -1089,6 +1098,7 @@ TrackNavigatorLoop = function()
             nav_header_x_offset = -nav_right_dock_gap_offset
             nav_ar_x_offset = -0.5
         end
+        nav_popup_active_this_frame = false
         NavDrawSection({
             bw = bw,
             win_h = win_h,
@@ -1107,6 +1117,13 @@ TrackNavigatorLoop = function()
             nav_header_x_offset = nav_header_x_offset,
             nav_ar_x_offset = nav_ar_x_offset,
         })
+        if nav_esc_pressed
+            and not nav_popup_active_this_frame
+            and not nav_popup_active_previous_frame
+            and not TrackNavigatorAnyPopupOpen() then
+            nav_quit_requested = true
+        end
+        nav_popup_active_previous_frame = nav_popup_active_this_frame
         PopFont(fp)
         if not nav_window_docked then
             local outline_dl = r.ImGui_GetForegroundDrawList and r.ImGui_GetForegroundDrawList(ctx) or r.ImGui_GetWindowDrawList(ctx)

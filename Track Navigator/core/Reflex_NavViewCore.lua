@@ -20,6 +20,7 @@ ReflexInstallNavViewCore = function(deps)
     local getDockID = deps.get_dock_id
     local requestDock = deps.request_dock
     local requestQuit = deps.request_quit
+    local notePopupActive = deps.note_popup_active or function() end
 
     local function NavDebugEvent(source, opts)
         if debugEvent then debugEvent(source, opts or {}) end
@@ -661,6 +662,7 @@ ReflexInstallNavViewCore = function(deps)
 
     local function NavDrawHelpManualPopup()
         if r.ImGui_BeginPopup(ctx, "##nav_help_manual") then
+            notePopupActive()
             ReflexPushPopupLayout()
             local manual_w = S(460)
             nav_help_manual_hovered = r.ImGui_IsWindowHovered(ctx, r.ImGui_HoveredFlags_RootAndChildWindows())
@@ -1207,6 +1209,7 @@ ReflexInstallNavViewCore = function(deps)
     local function NavDrawMainContextPopup()
         PushPopupStyle()
         if r.ImGui_BeginPopup(ctx, "##navctx") then
+            notePopupActive()
             ReflexPushPopupLayout()
             local menu_w = NavGlobalMenuWidth()
             local help_open = r.ImGui_IsPopupOpen(ctx, "##nav_help_manual")
@@ -1913,6 +1916,7 @@ ReflexInstallNavViewCore = function(deps)
               if mini_rclick then r.ImGui_OpenPopup(ctx, "##tlfctx") end
               PushPopupStyle()
               if r.ImGui_BeginPopup(ctx, "##tlfctx") then
+                  notePopupActive()
                   ReflexPushPopupLayout()
                   if remote_ctx_tlf_track and r.ValidatePtr(remote_ctx_tlf_track, "MediaTrack*") then
                       local _, tlf_name = r.GetTrackName(remote_ctx_tlf_track)
@@ -2291,6 +2295,7 @@ ReflexInstallNavViewCore = function(deps)
               end
               PushPopupStyle()
               if r.ImGui_BeginPopup(ctx, "##tlfctx" .. ri) then
+                  notePopupActive()
                   ReflexPushPopupLayout()
                   NavDrawTlfContextItems(item.entry.track, item.entry.name, item.sub_group ~= nil, item.ghost_parent, item.custom == true)
                   ReflexPopPopupLayout()
