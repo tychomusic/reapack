@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2.1
+Current public version: 1.2.2
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -68,7 +68,9 @@ Use this shorthand in discussion and bug reports.
 - A/S/R labels are image assets in `icons/`, not live text. Do not tune normal A/S/R centering with fallback text nudges; create or edit the PNG asset so it uses the same `NavDrawArLabelImage` path as the other buttons. `Nav.Select.S.png` uses alpha bounds `24,23,39,41` in a 64x64 source, matching A/R's vertical placement.
 
 ## Tooltips
-- `NAV.menu` has a `Modifier key tooltips` option (`helper_tooltips`) for verbose shortcut/helper tooltips. It sits directly above `Help / Manual` with no separator between them. When off, suppress modifier-key blocks on `NAV.arr` and expanded `NAV.pill` hover, but keep simple track-name tooltips and A/S/R tooltips.
+- `NAV.menu` has a `Modifier key tooltips` option (`helper_tooltips`) for verbose shortcut/helper tooltips. It defaults off and sits directly above `All tooltips`, with no separator between those options and `Help / Manual`.
+- `All tooltips` (`track_navigator_tooltips`) disables every Track Navigator tooltip when off.
+- With modifier-key tooltips off, expanded `NAV.pill` simple track-name tooltips should appear only when the drawn label is clipped down to two UTF-8 characters or fewer. Collapsed `NAV.dot` tooltips still show the track name because dots have no visible label.
 
 ## Custom Visibility
 - `NAV.menu` exposes three selected-track actions: `Show selected tracks`, `Hide selected tracks`, and `Hide selected & show descendants`.

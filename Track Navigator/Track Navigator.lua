@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2.1
+ * Version:     1.2.2
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2.1"
+TRACK_NAVIGATOR_VERSION = "1.2.2"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -200,7 +200,7 @@ end
 opt_expand_children = LoadPref("expand_children", false)
 opt_songs_expand = LoadPref("songs_expand_children", false)
 opt_tooltips = LoadPref("track_navigator_tooltips", true)
-opt_helper_tooltips = LoadPref("helper_tooltips", true)
+opt_helper_tooltips = LoadPref("helper_tooltips", false)
 opt_viewlock = LoadPref("view_lock", false)
 opt_live_mode = LoadPref("tycho_live_mode", false)
 opt_nav_ignore_archive = LoadPref("nav_ignore_archive", true)

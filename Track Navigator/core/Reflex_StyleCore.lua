@@ -120,13 +120,14 @@ ReflexInstallStyleCore = function(deps)
     end
 
     TipDirect = function(text)
-        if not text then return end
+        if not opt_tooltips or not text then return end
         PushTooltipStyle()
         r.ImGui_SetTooltip(ctx, text)
         PopTooltipStyle()
     end
 
     ShowModKeyTip = function()
+        if not opt_tooltips then return end
         if opt_helper_tooltips == false then return end
         local os = r.GetOS and r.GetOS() or ""
         local is_mac = os:find("OSX", 1, true) ~= nil
