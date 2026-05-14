@@ -564,18 +564,30 @@ ReflexInstallViewModes = function(deps)
         ViewModeRememberProjectState()
     end
 
-    -- Per-frame peak scan: update active_view_peak_times for all tracks.
-    -- Called every frame; cheap (~1 C call per track via Track_GetPeakInfo).
+    -- Throttled peak scan: update active_view_peak_times for Active View.
     ActiveViewUpdatePeaks = function()
         local now = r.time_precise()
         -- Flush peaks on play/stop transitions (clears stale data from previous section)
         local ps = r.GetPlayState()
-        local was_playing = (active_view_last_play & 1) == 1
-        local is_playing = (ps & 1) == 1
-        if is_playing ~= was_playing then
+        local was_transport_active = (active_view_last_play & 1) == 1 or (active_view_last_play & 4) == 4
+        local transport_active = (ps & 1) == 1 or (ps & 4) == 4
+        if transport_active ~= was_transport_active then
             active_view_peak_times = {}
+            active_view_signal_available = false
+            active_view_last_peak_scan_time = 0
         end
         active_view_last_play = ps
+        local interval = transport_active and (active_view_peak_scan_interval or 0.10)
+            or (active_view_idle_peak_scan_interval or 0.50)
+        if active_view_active and active_view_peak_scan_interval then
+            interval = math.min(interval, active_view_peak_scan_interval)
+        end
+        if active_view_last_peak_scan_time and active_view_last_peak_scan_time > 0
+            and now - active_view_last_peak_scan_time < interval then
+            return
+        end
+        active_view_last_peak_scan_time = now
+
         local nt = r.CountTracks(0)
         local any_solo = false
         for ti = 0, nt - 1 do

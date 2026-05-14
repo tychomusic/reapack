@@ -3,14 +3,14 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.0
+ * Version:     1.1
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.0"
+TRACK_NAVIGATOR_VERSION = "1.1"
 
 TrackNavigatorDependencyError = function(detail)
-    local msg = "Track Navigator requires ReaImGui 0.7 or newer."
+    local msg = "Track Navigator requires ReaImGui 0.10 or newer."
     if detail and detail ~= "" then msg = msg .. "\n\n" .. tostring(detail) end
     if r.ReaPack_BrowsePackages then
         local choice = r.MB(msg .. "\n\nOpen ReaPack package browser for ReaImGui?", "Track Navigator: Missing dependency", 4)
@@ -27,7 +27,7 @@ if not imgui_loader then
     return
 end
 
-local imgui_ok, imgui_err = pcall(function() imgui_loader('0.7') end)
+local imgui_ok, imgui_err = pcall(function() imgui_loader('0.10') end)
 if not imgui_ok or not r.ImGui_CreateContext then
     TrackNavigatorDependencyError(imgui_err)
     return
@@ -191,7 +191,7 @@ end
 
 opt_expand_children = LoadPref("expand_children", false)
 opt_songs_expand = LoadPref("songs_expand_children", false)
-opt_tooltips = LoadPref("tooltips", true)
+opt_tooltips = LoadPref("track_navigator_tooltips", true)
 opt_helper_tooltips = LoadPref("helper_tooltips", true)
 opt_viewlock = LoadPref("view_lock", false)
 opt_live_mode = LoadPref("tycho_live_mode", false)
@@ -642,6 +642,9 @@ active_view_signal_available = false
 active_view_threshold = 0.001
 active_view_window = 3.0
 active_view_last_play = 0
+active_view_last_peak_scan_time = 0
+active_view_peak_scan_interval = 0.10
+active_view_idle_peak_scan_interval = 0.50
 active_view_saved_snap = nil
 active_view_flash_time = 0
 
@@ -806,6 +809,7 @@ require("Reflex_NavViewCore")({
 local window_initialized = false
 local last_track_count = 0
 local last_project_state = 0
+local project_state_rescan_pending = false
 local last_rescan_time = 0
 local RESCAN_THROTTLE = 0.5
 
@@ -908,6 +912,9 @@ TrackNavigatorLoop = function()
         needs_rescan = true
         needs_song_rescan = true
     elseif proj_state ~= last_project_state then
+        project_state_rescan_pending = true
+    end
+    if project_state_rescan_pending then
         local now = r.time_precise()
         if now - last_rescan_time >= RESCAN_THROTTLE then
             needs_rescan = true
@@ -915,13 +922,16 @@ TrackNavigatorLoop = function()
         end
     end
     last_track_count = nt
-    last_project_state = proj_state
 
     if needs_rescan and nt > 0 then
         ScanTopFolders()
         ScanSubGroups()
         BuildRenderList()
         last_rescan_time = r.time_precise()
+        last_project_state = proj_state
+        project_state_rescan_pending = false
+    elseif not project_state_rescan_pending then
+        last_project_state = proj_state
     end
 
     if (not opt_live_mode or not songs_entry_ref) and current_page == "songs" then current_page = "tracks" end

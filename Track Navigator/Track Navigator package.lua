@@ -1,5 +1,5 @@
 -- @description Track Navigator
--- @version 1.0
+-- @version 1.1
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @metapackage

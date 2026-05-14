@@ -2158,7 +2158,8 @@ ReflexInstallNavViewCore = function(deps)
                   -- Pinned indicator (C.bg punched through colored circle center,
                   -- matching expanded TLT collapsed-pill convention).
                   if PinnedTrack(item.entry.track) then
-                      r.ImGui_DrawList_AddCircleFilled(dl, dot_x + dot_r, dot_cy, pin_overlay_r, C.bg, nav_circle_segments)
+                      local pin_col = (C.bg & 0xFFFFFF00) | alpha
+                      r.ImGui_DrawList_AddCircleFilled(dl, dot_x + dot_r, dot_cy, pin_overlay_r, pin_col, nav_circle_segments)
                   end
                   r.ImGui_PopID(ctx)
                   dot_x = dot_x + dot_r * 2 + dot_gap
@@ -2500,7 +2501,8 @@ ReflexInstallNavViewCore = function(deps)
                       -- Use C.bg (dark charcoal of the outer pill container)
                       -- so the pin reads as concentric with the pill bg, not
                       -- as a separate grey blob inside the colored circle.
-                      r.ImGui_DrawList_AddCircleFilled(dl, circ_cx, mid_y, Round(S(3.75)), C.bg, nav_circle_segments)
+                      local pin_col = (C.bg & 0xFFFFFF00) | alpha
+                      r.ImGui_DrawList_AddCircleFilled(dl, circ_cx, mid_y, Round(S(3.75)), pin_col, nav_circle_segments)
                   else
                       local pin_x
                       if nav_mirror then
@@ -2509,7 +2511,8 @@ ReflexInstallNavViewCore = function(deps)
                           pin_x = row_cx + tlf_h * 0.5
                       end
                       local pin_y = mid_y
-                      r.ImGui_DrawList_AddCircleFilled(dl, pin_x, pin_y, pin_dot_r, C.amber, nav_circle_segments)
+                      local pin_col = (C.amber & 0xFFFFFF00) | alpha
+                      r.ImGui_DrawList_AddCircleFilled(dl, pin_x, pin_y, pin_dot_r, pin_col, nav_circle_segments)
                   end
               end
 

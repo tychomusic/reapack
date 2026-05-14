@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.0
+Current public version: 1.1
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -63,6 +63,7 @@ Use this shorthand in discussion and bug reports.
 ## A/S/R View Buttons
 - `NAV.A`, `NAV.S`, and `NAV.R` are special view modes. On entry, each captures the current TCP/Mixer visibility snapshot, folder compact state, selected-track set, inspector/flow state, and TCP vertical scroll; on exit, that state is restored. Horizontal arrange scroll/zoom is captured but restored only when `Recall arrange view` is enabled in `NAV.menu`.
 - `NAV.S` shows only the currently selected REAPER tracks. It deliberately does not add parent folders, children, routing context, or active-signal context.
+- `NAV.A` peak polling is intentionally throttled for large templates. Revisit this after real 1000+ track session testing; if it is still measurable, prefer adaptive scan intervals before adding a UI option that removes the Active Tracks View button.
 - Keep the three controls grouped in A/S/R order. Wide expanded mode pins all three to the top row. When width gets tight, all three drop together to row 2; then A stays on row 2 while S/R drop together to row 3; then A, S, and R stack individually. Collapsed mode follows the same A/S/R grouping before TLT dots.
 - A/S/R labels are image assets in `icons/`, not live text. Do not tune normal A/S/R centering with fallback text nudges; create or edit the PNG asset so it uses the same `NavDrawArLabelImage` path as the other buttons. `Nav.Select.S.png` uses alpha bounds `24,23,39,41` in a 64x64 source, matching A/R's vertical placement.
 
