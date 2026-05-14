@@ -152,6 +152,26 @@ ReflexInstallNavExclusionCore = function(deps)
         return true
     end
 
+    NavResetPromotedTracks = function()
+        local changed = false
+        for _ in pairs(nav_excluded) do changed = true; break end
+        if not changed then return false end
+        nav_excluded = {}
+        SaveNavExcluded()
+        markDirty()
+        return true
+    end
+
+    NavResetHiddenTracks = function()
+        local changed = false
+        for _ in pairs(nav_hidden) do changed = true; break end
+        if not changed then return false end
+        nav_hidden = {}
+        SaveNavHidden()
+        markDirty()
+        return true
+    end
+
     NavPruneExcludedTracks = function()
         local live = {}
         local nt = r.CountTracks(0)

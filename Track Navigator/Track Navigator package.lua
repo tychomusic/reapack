@@ -22,6 +22,7 @@
 --   [nomain] core/Reflex_ViewModes.lua
 --   [nomain] core/Reflex_NavViewCore.lua
 --   [nomain] icons/Nav.Active.A.png
+--   [nomain] icons/Nav.Select.S.png
 --   [nomain] icons/Nav.Route.R.png
 --   [nomain] icons/Navigator.mark.png
 --   [nomain] icons/Tycho-Logo-dots.png

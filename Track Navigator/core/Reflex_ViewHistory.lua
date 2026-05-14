@@ -11,10 +11,75 @@ ReflexInstallViewHistory = function(deps)
     local resetInspEnvExpanded = deps.reset_insp_env_expanded
     local setInspPinSuppressSelected = deps.set_insp_pin_suppress_selected
 
-    ViewHistorySnapshot = function()
+    local function ViewHistoryTcpWindow()
+        if not (r.GetMainHwnd and r.JS_Window_FindChildByID) then return nil end
+        return r.JS_Window_FindChildByID(r.GetMainHwnd(), 1000)
+    end
+
+    local function ViewHistoryCaptureTcpScroll()
+        if not r.JS_Window_GetScrollInfo then return nil end
+        local tcp = ViewHistoryTcpWindow()
+        if not tcp then return nil end
+        local ok, pos = r.JS_Window_GetScrollInfo(tcp, "v")
+        if ok and type(pos) == "number" then return pos end
+        return nil
+    end
+
+    local function ViewHistoryRestoreTcpScroll(pos)
+        if type(pos) ~= "number" or not r.JS_Window_SetScrollPos then return end
+        local function restore()
+            local tcp = ViewHistoryTcpWindow()
+            if tcp then r.JS_Window_SetScrollPos(tcp, "v", math.max(0, math.floor(pos + 0.5))) end
+        end
+        restore()
+        r.defer(function()
+            restore()
+            r.defer(restore)
+        end)
+    end
+
+    local function ViewHistoryCaptureArrangeView()
+        if not r.GetSet_ArrangeView2 then return nil end
+        local ok, start_time, end_time = pcall(r.GetSet_ArrangeView2, 0, false, 0, 0, 0, 0)
+        if ok and type(start_time) == "number" and type(end_time) == "number" and end_time > start_time then
+            return { start_time = start_time, end_time = end_time }
+        end
+        return nil
+    end
+
+    local function ViewHistoryRestoreArrangeView(arrange)
+        if type(arrange) ~= "table" or not r.GetSet_ArrangeView2 then return end
+        local start_time = arrange.start_time
+        local end_time = arrange.end_time
+        if type(start_time) ~= "number" or type(end_time) ~= "number" or end_time <= start_time then return end
+        pcall(r.GetSet_ArrangeView2, 0, true, 0, 0, start_time, end_time)
+    end
+
+    local function ViewHistoryCaptureWorkState()
+        local work = {}
+        work.tcp_scroll_y = ViewHistoryCaptureTcpScroll()
+        work.arrange_view = ViewHistoryCaptureArrangeView()
+        if work.tcp_scroll_y ~= nil or work.arrange_view ~= nil then return work end
+        return nil
+    end
+
+    local function ViewHistoryRestoreWorkState(work)
+        if type(work) ~= "table" then return end
+        if opt_view_mode_restore_arrange == true then
+            ViewHistoryRestoreArrangeView(work.arrange_view)
+        end
+        ViewHistoryRestoreTcpScroll(work.tcp_scroll_y)
+    end
+
+    ViewHistorySnapshot = function(opts)
+        local capture_work_state = opts and opts.work_state
         local insp_pinned = getInspPinned()
         local insp_track = getInspTrack()
-        local snap = { vis = {}, collapse = {}, sel_guid = nil, pinned = insp_pinned }
+        local snap = { vis = {}, mixer = {}, collapse = {}, sel_guid = nil, pinned = insp_pinned }
+        if capture_work_state then
+            snap.sel_guids = {}
+            snap.work_state = ViewHistoryCaptureWorkState()
+        end
         if insp_pinned and insp_track and r.ValidatePtr(insp_track, "MediaTrack*") then
             snap.pinned_guid = r.GetTrackGUID(insp_track)
         end
@@ -33,11 +98,15 @@ ReflexInstallViewHistory = function(deps)
             local t = r.GetTrack(0, i)
             local guid = r.GetTrackGUID(t)
             snap.vis[guid] = r.GetMediaTrackInfo_Value(t, "B_SHOWINTCP")
+            snap.mixer[guid] = r.GetMediaTrackInfo_Value(t, "B_SHOWINMIXER")
             local fd = r.GetMediaTrackInfo_Value(t, "I_FOLDERDEPTH")
             if fd == 1 then
                 snap.collapse[guid] = r.GetMediaTrackInfo_Value(t, "I_FOLDERCOMPACT")
             end
-            if r.IsTrackSelected(t) then snap.sel_guid = guid end
+            if r.IsTrackSelected(t) then
+                snap.sel_guid = guid
+                if capture_work_state then snap.sel_guids[guid] = true end
+            end
         end
         return snap
     end
@@ -53,16 +122,22 @@ ReflexInstallViewHistory = function(deps)
             if snap.vis[guid] ~= nil then
                 r.SetMediaTrackInfo_Value(t, "B_SHOWINTCP", snap.vis[guid])
             end
+            if snap.mixer and snap.mixer[guid] ~= nil then
+                r.SetMediaTrackInfo_Value(t, "B_SHOWINMIXER", snap.mixer[guid])
+            end
             if snap.collapse[guid] ~= nil then
                 r.SetMediaTrackInfo_Value(t, "I_FOLDERCOMPACT", snap.collapse[guid])
             end
-            if snap.sel_guid then
+            if snap.sel_guids then
+                r.SetMediaTrackInfo_Value(t, "I_SELECTED", snap.sel_guids[guid] and 1 or 0)
+            elseif snap.sel_guid then
                 r.SetMediaTrackInfo_Value(t, "I_SELECTED", guid == snap.sel_guid and 1 or 0)
             end
         end
         r.PreventUIRefresh(-1)
         r.TrackList_AdjustWindows(false)
         r.UpdateArrange()
+        ViewHistoryRestoreWorkState(snap.work_state)
         -- Restore pin state
         if snap.pinned ~= nil then
             setInspPinned(snap.pinned)
@@ -133,8 +208,14 @@ ReflexInstallViewHistory = function(deps)
         if a.flow_anchor_guid ~= b.flow_anchor_guid then return false end
         for k, v in pairs(a.vis) do if b.vis[k] ~= v then return false end end
         for k, v in pairs(b.vis) do if a.vis[k] ~= v then return false end end
+        for k, v in pairs(a.mixer or {}) do if not b.mixer or b.mixer[k] ~= v then return false end end
+        for k, v in pairs(b.mixer or {}) do if not a.mixer or a.mixer[k] ~= v then return false end end
         for k, v in pairs(a.collapse) do if b.collapse[k] ~= v then return false end end
         for k, v in pairs(b.collapse) do if a.collapse[k] ~= v then return false end end
+        if a.sel_guids or b.sel_guids then
+            for k, v in pairs(a.sel_guids or {}) do if not b.sel_guids or b.sel_guids[k] ~= v then return false end end
+            for k, v in pairs(b.sel_guids or {}) do if not a.sel_guids or a.sel_guids[k] ~= v then return false end end
+        end
         return true
     end
 

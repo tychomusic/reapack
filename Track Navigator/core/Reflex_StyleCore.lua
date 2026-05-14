@@ -26,6 +26,14 @@ ReflexInstallStyleCore = function(deps)
         return C.popup_text_hover or C.text
     end
 
+    local function popupBorder()
+        return C.popup_border or C.window_outline or C.border or popupText()
+    end
+
+    local function popupSeparator()
+        return C.popup_separator or 0x262930FF
+    end
+
     local function popupGap()
         return S(4)
     end
@@ -34,13 +42,19 @@ ReflexInstallStyleCore = function(deps)
         return S(10)
     end
 
+    local popup_style_stack = {}
+
     local function snap(v)
         if Round then return Round(v) end
         return math.floor(v + 0.5)
     end
 
-    PushPopupStyle = function()
+    PushPopupStyle = function(opts)
+        opts = opts or {}
+        local var_count = 0
+        local pad = opts.padding or (popupOuterGap() * (opts.padding_scale or 1))
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_PopupBg(), popupBg())
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Border(), popupBorder())
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), popupText())
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Header(), popupHover())
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), popupHover())
@@ -49,13 +63,39 @@ ReflexInstallStyleCore = function(deps)
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ScrollbarGrab(), 0x5A5A5EFF)
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ScrollbarGrabHovered(), 0x6E6E74FF)
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ScrollbarGrabActive(), 0x7E7E84FF)
-        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_PopupRounding(), S(6))
-        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), popupOuterGap(), popupOuterGap())
+        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_PopupRounding(), S(10))
+        var_count = var_count + 1
+        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), pad, pad)
+        var_count = var_count + 1
+        if opts.solid_outline and r.ImGui_StyleVar_WindowBorderSize then
+            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowBorderSize(), 0)
+            var_count = var_count + 1
+        end
+        if opts.solid_outline and r.ImGui_StyleVar_PopupBorderSize then
+            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_PopupBorderSize(), 0)
+            var_count = var_count + 1
+        end
+        popup_style_stack[#popup_style_stack + 1] = var_count
     end
 
     PopPopupStyle = function()
-        r.ImGui_PopStyleColor(ctx, 9)
-        r.ImGui_PopStyleVar(ctx, 2)
+        local var_count = popup_style_stack[#popup_style_stack] or 2
+        popup_style_stack[#popup_style_stack] = nil
+        r.ImGui_PopStyleColor(ctx, 10)
+        r.ImGui_PopStyleVar(ctx, var_count)
+    end
+
+    ReflexDrawSolidPopupOutline = function(rounding, col)
+        local x, y = r.ImGui_GetWindowPos(ctx)
+        local w, h = r.ImGui_GetWindowSize(ctx)
+        local dl = r.ImGui_GetForegroundDrawList and r.ImGui_GetForegroundDrawList(ctx) or r.ImGui_GetWindowDrawList(ctx)
+        col = col or popupBorder()
+        rounding = rounding or S(10)
+        if DrawTrackNavigatorWindowOutline then
+            DrawTrackNavigatorWindowOutline(dl, x, y, w, h, rounding, col)
+        else
+            r.ImGui_DrawList_AddRect(dl, x, y, x + w, y + h, col, rounding, 0, 1)
+        end
     end
 
     PushTooltipStyle = function()
@@ -189,7 +229,7 @@ ReflexInstallStyleCore = function(deps)
         local x, y = r.ImGui_GetCursorScreenPos(ctx)
         local dl = r.ImGui_GetWindowDrawList(ctx)
         local yy = y + gap
-        r.ImGui_DrawList_AddRectFilled(dl, x, yy, x + (w or S(140)), yy + line_h, opts.col or (C.border or popupText()))
+        r.ImGui_DrawList_AddRectFilled(dl, x, yy, x + (w or S(140)), yy + line_h, opts.col or popupSeparator())
         r.ImGui_Dummy(ctx, w or S(140), gap * 2 + line_h)
     end
 
@@ -198,7 +238,15 @@ ReflexInstallStyleCore = function(deps)
         local line_h = opts.line_h or math.max(1, S(1))
         local x, y = r.ImGui_GetCursorScreenPos(ctx)
         local dl = r.ImGui_GetWindowDrawList(ctx)
-        r.ImGui_DrawList_AddRectFilled(dl, x, y, x + (w or S(140)), y + line_h, opts.col or (C.border or popupText()))
+        local x2 = x + (w or S(140))
+        if opts.full_width ~= false then
+            local wx, _ = r.ImGui_GetWindowPos(ctx)
+            local ww, _ = r.ImGui_GetWindowSize(ctx)
+            local inset = opts.inset or 1
+            x = snap(wx + inset)
+            x2 = snap(wx + ww - inset)
+        end
+        r.ImGui_DrawList_AddRectFilled(dl, x, y, x2, y + line_h, opts.col or popupSeparator())
         r.ImGui_Dummy(ctx, w or S(140), line_h)
     end
 

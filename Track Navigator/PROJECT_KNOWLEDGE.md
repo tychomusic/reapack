@@ -28,7 +28,7 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - `Track Navigator.lua` bootstraps ReaImGui, loads the optional user theme, installs shared cores, owns standalone window lifetime, and passes standalone callbacks into `Reflex_NavViewCore`.
 - `core/Reflex_NavViewCore.lua` draws NAV UI: NAV buttons, global NAV.menu, TLT context menus, Help / Manual, docking menu, and the main NAV list.
 - `core/Reflex_NavActionCore.lua` owns NAV visibility actions.
-- `core/Reflex_ViewModes.lua` owns Routing and Active view modes.
+- `core/Reflex_ViewModes.lua` owns Routing, Selected, and Active view modes.
 - `core/Reflex_ViewHistory.lua` owns view history state.
 - `core/Reflex_PinCore.lua`, `Reflex_NavExclusionCore.lua`, and `Reflex_NavInclusionCore.lua` own pin/hidden/manual visibility persistence.
 - `core/Reflex_FontCore.lua`, `Reflex_StyleCore.lua`, and `Reflex_ColorCore.lua` own UI tokens, drawing helpers, fonts, and colors.
@@ -50,8 +50,9 @@ The `Reflex_*.lua` core names are intentional historical/shared-core names. Do n
 - `NAV.arr`: expand/collapse arrow region.
 - `NAV.menu`: global right-click/options menu.
 - `NAV.help`: Help / Manual popup from NAV.menu.
-- `NAV.R`: Routing View button.
 - `NAV.A`: Active Tracks View button.
+- `NAV.S`: Selected Tracks View button.
+- `NAV.R`: Routing View button.
 - `TLT`: top-level track.
 
 Use this shorthand in discussion and bug reports.
@@ -59,8 +60,20 @@ Use this shorthand in discussion and bug reports.
 ## NAV Label Layout
 - Expanded `NAV.pill` labels clip to a shared UTF-8 character count. If any visible TLT label loses characters at the current width, that fitted count becomes the frame's lowest common denominator and all longer TLT labels clip to the same count. Do not return to independent per-label pixel clipping; proportional glyph widths made adjacent pills show uneven one/two/three-letter remnants while resizing horizontally.
 
+## A/S/R View Buttons
+- `NAV.A`, `NAV.S`, and `NAV.R` are special view modes. On entry, each captures the current TCP/Mixer visibility snapshot, folder compact state, selected-track set, inspector/flow state, and TCP vertical scroll; on exit, that state is restored. Horizontal arrange scroll/zoom is captured but restored only when `Recall arrange view` is enabled in `NAV.menu`.
+- `NAV.S` shows only the currently selected REAPER tracks. It deliberately does not add parent folders, children, routing context, or active-signal context.
+- Keep the three controls grouped in A/S/R order. Wide expanded mode pins all three to the top row. When width gets tight, all three drop together to row 2; then A stays on row 2 while S/R drop together to row 3; then A, S, and R stack individually. Collapsed mode follows the same A/S/R grouping before TLT dots.
+- A/S/R labels are image assets in `icons/`, not live text. Do not tune normal A/S/R centering with fallback text nudges; create or edit the PNG asset so it uses the same `NavDrawArLabelImage` path as the other buttons. `Nav.Select.S.png` uses alpha bounds `24,23,39,41` in a 64x64 source, matching A/R's vertical placement.
+
 ## Tooltips
-- `NAV.menu` has a `Modifier key tooltips` option (`helper_tooltips`) for verbose shortcut/helper tooltips. It sits directly above `Help / Manual` with no separator between them. When off, suppress modifier-key blocks on `NAV.arr` and expanded `NAV.pill` hover, but keep simple track-name tooltips and A/R tooltips.
+- `NAV.menu` has a `Modifier key tooltips` option (`helper_tooltips`) for verbose shortcut/helper tooltips. It sits directly above `Help / Manual` with no separator between them. When off, suppress modifier-key blocks on `NAV.arr` and expanded `NAV.pill` hover, but keep simple track-name tooltips and A/S/R tooltips.
+
+## Custom Visibility
+- `NAV.menu` exposes three selected-track actions: `Show selected tracks`, `Hide selected tracks`, and `Hide selected & show descendants`.
+- `Show selected tracks` can add any allowed selected REAPER track as a manual NAV button. `Hide selected tracks` and `Hide selected & show descendants` apply only to selected eligible natural TLTs, matching the per-TLT right-click rules.
+- The custom visibility recovery sections are `Manually shown tracks`, `Hidden tracks`, and `Showing descendants instead`. Each section has an `X` clear-all button. Row labels include the REAPER track number prefix (`T26`) and clip track names to 16 UTF-8 characters plus `...`.
+- The show-descendants rule uses the existing `nav_excluded` behavior: hide the parent TLT button and promote direct children as NAV buttons.
 
 ## Modifier Behavior
 - Click `NAV.pill` / `NAV.dot`: show only this TLT; subsequent clicks expand/collapse if the track is a folder.
@@ -80,15 +93,16 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
 - The center `Dock` action should dock to the last known side dock when available, otherwise left. Do not restore top/bottom dock IDs from history while horizontal mode is unsupported.
 - Resolve side dock targets from `DockGetPosition`; do not blindly send `ImGui_SetNextWindowDockID` to hardcoded fallback docker indices. On installs with no left/right docker, only provision the expected side docker when SWS config helpers are available; otherwise keep the dock control disabled instead of docking somewhere arbitrary.
 - `Quit` belongs at the bottom of the standalone global menu. The old `Current:` dock status is not useful user-facing information and should stay out of the UI.
+- In standalone `NAV.menu`, the bottom action cluster is `Show all tracks`, dock controls, then `Quit`. `Show all tracks` keeps the separated section above the cluster; the dock controls have no visible separators above or below, just dock-only separator-height gaps reduced by 5 px.
 - `Esc key to close` is a standalone global option. When disabled, the main script ignores Esc for quitting. When enabled, Esc closes active NAV/help/TLT popups first and only quits the standalone script when no NAV popup was active in the current or previous frame. Popup activity is reported from `Reflex_NavViewCore` to the standalone wrapper instead of relying only on generic `IsPopupOpen(...AnyPopup...)` timing.
 - Standalone Track Navigator needs a single-instance guard. Re-running the action without one can leave older deferred ImGui contexts alive, making layout tests appear unchanged or inconsistent.
 - Mac side-dock gap compensation has separate layout layers:
   - `NAV.pill` / TLT rows are anchored inside the `##nav_scroll` child in `core/Reflex_NavViewCore.lua`. Parent cursor nudges before `NavDrawSection` do not move these rows.
-  - `NAV.arr`, wrapped collapsed dots, and A/R controls are drawn in the parent/header layer before `##nav_scroll`.
+  - `NAV.arr`, wrapped collapsed dots, and A/S/R controls are drawn in the parent/header layer before `##nav_scroll`.
   - Do not treat docked Navigator gaps as one margin or assume right-dock can be fixed by blindly mirroring left-dock numbers. Left dock is the measured tuned baseline; right dock needs the same layer-by-layer treatment with the inside compensation gap on the opposite side.
   - To reduce the mac-left TLT left gap while preserving the correct right gap, offset the `##nav_scroll` child left and widen it by the same amount. In the current standalone wrapper this is passed as `nav_body_x_offset = -1`.
-  - Header elements need their own offsets: `nav_header_x_offset = -1` for `NAV.arr`/collapsed header flow, and `nav_ar_x_offset = -0.5` for fixed A/R alignment. On Retina this half logical px corresponds to the 1 screen px correction needed for `NAV.R` to align with the TLT right edge.
-  - Mac right dock uses `WindowPadding.x = 3`, then applies the docker chrome width compensation plus one logical px, plus a 7 logical px horizontal gap correction (14 screen px on Retina). It offsets body/header by `-7` and widens by the same amount so both left and right gaps shrink while the top gap stays unchanged. It keeps `nav_ar_x_offset = -0.5` so fixed A/R retains the measured 1 screen px right-edge correction.
+  - Header elements need their own offsets: `nav_header_x_offset = -1` for `NAV.arr`/collapsed header flow, and `nav_ar_x_offset = -0.5` for fixed A/S/R alignment. On Retina this half logical px corresponds to the 1 screen px correction needed for `NAV.R` to align with the TLT right edge.
+  - Mac right dock uses `WindowPadding.x = 3`, then applies the docker chrome width compensation plus one logical px, plus a 7 logical px horizontal gap correction (14 screen px on Retina). It offsets body/header by `-7` and widens by the same amount so both left and right gaps shrink while the top gap stays unchanged. It keeps `nav_ar_x_offset = -0.5` so fixed A/S/R retains the measured 1 screen px right-edge correction.
   - Do not try to fix this by changing only `WindowPadding`, `GetContentRegionAvail`, or a parent `SetCursorPosX`; those affect different layers and caused no visible TLT movement.
 - When reuniting standalone Navigator with Reflex, keep these offsets as caller-provided standalone dock chrome compensation, not shared NAV behavior. Reflex's embedded Navigator should continue to pass defaults (`0`) unless its own docked gaps are independently measured as wrong.
 
@@ -97,6 +111,7 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
 - Floating internal right gap should match the left edge gap. Docked mode also keeps uniform edge gaps except for two macOS chrome compensation cases: left-side REAPER docker uses the smaller right gap, and right-side REAPER docker uses the smaller left gap, because REAPER leaves blank chrome strips against the arrange view there.
 - The floating window outline is a custom 1 px line in `#525254`, not ImGui's normal border. Draw straight edges with filled rects and only use arc strokes for rounded corners. This avoids the fuzzy gradient / over-antialiased look ImGui can produce on straight lines.
 - Draw the floating outline on the foreground draw list when available so it traces the whole window edge. Keep `WindowBorderSize` at zero and let the custom outline define the visible edge.
+- `NAV.menu` and `NAV.help` use the same custom solid-outline path with native popup/window borders disabled, and use doubled popup outer padding so the menu content does not feel cramped. Section separators use `#262930` and draw full-width from inside outline edge to inside outline edge.
 - Match resize grip colors to the outline color so the lower-right handle does not fall back to ImGui blue.
 - Collapsed width can become very narrow when TLTs are circles. The minimum width should be based on the minimum NAV content width plus edge padding, not a large arbitrary ImGui window minimum.
 - Collapsed minimum height should follow the number of wrapped dot rows. Expanded minimum height should fit the visible NAV rows when reasonable, capped to the usable viewport so a very large project does not force an oversized window.
@@ -105,7 +120,7 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
 - Save floating user size only from actual floating resize gestures, not from automatic snap/auto-fit frames.
 
 ## Context Menu Access
-- `NAV.menu` is normally opened by right-clicking blank Navigator space or `NAV.arr`, but at some scale and width combinations there may be no blank area left because `NAV.arr`, `NAV.R`, and `NAV.A` occupy the available surface.
+- `NAV.menu` is normally opened by right-clicking blank Navigator space or `NAV.arr`, but at some scale and width combinations there may be no blank area left because `NAV.arr`, `NAV.A`, `NAV.S`, and `NAV.R` occupy the available surface.
 - Local right-click menus such as TLT menus include a bottom separator plus `Options`. `Options` opens the global `NAV.menu`, giving users a reliable path to settings even when no blank right-click target is available.
 - Keep this as a deliberate fallback action, not a replacement for item-specific context menus. The item menu should retain its local actions first, then expose `Options` at the bottom.
 
@@ -136,6 +151,7 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
 - Test `NAV.menu`:
   - Help / Manual opens/closes
   - Show all tracks
+  - Recall arrange view option
   - Dock left/right and Undock
   - Esc key to close option
   - Quit while docked

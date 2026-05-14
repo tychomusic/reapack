@@ -197,6 +197,7 @@ opt_viewlock = LoadPref("view_lock", false)
 opt_live_mode = LoadPref("tycho_live_mode", false)
 opt_nav_ignore_archive = LoadPref("nav_ignore_archive", true)
 opt_esc_key_to_close = LoadPref("esc_key_to_close", true)
+opt_view_mode_restore_arrange = LoadPref("view_mode_restore_arrange", false)
 local ui_scale = LoadPref("navigator_scale_v1", nil)
 if ui_scale == nil then
     local old = LoadPref("ui_scale_v2", nil)
@@ -631,6 +632,9 @@ routing_view_sources = {}
 routing_view_tracks = {}
 routing_view_depth = LoadPref("routing_depth", 1)
 routing_view_saved_snap = nil
+selected_view_active = false
+selected_view_tracks = {}
+selected_view_saved_snap = nil
 active_view_active = false
 active_view_tracks = {}
 active_view_peak_times = {}

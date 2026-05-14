@@ -1,6 +1,6 @@
 -- @noindex
 -- Reflex view-mode backend module.
--- Installs Routing View and Active View scan/apply/toggle helpers.
+-- Installs Routing, Selected, and Active View scan/apply/toggle helpers.
 
 ReflexInstallViewModes = function(deps)
     local r = deps.r
@@ -199,6 +199,22 @@ ReflexInstallViewModes = function(deps)
         return result
     end
 
+    local function SelectedViewCollectTracks()
+        local tracks = {}
+        local count = r.CountSelectedTracks(0)
+        for i = 0, count - 1 do
+            local track = r.GetSelectedTrack(0, i)
+            if track and r.ValidatePtr(track, "MediaTrack*") then
+                tracks[track] = true
+            end
+        end
+        return tracks
+    end
+
+    SelectedViewHasSelection = function()
+        return r.CountSelectedTracks(0) > 0
+    end
+
     local view_mode_project_states = {}
     local view_mode_project_key = nil
 
@@ -296,6 +312,9 @@ ReflexInstallViewModes = function(deps)
             routing_source_guids = ViewModeCaptureTrackList(routing_sources),
             routing_tracks = ViewModeCaptureTrackSet(routing_view_tracks),
             routing_saved_snap = routing_view_saved_snap,
+            selected_active = selected_view_active or false,
+            selected_tracks = ViewModeCaptureTrackSet(selected_view_tracks),
+            selected_saved_snap = selected_view_saved_snap,
             active_active = active_view_active or false,
             active_tracks = ViewModeCaptureTrackSet(active_view_tracks),
             active_peaks = ViewModeCapturePeakTimes(),
@@ -311,6 +330,9 @@ ReflexInstallViewModes = function(deps)
         routing_view_sources = {}
         routing_view_tracks = {}
         routing_view_saved_snap = nil
+        selected_view_active = false
+        selected_view_tracks = {}
+        selected_view_saved_snap = nil
         active_view_active = false
         active_view_tracks = {}
         active_view_peak_times = {}
@@ -336,6 +358,14 @@ ReflexInstallViewModes = function(deps)
                 routing_view_tracks = RoutingViewScanSources(routing_view_sources, routing_view_depth)
                 routing_view_saved_snap = state.routing_saved_snap
             end
+        end
+
+        selected_view_active = state.selected_active or false
+        selected_view_tracks = ViewModeRestoreTrackSet(state.selected_tracks)
+        selected_view_saved_snap = state.selected_saved_snap
+        if selected_view_active and not next(selected_view_tracks) then
+            selected_view_active = false
+            selected_view_saved_snap = nil
         end
 
         active_view_active = state.active_active or false
@@ -369,7 +399,7 @@ ReflexInstallViewModes = function(deps)
         return true
     end
 
-    -- Exit both special view modes, restoring their saved snapshots.
+    -- Exit special view modes, restoring their saved snapshots.
     -- Called from any visibility-affecting action (TLT click, song click, show all, etc.)
     ExitSpecialViews = function()
         local restored = false
@@ -390,6 +420,15 @@ ReflexInstallViewModes = function(deps)
             if routing_view_saved_snap then
                 ViewHistoryRestore(routing_view_saved_snap)
                 routing_view_saved_snap = nil
+                restored = true
+            end
+        end
+        if selected_view_active then
+            selected_view_active = false
+            selected_view_tracks = {}
+            if selected_view_saved_snap then
+                ViewHistoryRestore(selected_view_saved_snap)
+                selected_view_saved_snap = nil
                 restored = true
             end
         end
@@ -452,11 +491,75 @@ ReflexInstallViewModes = function(deps)
             if active_view_active then
                 active_view_active = false; active_view_tracks = {}; active_view_saved_snap = nil
             end
+            if selected_view_active then
+                selected_view_active = false; selected_view_tracks = {}; selected_view_saved_snap = nil
+            end
             -- Save current state (may be another mode's filtered view), then apply routing
-            routing_view_saved_snap = ViewHistorySnapshot()
+            routing_view_saved_snap = ViewHistorySnapshot({ work_state = true })
             routing_view_active = true
             RoutingViewStoreSources(sources)
             RoutingViewApply()
+        end
+        ViewModeRememberProjectState()
+    end
+
+    SelectedViewApply = function()
+        if not next(selected_view_tracks) then
+            selected_view_active = false
+            ViewModeRememberProjectState()
+            return
+        end
+
+        r.Undo_BeginBlock()
+        r.PreventUIRefresh(1)
+        local nt = r.CountTracks(0)
+        for ti = 0, nt - 1 do
+            local t = r.GetTrack(0, ti)
+            local show = selected_view_tracks[t] and 1 or 0
+            r.SetMediaTrackInfo_Value(t, "B_SHOWINTCP", show)
+            r.SetMediaTrackInfo_Value(t, "B_SHOWINMIXER", show)
+        end
+        r.PreventUIRefresh(-1)
+        r.TrackList_AdjustWindows(false)
+        r.UpdateArrange()
+        r.Undo_EndBlock("Track Navigator: Selected Tracks View", 0)
+        ViewModeDeferScroll(ViewModeFirstTrackInSet(selected_view_tracks))
+        ViewModeRememberProjectState()
+    end
+
+    SelectedViewToggle = function()
+        ViewHistoryPush()
+        if selected_view_active then
+            selected_view_active = false
+            selected_view_tracks = {}
+            if selected_view_saved_snap then
+                ViewHistoryRestore(selected_view_saved_snap)
+                selected_view_saved_snap = nil
+            end
+        else
+            local tracks = SelectedViewCollectTracks()
+            if not next(tracks) then return end
+            if routing_view_active then
+                routing_view_active = false; routing_view_source = nil; routing_view_sources = {}; routing_view_tracks = {}; routing_view_saved_snap = nil
+            end
+            if active_view_active then
+                active_view_active = false; active_view_tracks = {}; active_view_saved_snap = nil
+            end
+            selected_view_saved_snap = ViewHistorySnapshot({ work_state = true })
+            selected_view_active = true
+            selected_view_tracks = tracks
+            SelectedViewApply()
+        end
+        ViewModeRememberProjectState()
+    end
+
+    SelectedViewExit = function()
+        if not selected_view_active then return end
+        selected_view_active = false
+        selected_view_tracks = {}
+        if selected_view_saved_snap then
+            ViewHistoryRestore(selected_view_saved_snap)
+            selected_view_saved_snap = nil
         end
         ViewModeRememberProjectState()
     end
@@ -627,8 +730,11 @@ ReflexInstallViewModes = function(deps)
             if routing_view_active then
                 routing_view_active = false; routing_view_source = nil; routing_view_sources = {}; routing_view_tracks = {}; routing_view_saved_snap = nil
             end
+            if selected_view_active then
+                selected_view_active = false; selected_view_tracks = {}; selected_view_saved_snap = nil
+            end
             -- Save current state (may be another mode's filtered view), then apply active
-            active_view_saved_snap = ViewHistorySnapshot()
+            active_view_saved_snap = ViewHistorySnapshot({ work_state = true })
             active_view_active = true
             active_view_tracks = scan
             ActiveViewApply()
