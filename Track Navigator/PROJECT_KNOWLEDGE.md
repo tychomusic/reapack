@@ -75,6 +75,14 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
 - Resolve side dock targets from `DockGetPosition`; do not blindly send `ImGui_SetNextWindowDockID` to hardcoded fallback docker indices. On installs with no left/right docker, only provision the expected side docker when SWS config helpers are available; otherwise keep the dock control disabled instead of docking somewhere arbitrary.
 - `Quit` belongs at the bottom of the standalone global menu. The old `Current:` dock status is not useful user-facing information and should stay out of the UI.
 - `Esc key to close` is a standalone global option. When disabled, the main script ignores Esc for quitting. Earlier attempts to make Esc close nested globals/help before quitting were unreliable and were removed.
+- Standalone Track Navigator needs a single-instance guard. Re-running the action without one can leave older deferred ImGui contexts alive, making layout tests appear unchanged or inconsistent.
+- Mac left-dock gap compensation has separate layout layers:
+  - `NAV.pill` / TLT rows are anchored inside the `##nav_scroll` child in `core/Reflex_NavViewCore.lua`. Parent cursor nudges before `NavDrawSection` do not move these rows.
+  - `NAV.arr`, wrapped collapsed dots, and A/R controls are drawn in the parent/header layer before `##nav_scroll`.
+  - To reduce the mac-left TLT left gap while preserving the correct right gap, offset the `##nav_scroll` child left and widen it by the same amount. In the current standalone wrapper this is passed as `nav_body_x_offset = -1`.
+  - Header elements need their own offsets: `nav_header_x_offset = -1` for `NAV.arr`/collapsed header flow, and `nav_ar_x_offset = -0.5` for fixed A/R alignment. On Retina this half logical px corresponds to the 1 screen px correction needed for `NAV.R` to align with the TLT right edge.
+  - Do not try to fix this by changing only `WindowPadding`, `GetContentRegionAvail`, or a parent `SetCursorPosX`; those affect different layers and caused no visible TLT movement.
+- When reuniting standalone Navigator with Reflex, keep these offsets as caller-provided standalone dock chrome compensation, not shared NAV behavior. Reflex's embedded Navigator should continue to pass defaults (`0`) unless its own docked gaps are independently measured as wrong.
 
 ## Floating Window Presentation
 - Floating windows use rounded corners; docked windows use square corners. The floating title bar is intentionally hidden, leaving only the Navigator content and uniform padding.

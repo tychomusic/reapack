@@ -177,6 +177,18 @@ SavePref = function(key, val)
     r.SetExtState(PREF, key, type(val) == "boolean" and (val and "1" or "0") or tostring(val), true)
 end
 
+local TRACK_NAVIGATOR_INSTANCE_KEY = "track_navigator_instance_token"
+local track_navigator_instance_token = tostring({}) .. ":" .. tostring(r.time_precise and r.time_precise() or os.clock())
+r.SetExtState(PREF, TRACK_NAVIGATOR_INSTANCE_KEY, track_navigator_instance_token, false)
+if r.atexit then
+    r.atexit(function()
+        if r.GetExtState(PREF, TRACK_NAVIGATOR_INSTANCE_KEY) == track_navigator_instance_token
+            and r.DeleteExtState then
+            r.DeleteExtState(PREF, TRACK_NAVIGATOR_INSTANCE_KEY, false)
+        end
+    end)
+end
+
 opt_expand_children = LoadPref("expand_children", false)
 opt_songs_expand = LoadPref("songs_expand_children", false)
 opt_tooltips = LoadPref("tooltips", true)
@@ -854,6 +866,10 @@ TrackNavigatorEscapePressed = function()
 end
 
 TrackNavigatorLoop = function()
+    if r.GetExtState(PREF, TRACK_NAVIGATOR_INSTANCE_KEY) ~= track_navigator_instance_token then
+        return
+    end
+
     MaybeReloadPins()
     MaybeReloadNavExcluded()
     MaybeReloadNavIncluded()
@@ -1070,6 +1086,9 @@ TrackNavigatorLoop = function()
             nav_bottom_extra = 0,
             nav_context_scope = "window",
             nav_indicator_right_edge = nav_indicator_right_edge,
+            nav_body_x_offset = visual_dock_pos == 1 and -1 or 0,
+            nav_header_x_offset = visual_dock_pos == 1 and -1 or 0,
+            nav_ar_x_offset = visual_dock_pos == 1 and -0.5 or 0,
         })
         PopFont(fp)
         if not nav_window_docked then

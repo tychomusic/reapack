@@ -1317,6 +1317,9 @@ ReflexInstallNavViewCore = function(deps)
         local nav_bottom_extra = params.nav_bottom_extra or S(180)
         local nav_context_scope = params.nav_context_scope or "nav"
         local nav_indicator_right_edge = params.nav_indicator_right_edge or 0
+        local nav_body_x_offset = params.nav_body_x_offset or 0
+        local nav_header_x_offset = params.nav_header_x_offset or 0
+        local nav_ar_x_offset = params.nav_ar_x_offset or nav_header_x_offset
 
           -- ── NAVIGATOR SECTION (fixed, non-scrolling) ──
           local nav_start_y = r.ImGui_GetCursorPosY(ctx)
@@ -1384,7 +1387,7 @@ ReflexInstallNavViewCore = function(deps)
           local ar_fixed = (bw - nav_left_pad_shared) >= (nav_arrow_area + ar_gap + ar_reserved_w)
           local ar_pair_row = (not ar_fixed) and ((bw - nav_left_pad_shared) >= ar_reserved_w)
           -- Wide-mode fixed positions (only valid when ar_fixed)
-          local ar_r_cx = nav_shared_scx + bw - nav_dot_r  -- R center X (flush right)
+          local ar_r_cx = nav_shared_scx + bw - nav_dot_r + nav_ar_x_offset  -- R center X (flush right)
           local ar_a_cx = ar_r_cx - ar_d - ar_gap          -- A center X
           local ar_cy = nav_shared_scy + math.floor(nav_single_row_h / 2)  -- center Y row 1, floored to match dot_cy convention
 
@@ -1496,7 +1499,7 @@ ReflexInstallNavViewCore = function(deps)
               local dl_h = r.ImGui_GetWindowDrawList(ctx)
 
               local nav_arrow_hit = mini_tlf_h
-              local nav_arrow_cx = nav_cx_h + nav_left_pad_shared + nav_dot_r
+              local nav_arrow_cx = nav_cx_h + nav_left_pad_shared + nav_dot_r + nav_header_x_offset
               local nav_arrow_cy = nav_cy_h + nav_single_row_h * 0.5
               r.ImGui_SetCursorScreenPos(ctx, nav_arrow_cx - nav_arrow_hit * 0.5, nav_arrow_cy - nav_arrow_hit * 0.5)
               r.ImGui_InvisibleButton(ctx, "##nav", nav_arrow_hit, nav_arrow_hit)
@@ -1526,7 +1529,7 @@ ReflexInstallNavViewCore = function(deps)
               local arrow_gw_h = r.ImGui_CalcTextSize(ctx, arrow_glyph_h)
               local arrow_th_h = r.ImGui_GetTextLineHeight(ctx)
               local arrow_ty_h = nav_cy_h + Round((nav_single_row_h - arrow_th_h) / 2) - S(1.375)
-              local arrow_tx_h = nav_cx_h + nav_left_pad_shared + Round((nav_arrow_area - arrow_gw_h) / 2) - S(2)
+              local arrow_tx_h = nav_cx_h + nav_left_pad_shared + Round((nav_arrow_area - arrow_gw_h) / 2) - S(2) + nav_header_x_offset
               local arrow_col_h = nav_hovered and C.text or COL_NAV_ARROW_REST
               r.ImGui_DrawList_AddText(dl_h, arrow_tx_h, arrow_ty_h, arrow_col_h, arrow_glyph_h)
               NavPopFont(nav_arrow_font_pushed)
@@ -1586,7 +1589,7 @@ ReflexInstallNavViewCore = function(deps)
               -- fits, then adjacent A/R left-aligned on row 2, then R/A
               -- stacked when the pair can no longer share a row.
               if not ar_fixed then
-                  local flow_left = nav_cx_h + nav_left_pad_shared
+                  local flow_left = nav_cx_h + nav_left_pad_shared + nav_ar_x_offset
                   local row2_cy = nav_cy_h + math.floor(nav_single_row_h / 2) + nav_single_row_h
                   if ar_pair_row then
                       DrawArButton(flow_left + nav_dot_r, row2_cy, "A")
@@ -1626,8 +1629,8 @@ ReflexInstallNavViewCore = function(deps)
               -- Row 1 col 0 = arrow; row 1 col 1+ = dots (start at +arrow_area).
               -- Rows 2+ col 0+ = dots (start at +0 from left margin, so col 0
               -- of row 2 sits directly under the arrow of row 1).
-              local dot_start_x_first = nav_cx + nav_left_pad + arrow_area
-              local dot_start_x_wrap = nav_cx + nav_left_pad
+              local dot_start_x_first = nav_cx + nav_left_pad + arrow_area + nav_header_x_offset
+              local dot_start_x_wrap = nav_cx + nav_left_pad + nav_header_x_offset
               local dot_start_x = dot_start_x_first
               -- Collapsed NAV always treats A/R as normal flow items, so the
               -- dot row uses the full width instead of reserving a top-right
@@ -1664,7 +1667,7 @@ ReflexInstallNavViewCore = function(deps)
               -- the same size when toggling expanded/collapsed).
               local arrow_font = nav_arrow_font_shared
               local arrow_hit = mini_tlf_h
-              local arrow_cx = nav_cx + nav_left_pad + dot_r
+              local arrow_cx = nav_cx + nav_left_pad + dot_r + nav_header_x_offset
               local arrow_cy = nav_cy + single_row_h * 0.5
               r.ImGui_SetCursorScreenPos(ctx, arrow_cx - arrow_hit * 0.5, arrow_cy - arrow_hit * 0.5)
               r.ImGui_InvisibleButton(ctx, "##navcol", arrow_hit, arrow_hit)
@@ -1739,7 +1742,7 @@ ReflexInstallNavViewCore = function(deps)
               -- box has asymmetric padding so geometric centering looks off).
               -- 1 retina px = S(1/1.6) per PK retina convention.
               local arrow_ty = nav_cy + Round((single_row_h - arrow_th) / 2) - S(1.375)
-              local arrow_tx = nav_cx + nav_left_pad + Round((arrow_area - arrow_gw) / 2) - S(1.375)
+              local arrow_tx = nav_cx + nav_left_pad + Round((arrow_area - arrow_gw) / 2) - S(1.375) + nav_header_x_offset
               local arrow_col = arrow_hovered and C.text or COL_NAV_ARROW_REST
               r.ImGui_DrawList_AddText(dl, arrow_tx, arrow_ty, arrow_col, arrow_glyph)
               NavPopFont(arrow_font_pushed)
@@ -1897,11 +1900,14 @@ ReflexInstallNavViewCore = function(deps)
           end
 
           r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, 0)
+          if nav_body_x_offset ~= 0 then
+              r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) + nav_body_x_offset)
+          end
 
           -- Standalone callers pass a width already adjusted for their current
           -- chrome: docked keeps the REAPER edge blend, floating keeps the
           -- standard left/right window padding.
-          local _nav_child_visible = r.ImGui_BeginChild(ctx, "##nav_scroll", bw, _nav_h, 0, r.ImGui_WindowFlags_NoScrollbar())
+          local _nav_child_visible = r.ImGui_BeginChild(ctx, "##nav_scroll", bw - nav_body_x_offset, _nav_h, 0, r.ImGui_WindowFlags_NoScrollbar())
           if _nav_child_visible then
               local _nav_child_y0 = r.ImGui_GetCursorPosY(ctx)
               -- Use child's interior width so rows aren't clipped by any scrollbar
