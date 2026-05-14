@@ -789,7 +789,7 @@ ReflexInstallNavViewCore = function(deps)
                 "Mirrors TLT button layout",
             }, manual_w)
             ReflexPopupStackGap(S(9))
-            NavHelpInfoBlock("Modifier key tips", {
+            NavHelpInfoBlock("Modifier key tooltips", {
                 "Shows shortcut helper text on NAV arrows and TLT pills",
             }, manual_w)
             if nav_menu_context == "standalone" then
@@ -827,7 +827,7 @@ ReflexInstallNavViewCore = function(deps)
         local check_w = r.ImGui_CalcTextSize(ctx, "\xE2\x9C\x93")
         local ignore_archive_w = r.ImGui_CalcTextSize(ctx, "Ignore ARCHIVE") + check_w + S(30)
         local mirror_w = r.ImGui_CalcTextSize(ctx, "Mirror TLT buttons") + check_w + S(30)
-        local helper_w = r.ImGui_CalcTextSize(ctx, "Modifier key tips") + check_w + S(30)
+        local helper_w = r.ImGui_CalcTextSize(ctx, "Modifier key tooltips") + check_w + S(30)
         local esc_close_w = 0
         if nav_menu_context == "standalone" then
             esc_close_w = r.ImGui_CalcTextSize(ctx, "Esc key to close") + check_w + S(30)
@@ -1020,16 +1020,19 @@ ReflexInstallNavViewCore = function(deps)
             nav_mirror = not nav_mirror
             SavePref("nav_mirror", nav_mirror)
         end
-        local helper_tips_enabled = opt_helper_tooltips ~= false
-        if NavMenuCheckItem("Modifier key tips", helper_tips_enabled, "helper_tooltips", menu_w) then
-            opt_helper_tooltips = not helper_tips_enabled
-            SavePref("helper_tooltips", opt_helper_tooltips)
-        end
         if nav_menu_context == "standalone" then
             if NavMenuCheckItem("Esc key to close", opt_esc_key_to_close, "esc_key_to_close", menu_w) then
                 opt_esc_key_to_close = not opt_esc_key_to_close
                 SavePref("esc_key_to_close", opt_esc_key_to_close)
             end
+        end
+    end
+
+    local function NavDrawHelperTooltipOption(menu_w)
+        local helper_tips_enabled = opt_helper_tooltips ~= false
+        if NavMenuCheckItem("Modifier key tooltips", helper_tips_enabled, "helper_tooltips", menu_w) then
+            opt_helper_tooltips = not helper_tips_enabled
+            SavePref("helper_tooltips", opt_helper_tooltips)
         end
     end
 
@@ -1248,6 +1251,7 @@ ReflexInstallNavViewCore = function(deps)
             if nav_menu_context == "standalone" then NavPopupSectionBreak(menu_w) end
             NavDrawRecoveryOptions(menu_w)
             NavPopupSectionBreak(menu_w)
+            NavDrawHelperTooltipOption(menu_w)
             NavDrawHelpRow(menu_w)
             if nav_menu_context == "standalone" then
                 NavPopupSectionBreak(menu_w)
