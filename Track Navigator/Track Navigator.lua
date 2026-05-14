@@ -79,6 +79,7 @@ TrackNavigatorDockPosition = function(dock_id)
 end
 
 TrackNavigatorVisualSideDockPosition = function(wx, ww, dock_pos)
+    if dock_pos == 1 or dock_pos == 3 then return dock_pos end
     local win_cx = wx + ww * 0.5
     if r.GetMainHwnd and r.JS_Window_GetRect then
         local ok_hwnd, hwnd = pcall(r.GetMainHwnd)
@@ -89,7 +90,6 @@ TrackNavigatorVisualSideDockPosition = function(wx, ww, dock_pos)
             end
         end
     end
-    if dock_pos == 1 or dock_pos == 3 then return dock_pos end
     if not (r.ImGui_GetMainViewport and r.ImGui_Viewport_GetWorkPos and r.ImGui_Viewport_GetWorkSize) then
         return nil
     end
