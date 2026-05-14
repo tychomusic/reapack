@@ -192,6 +192,7 @@ end
 opt_expand_children = LoadPref("expand_children", false)
 opt_songs_expand = LoadPref("songs_expand_children", false)
 opt_tooltips = LoadPref("tooltips", true)
+opt_helper_tooltips = LoadPref("helper_tooltips", true)
 opt_viewlock = LoadPref("view_lock", false)
 opt_live_mode = LoadPref("tycho_live_mode", false)
 opt_nav_ignore_archive = LoadPref("nav_ignore_archive", true)

@@ -788,6 +788,10 @@ ReflexInstallNavViewCore = function(deps)
             NavHelpInfoBlock("Mirror TLT buttons", {
                 "Mirrors TLT button layout",
             }, manual_w)
+            ReflexPopupStackGap(S(9))
+            NavHelpInfoBlock("Modifier key tips", {
+                "Shows shortcut helper text on NAV arrows and TLT pills",
+            }, manual_w)
             if nav_menu_context == "standalone" then
                 ReflexPopupStackGap(S(9))
                 NavHelpInfoBlock("Dock", {
@@ -823,6 +827,7 @@ ReflexInstallNavViewCore = function(deps)
         local check_w = r.ImGui_CalcTextSize(ctx, "\xE2\x9C\x93")
         local ignore_archive_w = r.ImGui_CalcTextSize(ctx, "Ignore ARCHIVE") + check_w + S(30)
         local mirror_w = r.ImGui_CalcTextSize(ctx, "Mirror TLT buttons") + check_w + S(30)
+        local helper_w = r.ImGui_CalcTextSize(ctx, "Modifier key tips") + check_w + S(30)
         local esc_close_w = 0
         if nav_menu_context == "standalone" then
             esc_close_w = r.ImGui_CalcTextSize(ctx, "Esc key to close") + check_w + S(30)
@@ -873,7 +878,7 @@ ReflexInstallNavViewCore = function(deps)
                 end
             end
         end
-        return math.max(S(180), size_row_w, title_w, ignore_archive_w, mirror_w, esc_close_w, show_all_w,
+        return math.max(S(180), size_row_w, title_w, ignore_archive_w, mirror_w, helper_w, esc_close_w, show_all_w,
             help_w, include_w, custom_w, hidden_w, promoted_w, reset_w, confirm_w, window_w)
     end
 
@@ -1014,6 +1019,11 @@ ReflexInstallNavViewCore = function(deps)
         if NavMenuCheckItem("Mirror TLT buttons", nav_mirror, "mirror_tlf_buttons", menu_w) then
             nav_mirror = not nav_mirror
             SavePref("nav_mirror", nav_mirror)
+        end
+        local helper_tips_enabled = opt_helper_tooltips ~= false
+        if NavMenuCheckItem("Modifier key tips", helper_tips_enabled, "helper_tooltips", menu_w) then
+            opt_helper_tooltips = not helper_tips_enabled
+            SavePref("helper_tooltips", opt_helper_tooltips)
         end
         if nav_menu_context == "standalone" then
             if NavMenuCheckItem("Esc key to close", opt_esc_key_to_close, "esc_key_to_close", menu_w) then
@@ -1631,7 +1641,7 @@ ReflexInstallNavViewCore = function(deps)
                       SavePref("navigator_expanded", false)
                   end
               end
-              if nav_hovered and opt_tooltips then
+              if nav_hovered and opt_tooltips and opt_helper_tooltips ~= false then
                   ShowModKeyTip()
               end
 
@@ -1909,7 +1919,7 @@ ReflexInstallNavViewCore = function(deps)
                   r.ImGui_EndPopup(ctx)
               end
               PopPopupStyle()
-              if arrow_hovered and opt_tooltips then
+              if arrow_hovered and opt_tooltips and opt_helper_tooltips ~= false then
                   ShowModKeyTip()
               end
               -- Reset cursor below the row
@@ -2244,23 +2254,26 @@ ReflexInstallNavViewCore = function(deps)
                   end
               end
 
-              -- Modifier tooltip on hover
               if tlf_hov and item.kind == "folder" then
-                  PushTooltipStyle()
-                  r.ImGui_BeginTooltip(ctx)
-                  r.ImGui_Text(ctx, item.label)
-                  r.ImGui_Separator(ctx)
-                  r.ImGui_TextColored(ctx, C.text_dim, NavPrimaryLabel() .. ": add/remove from view")
-                  if item.custom then
-                      r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. ": expand all")
-                      r.ImGui_TextColored(ctx, C.text_dim, "Right-click: hide in Track Navigator")
+                  if opt_helper_tooltips == false then
+                      TipDirect(item.label)
                   else
-                      r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. ": toggle pin")
+                      PushTooltipStyle()
+                      r.ImGui_BeginTooltip(ctx)
+                      r.ImGui_Text(ctx, item.label)
+                      r.ImGui_Separator(ctx)
+                      r.ImGui_TextColored(ctx, C.text_dim, NavPrimaryLabel() .. ": add/remove from view")
+                      if item.custom then
+                          r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. ": expand all")
+                          r.ImGui_TextColored(ctx, C.text_dim, "Right-click: hide in Track Navigator")
+                      else
+                          r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. ": toggle pin")
+                      end
+                      r.ImGui_TextColored(ctx, C.text_dim, NavChildExpandLabel() .. ": expand/collapse children")
+                      r.ImGui_TextColored(ctx, C.text_dim, "Shift: range select")
+                      r.ImGui_EndTooltip(ctx)
+                      PopTooltipStyle()
                   end
-                  r.ImGui_TextColored(ctx, C.text_dim, NavChildExpandLabel() .. ": expand/collapse children")
-                  r.ImGui_TextColored(ctx, C.text_dim, "Shift: range select")
-                  r.ImGui_EndTooltip(ctx)
-                  PopTooltipStyle()
               end
 
               -- TLT right-click menu

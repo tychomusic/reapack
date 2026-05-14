@@ -87,6 +87,7 @@ ReflexInstallStyleCore = function(deps)
     end
 
     ShowModKeyTip = function()
+        if opt_helper_tooltips == false then return end
         local os = r.GetOS and r.GetOS() or ""
         local is_mac = os:find("OSX", 1, true) ~= nil
             or os:find("macOS", 1, true) ~= nil

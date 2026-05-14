@@ -59,6 +59,9 @@ Use this shorthand in discussion and bug reports.
 ## NAV Label Layout
 - Expanded `NAV.pill` labels clip to a shared UTF-8 character count. If any visible TLT label loses characters at the current width, that fitted count becomes the frame's lowest common denominator and all longer TLT labels clip to the same count. Do not return to independent per-label pixel clipping; proportional glyph widths made adjacent pills show uneven one/two/three-letter remnants while resizing horizontally.
 
+## Tooltips
+- `NAV.menu` has a `Modifier key tips` option (`helper_tooltips`) for verbose shortcut/helper tooltips. When off, suppress modifier-key blocks on `NAV.arr` and expanded `NAV.pill` hover, but keep simple track-name tooltips and A/R tooltips.
+
 ## Modifier Behavior
 - Click `NAV.pill` / `NAV.dot`: show only this TLT; subsequent clicks expand/collapse if the track is a folder.
 - Cmd-click on macOS / Ctrl-click on Windows: add/remove this TLT from the visible set.
