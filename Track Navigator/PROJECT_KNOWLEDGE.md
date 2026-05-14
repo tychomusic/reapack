@@ -56,6 +56,9 @@ The `Reflex_*.lua` core names are intentional historical/shared-core names. Do n
 
 Use this shorthand in discussion and bug reports.
 
+## NAV Label Layout
+- Expanded `NAV.pill` labels clip to a shared UTF-8 character count. If any visible TLT label loses characters at the current width, that fitted count becomes the frame's lowest common denominator and all longer TLT labels clip to the same count. Do not return to independent per-label pixel clipping; proportional glyph widths made adjacent pills show uneven one/two/three-letter remnants while resizing horizontally.
+
 ## Modifier Behavior
 - Click `NAV.pill` / `NAV.dot`: show only this TLT; subsequent clicks expand/collapse if the track is a folder.
 - Cmd-click on macOS / Ctrl-click on Windows: add/remove this TLT from the visible set.
@@ -76,11 +79,13 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
 - `Quit` belongs at the bottom of the standalone global menu. The old `Current:` dock status is not useful user-facing information and should stay out of the UI.
 - `Esc key to close` is a standalone global option. When disabled, the main script ignores Esc for quitting. Earlier attempts to make Esc close nested globals/help before quitting were unreliable and were removed.
 - Standalone Track Navigator needs a single-instance guard. Re-running the action without one can leave older deferred ImGui contexts alive, making layout tests appear unchanged or inconsistent.
-- Mac left-dock gap compensation has separate layout layers:
+- Mac side-dock gap compensation has separate layout layers:
   - `NAV.pill` / TLT rows are anchored inside the `##nav_scroll` child in `core/Reflex_NavViewCore.lua`. Parent cursor nudges before `NavDrawSection` do not move these rows.
   - `NAV.arr`, wrapped collapsed dots, and A/R controls are drawn in the parent/header layer before `##nav_scroll`.
+  - Do not treat docked Navigator gaps as one margin or assume right-dock can be fixed by blindly mirroring left-dock numbers. Left dock is the measured tuned baseline; right dock needs the same layer-by-layer treatment with the inside compensation gap on the opposite side.
   - To reduce the mac-left TLT left gap while preserving the correct right gap, offset the `##nav_scroll` child left and widen it by the same amount. In the current standalone wrapper this is passed as `nav_body_x_offset = -1`.
   - Header elements need their own offsets: `nav_header_x_offset = -1` for `NAV.arr`/collapsed header flow, and `nav_ar_x_offset = -0.5` for fixed A/R alignment. On Retina this half logical px corresponds to the 1 screen px correction needed for `NAV.R` to align with the TLT right edge.
+  - Mac right dock uses `WindowPadding.x = 3`, then applies the docker chrome width compensation plus one logical px, plus a 7 logical px horizontal gap correction (14 screen px on Retina). It offsets body/header by `-7` and widens by the same amount so both left and right gaps shrink while the top gap stays unchanged. It keeps `nav_ar_x_offset = -0.5` so fixed A/R retains the measured 1 screen px right-edge correction.
   - Do not try to fix this by changing only `WindowPadding`, `GetContentRegionAvail`, or a parent `SetCursorPosX`; those affect different layers and caused no visible TLT movement.
 - When reuniting standalone Navigator with Reflex, keep these offsets as caller-provided standalone dock chrome compensation, not shared NAV behavior. Reflex's embedded Navigator should continue to pass defaults (`0`) unless its own docked gaps are independently measured as wrong.
 

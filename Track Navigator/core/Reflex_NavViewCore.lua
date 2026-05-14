@@ -215,6 +215,56 @@ ReflexInstallNavViewCore = function(deps)
         return m.show_all, primary, m.shift, pin, m.child_expand
     end
 
+    local function NavUtf8CharCount(s)
+        s = s or ""
+        local len = #s
+        local i = 1
+        local count = 0
+        while i <= len do
+            local b = s:byte(i)
+            if not b then break end
+            if b < 0x80 then
+                i = i + 1
+            elseif b < 0xE0 then
+                i = i + 2
+            elseif b < 0xF0 then
+                i = i + 3
+            else
+                i = i + 4
+            end
+            count = count + 1
+        end
+        return count
+    end
+
+    local function NavUtf8Prefix(s, max_chars)
+        s = s or ""
+        max_chars = math.max(0, max_chars or 0)
+        if max_chars == 0 then return "" end
+        local len = #s
+        local i = 1
+        local count = 0
+        local last = 0
+        while i <= len and count < max_chars do
+            local b = s:byte(i)
+            if not b then break end
+            local next_i
+            if b < 0x80 then
+                next_i = i + 1
+            elseif b < 0xE0 then
+                next_i = i + 2
+            elseif b < 0xF0 then
+                next_i = i + 3
+            else
+                next_i = i + 4
+            end
+            last = math.min(len, next_i - 1)
+            i = next_i
+            count = count + 1
+        end
+        return s:sub(1, last)
+    end
+
     local function NavBrightenColor(col, amount)
         amount = math.max(0, math.min(1, amount or 0))
         local rr = (col >> 24) & 0xFF
@@ -1922,6 +1972,67 @@ ReflexInstallNavViewCore = function(deps)
           local tlf_font = scaled_fonts[tlf_font_step]
           local tlf_font_pushed = NavPushFont(tlf_font)
           r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ItemSpacing(), 0, Round(S(3.75)))
+          local tlf_h = S(34)  -- 54.4px retina (64 * 0.85)
+          local tlf_r = math.floor(tlf_h / 2)  -- full pill endcap rounding
+          local circ_r = Round(S(9.03))  -- 28.9px retina diameter (34 * 0.85)
+          local circ_gap = Round(S(9.56))  -- 15.3px retina gap (18 * 0.85)
+          local pin_dot_r = S(4)
+          local pin_collide_threshold = tlf_h + pin_dot_r + circ_r + S(7.5)
+          local pill_collapsed = bw <= pin_collide_threshold
+          local pill_w = pill_collapsed and tlf_h or bw
+          local function NavTlfTextAnchors(row_cx, has_arrow, has_pin)
+              local text_left_anchor, text_right_anchor
+              if nav_mirror then
+                  local _circ_cx_pre = row_cx + tlf_h * 0.5
+                  text_left_anchor = _circ_cx_pre + circ_r + circ_gap
+                  if has_arrow then text_left_anchor = text_left_anchor + arrow_w end
+                  if has_pin then
+                      text_right_anchor = row_cx + pill_w - tlf_h * 0.5 - pin_dot_r - circ_gap
+                  else
+                      text_right_anchor = row_cx + pill_w - circ_gap
+                  end
+              else
+                  local _circ_cx_pre = row_cx + pill_w - tlf_h * 0.5
+                  text_right_anchor = _circ_cx_pre - circ_r - circ_gap
+                  if has_arrow then text_right_anchor = text_right_anchor - arrow_w end
+                  if has_pin then
+                      text_left_anchor = row_cx + tlf_h * 0.5 + pin_dot_r + circ_gap
+                  else
+                      text_left_anchor = row_cx + circ_gap
+                  end
+              end
+              return text_left_anchor, text_right_anchor
+          end
+          local function NavTlfFitCharCount(label, available_text_w)
+              label = label or ""
+              local full_count = NavUtf8CharCount(label)
+              if full_count == 0 then return 0, false end
+              if available_text_w <= 0 then return 0, true end
+              if r.ImGui_CalcTextSize(ctx, label) <= available_text_w then
+                  return full_count, false
+              end
+              local candidate = label
+              local count = full_count
+              while count > 0 do
+                  candidate = Utf8DropLast(candidate)
+                  count = count - 1
+                  if r.ImGui_CalcTextSize(ctx, candidate) <= available_text_w then
+                      return count, true
+                  end
+              end
+              return 0, true
+          end
+          local shared_label_char_limit = nil
+          for _, item in ipairs(render_list) do
+              local sg = item.kind == "folder" and item.sub_group or nil
+              local has_arrow = sg and #sg.entries > 0
+              local has_pin = item.kind == "folder" and PinnedTrack(item.entry.track)
+              local text_left_anchor, text_right_anchor = NavTlfTextAnchors(0, has_arrow, has_pin)
+              local count, clipped = NavTlfFitCharCount(item.label, text_right_anchor - text_left_anchor)
+              if clipped then
+                  shared_label_char_limit = shared_label_char_limit and math.min(shared_label_char_limit, count) or count
+              end
+          end
           for ri, item in ipairs(render_list) do
               -- Theme override: check nav_theme track_colors by label
               local override_hex = track_color_overrides[item.label]
@@ -1938,10 +2049,6 @@ ReflexInstallNavViewCore = function(deps)
                   vis = IsItemVisible(item)
               end
               -- TLT pill row (custom draw, 85% scale)
-              local tlf_h = S(34)  -- 54.4px retina (64 * 0.85)
-              local tlf_r = math.floor(tlf_h / 2)  -- full pill endcap rounding
-              local circ_r = Round(S(9.03))  -- 28.9px retina diameter (34 * 0.85)
-              local circ_gap = Round(S(9.56))  -- 15.3px retina gap (18 * 0.85)
 
               local row_cx, row_cy = r.ImGui_GetCursorScreenPos(ctx)
               local dl = r.ImGui_GetWindowDrawList(ctx)
@@ -1953,10 +2060,6 @@ ReflexInstallNavViewCore = function(deps)
               -- aligned). Avoids the awkward zone where pin and circle overlap
               -- but the pill is still drawn as a stadium. Above the threshold,
               -- pill_w follows bw normally.
-              local pin_dot_r = S(4)
-              local pin_collide_threshold = tlf_h + pin_dot_r + circ_r + S(7.5)
-              local pill_collapsed = bw <= pin_collide_threshold
-              local pill_w = pill_collapsed and tlf_h or bw
 
               -- Opacity: 40% when inactive, 100% when visible or hovered
               r.ImGui_InvisibleButton(ctx, "##tlf" .. ri, bw, tlf_h)
@@ -1982,30 +2085,19 @@ ReflexInstallNavViewCore = function(deps)
               -- Old behavior reserved the full tlf_h endcap on the pin side
               -- regardless of pin state, wasting ~17 logical px of label space.
               local has_pin = item.kind == "folder" and PinnedTrack(item.entry.track)
-              local text_left_anchor, text_right_anchor
-              if nav_mirror then
-                  local _circ_cx_pre = row_cx + tlf_h * 0.5
-                  text_left_anchor = _circ_cx_pre + circ_r + circ_gap
-                  if has_arrow then text_left_anchor = text_left_anchor + arrow_w end
-                  if has_pin then
-                      text_right_anchor = row_cx + pill_w - tlf_h * 0.5 - pin_dot_r - circ_gap
-                  else
-                      text_right_anchor = row_cx + pill_w - circ_gap
-                  end
-              else
-                  local _circ_cx_pre = row_cx + pill_w - tlf_h * 0.5
-                  text_right_anchor = _circ_cx_pre - circ_r - circ_gap
-                  if has_arrow then text_right_anchor = text_right_anchor - arrow_w end
-                  if has_pin then
-                      text_left_anchor = row_cx + tlf_h * 0.5 + pin_dot_r + circ_gap
-                  else
-                      text_left_anchor = row_cx + circ_gap
-                  end
-              end
+              local text_left_anchor, text_right_anchor = NavTlfTextAnchors(row_cx, has_arrow, has_pin)
               local available_text_w = text_right_anchor - text_left_anchor
               local display_label = item.label
               local clipped_tw = r.ImGui_CalcTextSize(ctx, display_label)
-              if clipped_tw > available_text_w then
+              if shared_label_char_limit ~= nil then
+                  display_label = NavUtf8Prefix(item.label, shared_label_char_limit)
+                  if display_label == "" then
+                      display_label = nil
+                      clipped_tw = 0
+                  else
+                      clipped_tw = r.ImGui_CalcTextSize(ctx, display_label)
+                  end
+              elseif clipped_tw > available_text_w then
                   local s = item.label
                   while #s > 0 do
                       local sw = r.ImGui_CalcTextSize(ctx, s)

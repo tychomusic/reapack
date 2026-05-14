@@ -1058,20 +1058,36 @@ TrackNavigatorLoop = function()
             visual_dock_pos = TrackNavigatorVisualSideDockPosition(wx, ww, dock_pos)
         end
         nav_last_side_dock_pos = (visual_dock_pos == 1 or visual_dock_pos == 3) and visual_dock_pos or nil
+        local nav_right_dock_width_offset = visual_dock_pos == 3 and 1 or 0
+        local nav_right_dock_gap_offset = visual_dock_pos == 3 and 7 or 0
         if visual_dock_pos == 1 then
             bw = bw + nav_chrome_gap_delta
         elseif visual_dock_pos == 3 then
             if nav_window_pad_x == 3 then
-                bw = math.max(0, bw - nav_chrome_gap_delta)
+                bw = math.max(0, bw - nav_chrome_gap_delta + nav_right_dock_width_offset + nav_right_dock_gap_offset)
             else
                 r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) - nav_chrome_gap_delta)
-                bw = bw + nav_chrome_gap_delta
+                bw = bw + nav_chrome_gap_delta + nav_right_dock_width_offset + nav_right_dock_gap_offset
             end
         end
         if not nav_window_docked then
             bw = math.max(bw, min_nav_w)
         end
-        local nav_indicator_right_edge = visual_dock_pos == 1 and 0 or nav_standard_edge_gap
+        local nav_indicator_right_edge = visual_dock_pos == 1 and 0
+            or (visual_dock_pos == 3 and nav_standard_edge_gap - nav_right_dock_width_offset - nav_right_dock_gap_offset)
+            or nav_standard_edge_gap
+        local nav_body_x_offset = 0
+        local nav_header_x_offset = 0
+        local nav_ar_x_offset = 0
+        if visual_dock_pos == 1 then
+            nav_body_x_offset = -1
+            nav_header_x_offset = -1
+            nav_ar_x_offset = -0.5
+        elseif visual_dock_pos == 3 then
+            nav_body_x_offset = -nav_right_dock_gap_offset
+            nav_header_x_offset = -nav_right_dock_gap_offset
+            nav_ar_x_offset = -0.5
+        end
         NavDrawSection({
             bw = bw,
             win_h = win_h,
@@ -1086,9 +1102,9 @@ TrackNavigatorLoop = function()
             nav_bottom_extra = 0,
             nav_context_scope = "window",
             nav_indicator_right_edge = nav_indicator_right_edge,
-            nav_body_x_offset = visual_dock_pos == 1 and -1 or 0,
-            nav_header_x_offset = visual_dock_pos == 1 and -1 or 0,
-            nav_ar_x_offset = visual_dock_pos == 1 and -0.5 or 0,
+            nav_body_x_offset = nav_body_x_offset,
+            nav_header_x_offset = nav_header_x_offset,
+            nav_ar_x_offset = nav_ar_x_offset,
         })
         PopFont(fp)
         if not nav_window_docked then
