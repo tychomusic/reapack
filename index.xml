@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Tycho ReaPack" commit="9ca4f555f1b7b723d45715eb644a2f7350940e55">
+<index version="1" name="Tycho ReaPack" commit="05b17d1044010c650d8ec7be79b91191da2cdb74">
   <category name="Track Navigator">
     <reapack name="Track Navigator package.lua" type="script" desc="Track Navigator">
       <metadata>
@@ -172,6 +172,30 @@
         <source file="icons/Nav.Route.R.png">https://github.com/tychomusic/reapack/raw/9ca4f555f1b7b723d45715eb644a2f7350940e55/Track%20Navigator/icons/Nav.Route.R.png</source>
         <source file="icons/Navigator.mark.png">https://github.com/tychomusic/reapack/raw/9ca4f555f1b7b723d45715eb644a2f7350940e55/Track%20Navigator/icons/Navigator.mark.png</source>
         <source file="icons/Tycho-Logo-dots.png">https://github.com/tychomusic/reapack/raw/9ca4f555f1b7b723d45715eb644a2f7350940e55/Track%20Navigator/icons/Tycho-Logo-dots.png</source>
+      </version>
+      <version name="1.2.5" author="S.Hansen / Tycho" time="2026-05-15T21:21:14Z">
+        <source main="main" file="Track Navigator.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/Track%20Navigator.lua</source>
+        <source file="Track Navigator_Theme_Default.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/Track%20Navigator_Theme_Default.lua</source>
+        <source file="core/Reflex_FontCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_FontCore.lua</source>
+        <source file="core/Reflex_StyleCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_StyleCore.lua</source>
+        <source file="core/Reflex_ColorCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_ColorCore.lua</source>
+        <source file="core/Reflex_PinCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_PinCore.lua</source>
+        <source file="core/Reflex_NavExclusionCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_NavExclusionCore.lua</source>
+        <source file="core/Reflex_NavInclusionCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_NavInclusionCore.lua</source>
+        <source file="core/Reflex_RealistCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_RealistCore.lua</source>
+        <source file="core/Reflex_TrackScanCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_TrackScanCore.lua</source>
+        <source file="core/Reflex_TrackUtilCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_TrackUtilCore.lua</source>
+        <source file="core/Reflex_SongCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_SongCore.lua</source>
+        <source file="core/Reflex_SubGroupCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_SubGroupCore.lua</source>
+        <source file="core/Reflex_ViewHistory.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_ViewHistory.lua</source>
+        <source file="core/Reflex_NavActionCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_NavActionCore.lua</source>
+        <source file="core/Reflex_ViewModes.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_ViewModes.lua</source>
+        <source file="core/Reflex_NavViewCore.lua">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/core/Reflex_NavViewCore.lua</source>
+        <source file="icons/Nav.Active.A.png">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/icons/Nav.Active.A.png</source>
+        <source file="icons/Nav.Select.S.png">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/icons/Nav.Select.S.png</source>
+        <source file="icons/Nav.Route.R.png">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/icons/Nav.Route.R.png</source>
+        <source file="icons/Navigator.mark.png">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/icons/Navigator.mark.png</source>
+        <source file="icons/Tycho-Logo-dots.png">https://github.com/tychomusic/reapack/raw/05b17d1044010c650d8ec7be79b91191da2cdb74/Track%20Navigator/icons/Tycho-Logo-dots.png</source>
       </version>
     </reapack>
   </category>
