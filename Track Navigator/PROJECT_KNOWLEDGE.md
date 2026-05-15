@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2.3
+Current public version: 1.2.4
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -62,6 +62,7 @@ Use this shorthand in discussion and bug reports.
 
 ## A/S/R View Buttons
 - `NAV.A`, `NAV.S`, and `NAV.R` are special view modes. On entry, each captures the current TCP/Mixer visibility snapshot, folder compact state, selected-track set, inspector/flow state, and TCP vertical scroll; on exit, that state is restored. Horizontal arrange scroll/zoom is captured but restored only when `Recall arrange view` is enabled in `NAV.menu`.
+- When applying any A/S/R view, expand every shown folder and every parent folder of every shown track, even when that parent folder is not itself shown. REAPER will not render a visible child track inside a collapsed parent.
 - While an A/S/R mode is active, plain-click its button restores the previous view. Opt/Alt-click recalculates the active mode in place: `NAV.A` rescans active tracks, `NAV.S` rebuilds from the current REAPER track selection, and `NAV.R` rebuilds routing from the current REAPER track selection.
 - `NAV.S` shows only the currently selected REAPER tracks. It deliberately does not add parent folders, children, routing context, or active-signal context.
 - `NAV.R` walks routing directionally: downstream follows sends and main-send folder parents from the selected track(s), upstream follows receives and main-send-enabled folder children into the selected track(s). Receive-side source tracks must not expand into their unrelated downstream sends or parent folders.

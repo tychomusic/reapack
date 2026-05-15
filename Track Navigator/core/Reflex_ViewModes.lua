@@ -479,6 +479,22 @@ ReflexInstallViewModes = function(deps)
         return restored
     end
 
+    local function ViewModeExpandFoldersForTrackSet(track_set)
+        local master = r.GetMasterTrack(0)
+        for track, enabled in pairs(track_set or {}) do
+            if enabled and track and r.ValidatePtr(track, "MediaTrack*") then
+                if r.GetMediaTrackInfo_Value(track, "I_FOLDERDEPTH") == 1 then
+                    r.SetMediaTrackInfo_Value(track, "I_FOLDERCOMPACT", 0)
+                end
+                local parent = r.GetParentTrack(track)
+                while parent and parent ~= master do
+                    r.SetMediaTrackInfo_Value(parent, "I_FOLDERCOMPACT", 0)
+                    parent = r.GetParentTrack(parent)
+                end
+            end
+        end
+    end
+
     RoutingViewApply = function()
         local sources = RoutingViewCurrentSources()
         if #sources == 0 then
@@ -500,13 +516,7 @@ ReflexInstallViewModes = function(deps)
             r.SetMediaTrackInfo_Value(t, "B_SHOWINTCP", show)
             r.SetMediaTrackInfo_Value(t, "B_SHOWINMIXER", show)
         end
-        -- Uncollapse folder parents of visible tracks
-        for ti = 0, nt - 1 do
-            local t = r.GetTrack(0, ti)
-            if routing_view_tracks[t] and r.GetMediaTrackInfo_Value(t, "I_FOLDERDEPTH") == 1 then
-                r.SetMediaTrackInfo_Value(t, "I_FOLDERCOMPACT", 0)
-            end
-        end
+        ViewModeExpandFoldersForTrackSet(routing_view_tracks)
         r.PreventUIRefresh(-1)
         r.TrackList_AdjustWindows(false)
         r.UpdateArrange()
@@ -574,6 +584,7 @@ ReflexInstallViewModes = function(deps)
             r.SetMediaTrackInfo_Value(t, "B_SHOWINTCP", show)
             r.SetMediaTrackInfo_Value(t, "B_SHOWINMIXER", show)
         end
+        ViewModeExpandFoldersForTrackSet(selected_view_tracks)
         r.PreventUIRefresh(-1)
         r.TrackList_AdjustWindows(false)
         r.UpdateArrange()
@@ -777,12 +788,7 @@ ReflexInstallViewModes = function(deps)
             r.SetMediaTrackInfo_Value(t, "B_SHOWINTCP", show)
             r.SetMediaTrackInfo_Value(t, "B_SHOWINMIXER", show)
         end
-        for ti = 0, nt - 1 do
-            local t = r.GetTrack(0, ti)
-            if active_view_tracks[t] and r.GetMediaTrackInfo_Value(t, "I_FOLDERDEPTH") == 1 then
-                r.SetMediaTrackInfo_Value(t, "I_FOLDERCOMPACT", 0)
-            end
-        end
+        ViewModeExpandFoldersForTrackSet(active_view_tracks)
         r.PreventUIRefresh(-1)
         r.TrackList_AdjustWindows(false)
         r.UpdateArrange()
