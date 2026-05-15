@@ -27,15 +27,16 @@ ReflexInstallViewHistory = function(deps)
 
     local function ViewHistoryRestoreTcpScroll(pos)
         if type(pos) ~= "number" or not r.JS_Window_SetScrollPos then return end
-        local function restore()
+        local function restore_step(remaining)
+            if remaining <= 0 then return end
             local tcp = ViewHistoryTcpWindow()
-            if tcp then r.JS_Window_SetScrollPos(tcp, "v", math.max(0, math.floor(pos + 0.5))) end
+            if tcp then
+                r.TrackList_AdjustWindows(false)
+                r.JS_Window_SetScrollPos(tcp, "v", math.max(0, math.floor(pos + 0.5)))
+            end
+            if remaining > 1 then r.defer(function() restore_step(remaining - 1) end) end
         end
-        restore()
-        r.defer(function()
-            restore()
-            r.defer(restore)
-        end)
+        restore_step(4)
     end
 
     local function ViewHistoryCaptureArrangeView()

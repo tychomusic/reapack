@@ -4,6 +4,7 @@
 
 ReflexInstallViewModes = function(deps)
     local r = deps.r
+    local VIEW_MODE_SCROLL_ATTEMPTS = 4
 
     local function RoutingViewSendTrack(track, category, send_idx, native_key)
         if r.GetTrackSendInfo_Value then
@@ -29,11 +30,22 @@ ReflexInstallViewModes = function(deps)
         if idx < 0 then return children end
         local fd = r.GetMediaTrackInfo_Value(track, "I_FOLDERDEPTH")
         if fd ~= 1 then return children end
+        local function child_flows_to_folder(child)
+            local current = child
+            local parent = r.GetParentTrack(current)
+            while parent do
+                if r.GetMediaTrackInfo_Value(current, "B_MAINSEND") == 0 then return false end
+                if parent == track then return true end
+                current = parent
+                parent = r.GetParentTrack(current)
+            end
+            return false
+        end
         local nt = r.CountTracks(0)
         local depth, i = 1, idx + 1
         while i < nt and depth > 0 do
             local c = r.GetTrack(0, i)
-            children[c] = true
+            if child_flows_to_folder(c) then children[c] = true end
             depth = depth + r.GetMediaTrackInfo_Value(c, "I_FOLDERDEPTH")
             i = i + 1
         end
@@ -95,54 +107,85 @@ ReflexInstallViewModes = function(deps)
         if ScrollTrackToCenter then ScrollTrackToCenter(track) end
     end
 
-    ViewModeDeferScroll = function(track)
+    ViewModeDeferScroll = function(track, attempts)
         if not (track and r.ValidatePtr(track, "MediaTrack*")) then return end
-        r.defer(function()
-            if track and r.ValidatePtr(track, "MediaTrack*") then
-                ViewModeScrollTrackToCenter(track)
-            end
-        end)
+        attempts = attempts or VIEW_MODE_SCROLL_ATTEMPTS
+        local function scroll_step(remaining)
+            if remaining <= 0 then return end
+            r.defer(function()
+                if track and r.ValidatePtr(track, "MediaTrack*") then
+                    ViewModeScrollTrackToCenter(track)
+                    scroll_step(remaining - 1)
+                end
+            end)
+        end
+        scroll_step(attempts)
     end
 
     RoutingViewScan = function(source, depth)
         local result = { [source] = true }
-        local frontier = { source }
+        local send_frontier = { source }
+        local receive_frontier = { source }
+        local send_seen = { [source] = true }
+        local receive_seen = { [source] = true }
         local master = r.GetMasterTrack(0)
 
-        for hop = 1, depth do
-            local next_frontier = {}
-            for _, trk in ipairs(frontier) do
-                -- Parents
-                for p in pairs(RoutingViewGetParentChain(trk)) do
-                    if p ~= master and not result[p] then result[p] = true; next_frontier[#next_frontier + 1] = p end
-                end
-                -- Children
-                for c in pairs(RoutingViewGetChildren(trk)) do
-                    if c ~= master and not result[c] then result[c] = true; next_frontier[#next_frontier + 1] = c end
-                end
-                -- Sends
-                for d in pairs(RoutingViewGetSendDests(trk)) do
-                    if d ~= master and not result[d] then result[d] = true; next_frontier[#next_frontier + 1] = d end
-                end
-                -- Receives
-                for s in pairs(RoutingViewGetRecvSources(trk)) do
-                    if s ~= master and not result[s] then result[s] = true; next_frontier[#next_frontier + 1] = s end
-                end
+        local function AddRoutingTrack(track, next_frontier, seen)
+            if not (track and track ~= master and r.ValidatePtr(track, "MediaTrack*")) then return end
+            result[track] = true
+            if not seen[track] then
+                seen[track] = true
+                next_frontier[#next_frontier + 1] = track
             end
-            frontier = next_frontier
-            if #frontier == 0 then break end
         end
 
-        -- Also add parent chain of every track in result (so they're visible in TCP)
-        local parents_to_add = {}
-        for trk in pairs(result) do
-            local parent = r.GetParentTrack(trk)
-            while parent and parent ~= master do
-                if not result[parent] then parents_to_add[parent] = true end
-                parent = r.GetParentTrack(parent)
+        local function RoutingViewMainSendParent(track)
+            if not (track and r.ValidatePtr(track, "MediaTrack*")) then return nil end
+            local parent = r.GetParentTrack(track)
+            if not (parent and parent ~= master and r.ValidatePtr(parent, "MediaTrack*")) then return nil end
+            if r.GetMediaTrackInfo_Value(track, "B_MAINSEND") == 0 then return nil end
+            return parent
+        end
+
+        local function AddDownstreamParentPath(track, next_frontier)
+            local parent = RoutingViewMainSendParent(track)
+            local first_parent = true
+            while parent do
+                result[parent] = true
+                if first_parent and not send_seen[parent] then
+                    send_seen[parent] = true
+                    next_frontier[#next_frontier + 1] = parent
+                end
+                first_parent = false
+                parent = RoutingViewMainSendParent(parent)
             end
         end
-        for p in pairs(parents_to_add) do result[p] = true end
+
+        for hop = 1, depth do
+            local next_send_frontier = {}
+            local next_receive_frontier = {}
+
+            for _, trk in ipairs(send_frontier) do
+                AddDownstreamParentPath(trk, next_send_frontier)
+                for d in pairs(RoutingViewGetSendDests(trk)) do
+                    AddRoutingTrack(d, next_send_frontier, send_seen)
+                    AddDownstreamParentPath(d, next_send_frontier)
+                end
+            end
+
+            for _, trk in ipairs(receive_frontier) do
+                for s in pairs(RoutingViewGetRecvSources(trk)) do
+                    AddRoutingTrack(s, next_receive_frontier, receive_seen)
+                end
+                for c in pairs(RoutingViewGetChildren(trk)) do
+                    AddRoutingTrack(c, next_receive_frontier, receive_seen)
+                end
+            end
+
+            send_frontier = next_send_frontier
+            receive_frontier = next_receive_frontier
+            if #send_frontier == 0 and #receive_frontier == 0 then break end
+        end
 
         return result
     end
@@ -503,6 +546,18 @@ ReflexInstallViewModes = function(deps)
         ViewModeRememberProjectState()
     end
 
+    RoutingViewRefreshFromSelection = function()
+        local sources = RoutingViewCollectSelectedSources()
+        if #sources == 0 then return false end
+        if not routing_view_active then
+            RoutingViewToggle()
+            return true
+        end
+        RoutingViewStoreSources(sources)
+        RoutingViewApply()
+        return true
+    end
+
     SelectedViewApply = function()
         if not next(selected_view_tracks) then
             selected_view_active = false
@@ -551,6 +606,18 @@ ReflexInstallViewModes = function(deps)
             SelectedViewApply()
         end
         ViewModeRememberProjectState()
+    end
+
+    SelectedViewRefreshFromSelection = function()
+        local tracks = SelectedViewCollectTracks()
+        if not next(tracks) then return false end
+        if not selected_view_active then
+            SelectedViewToggle()
+            return true
+        end
+        selected_view_tracks = tracks
+        SelectedViewApply()
+        return true
     end
 
     SelectedViewExit = function()

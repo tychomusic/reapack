@@ -855,16 +855,21 @@ ReflexInstallNavViewCore = function(deps)
             NavHelpInfoBlock("A - Active Tracks View Button", {
                 "Shows tracks whose signal exceeded -60 dB recently.",
                 "Also includes parent folders and forward send destinations",
+                "Click again to restore the previous view.",
+                pin_click .. " while active recalculates the view",
             }, manual_w)
             ReflexPopupStackGap(S(12))
             NavHelpInfoBlock("S - Selected Tracks View Button", {
                 "Shows only the currently selected tracks.",
-                "Click again to restore the previous view",
+                "Click again to restore the previous view.",
+                pin_click .. " while active rebuilds from current selection",
             }, manual_w)
             ReflexPopupStackGap(S(12))
             NavHelpInfoBlock("R - Routing View Button", {
                 "Builds a view from the selected track or tracks.",
-                "Shows sources, sends, receives, child tracks, and parent tracks",
+                "Shows upstream sources and downstream send destinations.",
+                "Receive-source parent folders are excluded unless routed in.",
+                pin_click .. " while active rebuilds from current selection",
             }, manual_w)
 
             NavHelpSection("Top Level Track (TLT) Buttons", manual_w)
@@ -1829,18 +1834,26 @@ ReflexInstallNavViewCore = function(deps)
                       -- Disabled A/S/R still owns the hitbox, but does not enter
                       -- the view mode; hover tooltip explains why.
                   elseif which == "A" then
-                      -- Alt-family modifier on A while in active view exits to pre-entry view
-                      -- (replaces the X button that used to live in the footer).
-                      -- Plain click toggles/refreshes via ActiveViewToggle.
-                      if active_view_active and nav_mods.pin then
-                          ActiveViewExit()
+                      if active_view_active then
+                          if nav_mods.pin then ActiveViewToggle()
+                          else ActiveViewExit() end
                       else
                           ActiveViewToggle()
                       end
                   elseif which == "S" then
-                      SelectedViewToggle()
+                      if selected_view_active then
+                          if nav_mods.pin and SelectedViewRefreshFromSelection then SelectedViewRefreshFromSelection()
+                          else SelectedViewToggle() end
+                      else
+                          SelectedViewToggle()
+                      end
                   else
-                      RoutingViewToggle()
+                      if routing_view_active then
+                          if nav_mods.pin and RoutingViewRefreshFromSelection then RoutingViewRefreshFromSelection()
+                          else RoutingViewToggle() end
+                      else
+                          RoutingViewToggle()
+                      end
                   end
               end
               if hov then
@@ -1848,12 +1861,12 @@ ReflexInstallNavViewCore = function(deps)
                       if disabled then
                           NavArTooltip("Active tracks view", "No levels detected")
                       else
-                          NavArTooltip("Active tracks view", active_view_active and (NavPinLabel() .. ": exit to previous view") or nil)
+                          NavArTooltip("Active tracks view", active_view_active and ("Click: restore previous view\n" .. NavPinLabel() .. ": recalc active tracks") or nil)
                       end
                   elseif which == "S" then
-                      NavArTooltip("Selected tracks view", disabled and "No track selection" or (selected_view_active and "Click to restore previous view" or nil))
+                      NavArTooltip("Selected tracks view", disabled and "No track selection" or (selected_view_active and ("Click: restore previous view\n" .. NavPinLabel() .. ": recalc from selection") or nil))
                   else
-                      NavArTooltip("Routing view", disabled and "No track selection" or (routing_view_active and "Click to restore previous view" or nil))
+                      NavArTooltip("Routing view", disabled and "No track selection" or (routing_view_active and ("Click: restore previous view\n" .. NavPinLabel() .. ": recalc from selection") or nil))
                   end
               end
           end
