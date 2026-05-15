@@ -161,6 +161,12 @@ ReflexInstallViewModes = function(deps)
             end
         end
 
+        local function AddUpstreamReceives(track, next_frontier)
+            for s in pairs(RoutingViewGetRecvSources(track)) do
+                AddRoutingTrack(s, next_frontier, receive_seen)
+            end
+        end
+
         for hop = 1, depth do
             local next_send_frontier = {}
             local next_receive_frontier = {}
@@ -174,11 +180,10 @@ ReflexInstallViewModes = function(deps)
             end
 
             for _, trk in ipairs(receive_frontier) do
-                for s in pairs(RoutingViewGetRecvSources(trk)) do
-                    AddRoutingTrack(s, next_receive_frontier, receive_seen)
-                end
+                AddUpstreamReceives(trk, next_receive_frontier)
                 for c in pairs(RoutingViewGetChildren(trk)) do
                     AddRoutingTrack(c, next_receive_frontier, receive_seen)
+                    AddUpstreamReceives(c, next_receive_frontier)
                 end
             end
 

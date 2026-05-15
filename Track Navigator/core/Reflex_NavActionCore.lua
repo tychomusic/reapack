@@ -155,9 +155,70 @@ ReflexInstallNavActionCore = function(deps)
         else SetTrackVis(item.track, false) end
     end
 
+    local function NavTrackSubtreeEnd(track, idx)
+        if not track or not r.ValidatePtr(track, "MediaTrack*") then return idx end
+        if r.GetMediaTrackInfo_Value(track, "I_FOLDERDEPTH") ~= 1 then return idx end
+        local nt = r.CountTracks(0)
+        local depth, i = 1, idx + 1
+        while i < nt and depth > 0 do
+            depth = depth + r.GetMediaTrackInfo_Value(r.GetTrack(0, i), "I_FOLDERDEPTH")
+            i = i + 1
+        end
+        return i - 1
+    end
+
+    local function NavTopRootEntry(track)
+        if not track or not r.ValidatePtr(track, "MediaTrack*") then return nil end
+        local root = track
+        local parent = r.GetParentTrack(root)
+        while parent and r.ValidatePtr(parent, "MediaTrack*") do
+            root = parent
+            parent = r.GetParentTrack(root)
+        end
+        local idx = NavTrackIndex(root)
+        if idx < 0 then return nil end
+        local _, name = r.GetTrackName(root)
+        return { track = root, name = name, idx = idx }
+    end
+
+    local function NavItemSoloWithinRoot(item, root_entry)
+        if not item or not item.track or not root_entry then return false end
+        if not IsFolderVisible(root_entry) or not IsItemVisible(item) then return false end
+        local target_idx = NavTrackIndex(item.track)
+        if target_idx < 0 then return false end
+        if root_entry.track == item.track then
+            return not item.is_folder or FolderSubtreeFullyShown({ track = item.track, idx = target_idx })
+        end
+
+        local ancestor_guid = {}
+        local parent = r.GetParentTrack(item.track)
+        while parent and r.ValidatePtr(parent, "MediaTrack*") and parent ~= root_entry.track do
+            ancestor_guid[r.GetTrackGUID(parent)] = true
+            parent = r.GetParentTrack(parent)
+        end
+        if parent ~= root_entry.track then return false end
+
+        local target_end = NavTrackSubtreeEnd(item.track, target_idx)
+        local root_end = NavTrackSubtreeEnd(root_entry.track, root_entry.idx)
+        for i = root_entry.idx + 1, root_end do
+            if i < target_idx or i > target_end then
+                local track = r.GetTrack(0, i)
+                local guid = r.GetTrackGUID(track)
+                if not ancestor_guid[guid]
+                   and not (NavTrackAutoIgnored and NavTrackAutoIgnored(track))
+                   and r.GetMediaTrackInfo_Value(track, "B_SHOWINTCP") == 1 then
+                    return false
+                end
+            end
+        end
+        return not item.is_folder or FolderSubtreeFullyShown({ track = item.track, idx = target_idx })
+    end
+
     IsAloneVisible = function(item)
+        local root_entry = item.ghost_parent or (item.custom and NavTopRootEntry(item.track)) or nil
         local vt = 0
-        local item_name = item.kind == "folder" and item.entry.name
+        local item_name = root_entry and root_entry.name
+            or item.kind == "folder" and item.entry.name
             or (item.kind == "sub_child" and item.sub_group.parent_name or nil)
         for _, entry in ipairs(top_folders) do
             if not (NavTrackAutoIgnored and NavTrackAutoIgnored(entry.track))
@@ -168,11 +229,19 @@ ReflexInstallNavActionCore = function(deps)
                 end
             end
         end
-        if item.custom then return vt == 1 and IsItemVisible(item) end
+        if item.custom then
+            return vt == 1
+                and NavItemSoloWithinRoot(item, root_entry)
+        end
+        if item.ghost_parent then
+            return vt == 1
+                and NavItemSoloWithinRoot(item, item.ghost_parent)
+        end
         if item.kind == "folder" then
             if vt ~= 1 or not IsFolderVisible(item.entry) then return false end
             -- SONGS in section mode: always re-show full song on click
             if opt_live_mode and item.entry.name == "SONGS" and songs_section_mode then return false end
+            if item.is_folder and not FolderSubtreeFullyShown(item.entry) then return false end
             -- Sub-group parent: only "alone" when all whitelisted children are visible
             local sg = item.sub_group
             if sg and #sg.entries > 0 then
@@ -187,7 +256,8 @@ ReflexInstallNavActionCore = function(deps)
             for _, e in ipairs(item.sub_group.entries) do
                 if r.GetMediaTrackInfo_Value(e.track, "B_SHOWINTCP") == 1 then vs = vs + 1 end
             end
-            return vs == 1
+            if vs ~= 1 then return false end
+            return not item.is_folder or FolderSubtreeFullyShown(item.entry)
         end
         return false
     end
@@ -425,7 +495,7 @@ ReflexInstallNavActionCore = function(deps)
             for _, s in ipairs(song_entries) do
                 if r.GetMediaTrackInfo_Value(s.track, "B_SHOWINTCP") == 1 then vis_songs = vis_songs + 1 end
             end
-            if vis_songs == 1 and song.is_folder then
+            if vis_songs == 1 and song.is_folder and FolderSubtreeFullyShown(song) then
                 if is_alt then
                     r.SetMediaTrackInfo_Value(song.track, "I_FOLDERCOMPACT", 0)
                     ExpandAllChildFolders(song.track, song.idx)

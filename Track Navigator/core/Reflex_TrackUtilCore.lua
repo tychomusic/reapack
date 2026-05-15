@@ -95,6 +95,18 @@ ReflexInstallTrackUtilCore = function(deps)
            and r.GetMediaTrackInfo_Value(entry.track, "B_SHOWINTCP") == 1
     end
 
+    FolderSubtreeFullyShown = function(entry)
+        if not entry or not entry.track or not r.ValidatePtr(entry.track, "MediaTrack*") then return false end
+        if r.GetMediaTrackInfo_Value(entry.track, "I_FOLDERDEPTH") ~= 1 then return true end
+        for _, c in ipairs(GetChildren(entry.track, entry.idx)) do
+            if not (NavTrackAutoIgnored and NavTrackAutoIgnored(c))
+               and r.GetMediaTrackInfo_Value(c, "B_SHOWINTCP") ~= 1 then
+                return false
+            end
+        end
+        return true
+    end
+
     NavTrackActuallyVisible = function(track)
         if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
         if r.GetMediaTrackInfo_Value(track, "B_SHOWINTCP") ~= 1 then return false end

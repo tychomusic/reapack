@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2.4
+Current public version: 1.2.5
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -65,7 +65,8 @@ Use this shorthand in discussion and bug reports.
 - When applying any A/S/R view, expand every shown folder and every parent folder of every shown track, even when that parent folder is not itself shown. REAPER will not render a visible child track inside a collapsed parent.
 - While an A/S/R mode is active, plain-click its button restores the previous view. Opt/Alt-click recalculates the active mode in place: `NAV.A` rescans active tracks, `NAV.S` rebuilds from the current REAPER track selection, and `NAV.R` rebuilds routing from the current REAPER track selection.
 - `NAV.S` shows only the currently selected REAPER tracks. It deliberately does not add parent folders, children, routing context, or active-signal context.
-- `NAV.R` walks routing directionally: downstream follows sends and main-send folder parents from the selected track(s), upstream follows receives and main-send-enabled folder children into the selected track(s). Receive-side source tracks must not expand into their unrelated downstream sends or parent folders.
+- `NAV.R` walks routing directionally: downstream follows sends and main-send folder parents from the selected track(s), upstream follows receives and main-send-enabled folder children into the selected track(s). Receive-side source tracks must not expand into their unrelated downstream sends or parent folders. When the selected source is a folder, receives into routed child tracks count as upstream contributors to that selected folder, including sidechain-channel receives.
+- Track Navigator fixes `NAV.R` routing depth at one hop. Do not load or expose the old Reflex `routing_depth` preference in the standalone package.
 - `NAV.A` peak polling is intentionally throttled for large templates. Revisit this after real 1000+ track session testing; if it is still measurable, prefer adaptive scan intervals before adding a UI option that removes the Active Tracks View button.
 - Keep the three controls grouped in A/S/R order. Wide expanded mode pins all three to the top row. When width gets tight, all three drop together to row 2; then A stays on row 2 while S/R drop together to row 3; then A, S, and R stack individually. Collapsed mode follows the same A/S/R grouping before TLT dots.
 - A/S/R labels are image assets in `icons/`, not live text. Do not tune normal A/S/R centering with fallback text nudges; create or edit the PNG asset so it uses the same `NavDrawArLabelImage` path as the other buttons. `Nav.Select.S.png` uses alpha bounds `24,23,39,41` in a 64x64 source, matching A/R's vertical placement.

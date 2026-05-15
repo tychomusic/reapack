@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2.4
+ * Version:     1.2.5
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2.4"
+TRACK_NAVIGATOR_VERSION = "1.2.5"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -618,7 +618,7 @@ routing_view_active = false
 routing_view_source = nil
 routing_view_sources = {}
 routing_view_tracks = {}
-routing_view_depth = LoadPref("routing_depth", 1)
+routing_view_depth = 1
 routing_view_saved_snap = nil
 selected_view_active = false
 selected_view_tracks = {}
