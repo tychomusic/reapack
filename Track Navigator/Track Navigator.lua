@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2.5
+ * Version:     1.2.6
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2.5"
+TRACK_NAVIGATOR_VERSION = "1.2.6"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -328,7 +328,7 @@ local NAV_DEFAULT = {
     pill = {bg = 0, hov = 0, active = 0, fg = 0, fg_hov = 0, fg_active = 0},
     rect = {bg = 0, hov = 0, active = 0, fg = 0, fg_hov = 0, fg_active = 0, rounding = 3},
 }
-NAV_CIRCLE_SEGMENTS = 48
+NAV_CIRCLE_SEGMENTS = 96
 
 NavInitDefaults = function()
     local set = function(t, bg, hov, act)
@@ -771,6 +771,10 @@ nav_floating_observed_w = 0
 nav_floating_observed_h = 0
 nav_pending_undock_snap = false
 nav_suppress_floating_size_save = 0
+nav_ignore_floating_size_until_mouse_up = false
+nav_pending_collapse_snap_frames = 0
+nav_collapsed_return_w = 0
+nav_collapsed_return_h = 0
 nav_popup_active_this_frame = false
 nav_popup_active_previous_frame = false
 
@@ -833,8 +837,7 @@ end
 TrackNavigatorFloatingSnapSize = function(min_window_w, content_fit_h)
     local has_user_size = nav_floating_user_w and nav_floating_user_w > 0
         and nav_floating_user_h and nav_floating_user_h > 0
-    local target_w = has_user_size and nav_floating_user_w or last_window_w
-    if not target_w or target_w < min_window_w then target_w = S(240) end
+    local target_w = has_user_size and nav_floating_user_w or S(240)
     local target_h = has_user_size and nav_floating_user_h or content_fit_h
     target_w = math.max(min_window_w, target_w)
     target_h = math.max(content_fit_h, target_h)
@@ -977,13 +980,15 @@ TrackNavigatorLoop = function()
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowBorderSize(), 0)
     local smooth_tess_count = 0
     if r.ImGui_StyleVar_CircleTessellationMaxError then
-        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), 0.1)
+        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), 0.03)
         smooth_tess_count = 1
     end
     PushPopupStyle()
 
     if not window_initialized then
-        r.ImGui_SetNextWindowSize(ctx, S(240), S(420))
+        local startup_w = nav_floating_user_w and nav_floating_user_w > 0 and nav_floating_user_w or S(240)
+        local startup_h = nav_floating_user_h and nav_floating_user_h > 0 and nav_floating_user_h or S(420)
+        r.ImGui_SetNextWindowSize(ctx, startup_w, startup_h)
         window_initialized = true
     end
     TrackNavigatorEnsureDockingEnabled()
@@ -995,14 +1000,15 @@ TrackNavigatorLoop = function()
         nav_dock_request = nil
     end
     local min_nav_w = S(34)
-    local min_window_w = S(UI.edge_pad) + min_nav_w + S(UI.edge_pad / 2)
+    local min_window_w = S(UI.edge_pad) + min_nav_w + S(UI.edge_pad / 2) + 1
     local min_nav_dot_r = math.floor(min_nav_w / 2)
     local min_nav_row_h = min_nav_dot_r * 2 + S(3.75)
     local min_nav_visible_h = min_nav_row_h
     if not navigator_expanded and last_nav_collapsed_visible_h and last_nav_collapsed_visible_h > 0 then
         min_nav_visible_h = math.max(min_nav_visible_h, last_nav_collapsed_visible_h)
     end
-    local min_window_h = S(UI.edge_pad) + S(1.25) + min_nav_visible_h + S(UI.edge_pad)
+    local min_bottom_pad = navigator_expanded and S(UI.edge_pad) or (S(UI.edge_pad / 2) + 1)
+    local min_window_h = S(UI.edge_pad) + S(1.25) + min_nav_visible_h + min_bottom_pad
     local content_fit_window_h = min_window_h
     if navigator_expanded and last_nav_expanded_visible_h and last_nav_expanded_visible_h > 0 then
         local desired_window_h = S(UI.edge_pad) + S(1.25) + last_nav_expanded_visible_h + S(UI.edge_pad)
@@ -1019,6 +1025,14 @@ TrackNavigatorLoop = function()
         r.ImGui_SetNextWindowSize(ctx, snap_w, snap_h)
         nav_suppress_floating_size_save = 3
         nav_pending_undock_snap = false
+    end
+    if not nav_window_docked and not navigator_expanded and nav_pending_collapse_snap_frames > 0 then
+        local snap_w = nav_collapsed_return_w and nav_collapsed_return_w > 0 and nav_collapsed_return_w or last_window_w
+        local snap_h = nav_collapsed_return_h and nav_collapsed_return_h > 0 and nav_collapsed_return_h or min_window_h
+        r.ImGui_SetNextWindowSize(ctx, math.max(min_window_w, snap_w), math.max(min_window_h, snap_h))
+        nav_suppress_floating_size_save = math.max(nav_suppress_floating_size_save, 3)
+        nav_ignore_floating_size_until_mouse_up = true
+        nav_pending_collapse_snap_frames = nav_pending_collapse_snap_frames - 1
     end
     r.ImGui_SetNextWindowSizeConstraints(ctx, min_window_w, min_window_h, 99999, 99999)
 
@@ -1042,6 +1056,7 @@ TrackNavigatorLoop = function()
             nav_current_dock_id = nav_window_docked and -1 or 0
         end
         local nav_esc_pressed = opt_esc_key_to_close and TrackNavigatorEscapePressed()
+        local nav_expanded_before_draw = navigator_expanded
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
         local wx, wy = r.ImGui_GetWindowPos(ctx)
         local ww, wh = r.ImGui_GetWindowSize(ctx)
@@ -1050,6 +1065,7 @@ TrackNavigatorLoop = function()
         if was_docked and not nav_window_docked then
             nav_pending_undock_snap = true
             nav_suppress_floating_size_save = 3
+            nav_ignore_floating_size_until_mouse_up = true
         end
         if nav_window_docked then
             nav_floating_observed_w = 0
@@ -1057,9 +1073,12 @@ TrackNavigatorLoop = function()
         else
             local size_changed = nav_floating_observed_w > 0
                 and (math.abs(ww - nav_floating_observed_w) > 1 or math.abs(wh - nav_floating_observed_h) > 1)
+            local mouse_down = TrackNavigatorMouseDown()
             if nav_suppress_floating_size_save > 0 then
                 nav_suppress_floating_size_save = nav_suppress_floating_size_save - 1
-            elseif size_changed and TrackNavigatorMouseDown() then
+            elseif nav_ignore_floating_size_until_mouse_up then
+                if not mouse_down then nav_ignore_floating_size_until_mouse_up = false end
+            elseif size_changed and mouse_down then
                 TrackNavigatorSaveFloatingUserSize(ww, wh)
             end
             nav_floating_observed_w = ww
@@ -1093,12 +1112,12 @@ TrackNavigatorLoop = function()
         local nav_ar_x_offset = 0
         if visual_dock_pos == 1 then
             nav_body_x_offset = -1
-            nav_header_x_offset = -1
+            nav_header_x_offset = -0.5
             nav_ar_x_offset = -0.5
         elseif visual_dock_pos == 3 then
             nav_body_x_offset = -nav_right_dock_gap_offset
             nav_header_x_offset = -nav_right_dock_gap_offset
-            nav_ar_x_offset = -0.5
+            nav_ar_x_offset = -nav_right_dock_gap_offset - 0.5
         end
         nav_popup_active_this_frame = false
         NavDrawSection({
@@ -1118,6 +1137,16 @@ TrackNavigatorLoop = function()
             nav_header_x_offset = nav_header_x_offset,
             nav_ar_x_offset = nav_ar_x_offset,
         })
+        if not nav_window_docked and nav_expanded_before_draw ~= navigator_expanded then
+            if navigator_expanded then
+                nav_collapsed_return_w = ww
+                nav_collapsed_return_h = wh
+                nav_suppress_floating_size_save = math.max(nav_suppress_floating_size_save, 3)
+                nav_ignore_floating_size_until_mouse_up = true
+            else
+                nav_pending_collapse_snap_frames = 2
+            end
+        end
         if nav_esc_pressed
             and not nav_popup_active_this_frame
             and not nav_popup_active_previous_frame

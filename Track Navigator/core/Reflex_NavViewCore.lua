@@ -208,6 +208,52 @@ ReflexInstallNavViewCore = function(deps)
         nav_reset_confirm = false
     end
 
+    local function NavViewportWorkRect()
+        if r.ImGui_GetMainViewport and r.ImGui_Viewport_GetWorkPos and r.ImGui_Viewport_GetWorkSize then
+            local ok_vp, viewport = pcall(r.ImGui_GetMainViewport, ctx)
+            if ok_vp and viewport then
+                local ok_pos, wx, wy = pcall(r.ImGui_Viewport_GetWorkPos, viewport)
+                local ok_size, ww, wh = pcall(r.ImGui_Viewport_GetWorkSize, viewport)
+                if ok_pos and ok_size and type(wx) == "number" and type(wy) == "number"
+                    and type(ww) == "number" and type(wh) == "number" and ww > 0 and wh > 0 then
+                    return wx, wy, wx + ww, wy + wh
+                end
+            end
+        end
+        if r.ImGui_GetMainViewport and r.ImGui_Viewport_GetPos and r.ImGui_Viewport_GetSize then
+            local ok_vp, viewport = pcall(r.ImGui_GetMainViewport, ctx)
+            if ok_vp and viewport then
+                local ok_pos, wx, wy = pcall(r.ImGui_Viewport_GetPos, viewport)
+                local ok_size, ww, wh = pcall(r.ImGui_Viewport_GetSize, viewport)
+                if ok_pos and ok_size and type(wx) == "number" and type(wy) == "number"
+                    and type(ww) == "number" and type(wh) == "number" and ww > 0 and wh > 0 then
+                    return wx, wy, wx + ww, wy + wh
+                end
+            end
+        end
+        return nil
+    end
+
+    local function NavClampRectToViewport(x, y, w, h)
+        local vx1, vy1, vx2, vy2 = NavViewportWorkRect()
+        if not vx1 then return x, y end
+        local margin = S(4)
+        local max_x = vx2 - margin - math.max(0, w or 0)
+        local max_y = vy2 - margin - math.max(0, h or 0)
+        local min_x = vx1 + margin
+        local min_y = vy1 + margin
+        if max_x < min_x then max_x = min_x end
+        if max_y < min_y then max_y = min_y end
+        return math.max(min_x, math.min(x, max_x)), math.max(min_y, math.min(y, max_y))
+    end
+
+    local function NavGlobalMenuPivot(x, y)
+        local vx1, vy1, vx2, vy2 = NavViewportWorkRect()
+        if not vx1 then return 0, 0 end
+        return x > (vx1 + vx2) * 0.5 and 1 or 0,
+            y > (vy1 + vy2) * 0.5 and 1 or 0
+    end
+
     local function NavRoundScale(v)
         return math.floor(v * 100 + 0.5) / 100
     end
@@ -1513,7 +1559,12 @@ ReflexInstallNavViewCore = function(deps)
             var_count = var_count + 1
         end
         if nav_global_menu_pos_pending and nav_global_menu_pos_x and nav_global_menu_pos_y then
-            r.ImGui_SetNextWindowPos(ctx, nav_global_menu_pos_x, nav_global_menu_pos_y)
+            local pivot_x, pivot_y = NavGlobalMenuPivot(nav_global_menu_pos_x, nav_global_menu_pos_y)
+            local ok_pos = pcall(r.ImGui_SetNextWindowPos,
+                ctx, nav_global_menu_pos_x, nav_global_menu_pos_y, 0, pivot_x, pivot_y)
+            if not ok_pos then
+                pcall(r.ImGui_SetNextWindowPos, ctx, nav_global_menu_pos_x, nav_global_menu_pos_y)
+            end
             nav_global_menu_pos_pending = false
         end
 
@@ -1521,6 +1572,14 @@ ReflexInstallNavViewCore = function(deps)
         if not open then NavCloseGlobalMenu() end
         if visible and nav_global_menu_open then
             notePopupActive()
+            if r.ImGui_GetWindowPos and r.ImGui_GetWindowSize and r.ImGui_SetWindowPos then
+                local px, py = r.ImGui_GetWindowPos(ctx)
+                local pw, ph = r.ImGui_GetWindowSize(ctx)
+                local clamped_x, clamped_y = NavClampRectToViewport(px, py, pw, ph)
+                if math.abs(clamped_x - px) > 0.5 or math.abs(clamped_y - py) > 0.5 then
+                    pcall(r.ImGui_SetWindowPos, ctx, clamped_x, clamped_y)
+                end
+            end
             if ReflexDrawSolidPopupOutline then
                 ReflexDrawSolidPopupOutline(S(10), C.popup_border or C.window_outline)
             end
@@ -1734,7 +1793,7 @@ ReflexInstallNavViewCore = function(deps)
           -- size when toggling.
           local nav_arrow_step_shared = math.max(5, math.min(20, math.floor(GetFontStep(UI.font_title) * 1.2 + 0.5)))
           local nav_arrow_font_shared = scaled_fonts[nav_arrow_step_shared]
-          local COL_NAV_ARROW_REST = rgb(0x545A5A)
+          local COL_NAV_ARROW_REST = rgb(0x545758)
 
           -- A/S/R nav buttons. Expanded NAV pins them to the top-right header
           -- space in normal widths, falling back to inline flow only when the
@@ -2503,15 +2562,34 @@ ReflexInstallNavViewCore = function(deps)
 
               -- Pill background
               local pill_bg = (C.bg & 0xFFFFFF00) | alpha
-              r.ImGui_DrawList_AddRectFilled(dl, row_cx, row_cy, row_cx + pill_w, row_cy + tlf_h, pill_bg, tlf_r)
-
-              -- Exact geometric center of pill (float, not floored)
               local mid_y = row_cy + tlf_h * 0.5
+              local collapsed_cx = row_cx + tlf_h * 0.5
+              local collapsed_clip_pushed = false
+              if pill_collapsed then
+                  if r.ImGui_DrawList_PushClipRect and r.ImGui_DrawList_PopClipRect then
+                      r.ImGui_DrawList_PushClipRect(dl, row_cx, row_cy, row_cx + tlf_h, row_cy + tlf_h, false)
+                      collapsed_clip_pushed = true
+                  end
+                  r.ImGui_DrawList_AddCircleFilled(dl, collapsed_cx, mid_y, tlf_h * 0.5, pill_bg, nav_circle_segments)
+              else
+                  local cap_r = tlf_h * 0.5
+                  if r.ImGui_DrawList_PathClear and r.ImGui_DrawList_PathArcTo and r.ImGui_DrawList_PathFillConvex then
+                      local pi = math.pi
+                      local segs = math.max(12, math.floor(nav_circle_segments / 2))
+                      r.ImGui_DrawList_PathClear(dl)
+                      r.ImGui_DrawList_PathArcTo(dl, row_cx + cap_r, mid_y, cap_r, pi * 0.5, pi * 1.5, segs)
+                      r.ImGui_DrawList_PathArcTo(dl, row_cx + pill_w - cap_r, mid_y, cap_r, pi * 1.5, pi * 2.5, segs)
+                      r.ImGui_DrawList_PathFillConvex(dl, pill_bg)
+                  else
+                      r.ImGui_DrawList_AddRectFilled(dl, row_cx, row_cy, row_cx + pill_w, row_cy + tlf_h, pill_bg, tlf_r)
+                  end
+              end
 
               -- Colored circle (left endcap when mirror, right endcap otherwise).
-              -- When pill_collapsed both endcaps coincide -> circle is centered.
               local circ_cx
-              if nav_mirror then
+              if pill_collapsed then
+                  circ_cx = collapsed_cx
+              elseif nav_mirror then
                   circ_cx = row_cx + tlf_h * 0.5
               else
                   circ_cx = row_cx + pill_w - tlf_h * 0.5
@@ -2608,6 +2686,9 @@ ReflexInstallNavViewCore = function(deps)
                       local pin_col = (C.amber & 0xFFFFFF00) | alpha
                       r.ImGui_DrawList_AddCircleFilled(dl, pin_x, pin_y, pin_dot_r, pin_col, nav_circle_segments)
                   end
+              end
+              if collapsed_clip_pushed then
+                  r.ImGui_DrawList_PopClipRect(dl)
               end
 
               if tlf_hov and item.kind == "folder" and opt_tooltips then

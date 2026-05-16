@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2.5
+Current public version: 1.2.6
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -108,7 +108,7 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
   - `NAV.arr`, wrapped collapsed dots, and A/S/R controls are drawn in the parent/header layer before `##nav_scroll`.
   - Do not treat docked Navigator gaps as one margin or assume right-dock can be fixed by blindly mirroring left-dock numbers. Left dock is the measured tuned baseline; right dock needs the same layer-by-layer treatment with the inside compensation gap on the opposite side.
   - To reduce the mac-left TLT left gap while preserving the correct right gap, offset the `##nav_scroll` child left and widen it by the same amount. In the current standalone wrapper this is passed as `nav_body_x_offset = -1`.
-  - Header elements need their own offsets: `nav_header_x_offset = -1` for `NAV.arr`/collapsed header flow, and `nav_ar_x_offset = -0.5` for fixed A/S/R alignment. On Retina this half logical px corresponds to the 1 screen px correction needed for `NAV.R` to align with the TLT right edge.
+  - Header elements need their own offsets: `nav_header_x_offset = -0.5` for `NAV.arr`/collapsed header flow, and `nav_ar_x_offset = -0.5` for fixed A/S/R alignment. On Retina this half logical px corresponds to the 1 screen px correction needed for the collapsed circle lane and fixed `NAV.R` to align with the TLT lane.
   - Mac right dock uses `WindowPadding.x = 3`, then applies the docker chrome width compensation plus one logical px, plus a 7 logical px horizontal gap correction (14 screen px on Retina). It offsets body/header by `-7` and widens by the same amount so both left and right gaps shrink while the top gap stays unchanged. It keeps `nav_ar_x_offset = -0.5` so fixed A/S/R retains the measured 1 screen px right-edge correction.
   - Do not try to fix this by changing only `WindowPadding`, `GetContentRegionAvail`, or a parent `SetCursorPosX`; those affect different layers and caused no visible TLT movement.
 - When reuniting standalone Navigator with Reflex, keep these offsets as caller-provided standalone dock chrome compensation, not shared NAV behavior. Reflex's embedded Navigator should continue to pass defaults (`0`) unless its own docked gaps are independently measured as wrong.
@@ -169,6 +169,16 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
   - resize grip matches outline color
   - undock snaps to content-fit height or remembered floating user size
 - Confirm installed script shows the expected public version.
+
+## Screenshot-Based UI Diagnosis
+- When UI alignment, spacing, clipping, or rendering is in question, prefer screenshot analysis over repeated verbal/pixel-measurement loops.
+- The user may place screenshots on the Desktop and ask to diagnose. Use the newest Desktop image unless they name a specific file:
+  `find /Users/scotthansen/Desktop -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.tif' -o -iname '*.tiff' -o -iname '*.webp' \) -print0 | xargs -0 ls -t | head`
+- Open the screenshot with `view_image` first to identify the relevant Track Navigator state: dock side, expanded/collapsed, pill/circle mode, and whether the issue is visible.
+- For pixel measurements, crop the relevant area with `sips`, convert the crop to BMP if needed, then parse pixels programmatically. PNG screenshots are preferred because they preserve exact rendered pixels.
+- Treat the screenshot as rendered ground truth. If code geometry and screenshot pixels disagree, assume the code path or visual layer being measured is wrong until proven otherwise.
+- For Track Navigator circle/dock checks, measure the visible dark outer circle/body edge, not text labels, antialiased guide overlays, or coarse visual markers. Report concrete pixel extents such as `x=13..66` and the resulting left/right gaps.
+- Avoid temporary visual guide overlays for 1 px decisions unless they are solid, 1-retina-pixel, non-antialiased, and explicitly requested. Prefer image analysis and code-coordinate dumps.
 
 ## Known Notes
 - ReaPack or REAPER may show stale package metadata after repository changes. On the affected machine, remove the Tycho repo, delete the Tycho cache XML under the local ReaPack cache folder, re-import the raw URL, and synchronize.
