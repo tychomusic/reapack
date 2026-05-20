@@ -4,6 +4,10 @@
 
 ReflexInstallViewModes = function(deps)
     local r = deps.r
+    local markDirty = deps.mark_dirty or function()
+        if needs_rescan ~= nil then needs_rescan = true end
+        if needs_song_rescan ~= nil then needs_song_rescan = true end
+    end
     local VIEW_MODE_SCROLL_ATTEMPTS = 4
 
     local function RoutingViewSendTrack(track, category, send_idx, native_key)
@@ -451,7 +455,9 @@ ReflexInstallViewModes = function(deps)
     -- Called from any visibility-affecting action (TLT click, song click, show all, etc.)
     ExitSpecialViews = function()
         local restored = false
+        local exited = false
         if active_view_active then
+            exited = true
             active_view_active = false
             active_view_tracks = {}
             if active_view_saved_snap then
@@ -461,6 +467,7 @@ ReflexInstallViewModes = function(deps)
             end
         end
         if routing_view_active then
+            exited = true
             routing_view_active = false
             routing_view_source = nil
             routing_view_sources = {}
@@ -472,6 +479,7 @@ ReflexInstallViewModes = function(deps)
             end
         end
         if selected_view_active then
+            exited = true
             selected_view_active = false
             selected_view_tracks = {}
             if selected_view_saved_snap then
@@ -480,6 +488,7 @@ ReflexInstallViewModes = function(deps)
                 restored = true
             end
         end
+        if exited then markDirty() end
         ViewModeRememberProjectState()
         return restored
     end
@@ -506,6 +515,7 @@ ReflexInstallViewModes = function(deps)
             routing_view_active = false
             routing_view_source = nil
             routing_view_sources = {}
+            markDirty()
             ViewModeRememberProjectState()
             return
         end
@@ -527,6 +537,7 @@ ReflexInstallViewModes = function(deps)
         r.UpdateArrange()
         r.Undo_EndBlock("Track Navigator: Routing View", 0)
         ViewModeDeferScroll(ViewModeFirstTrackInSet(RoutingViewSourceSet(routing_view_sources)))
+        markDirty()
         ViewModeRememberProjectState()
     end
 
@@ -542,6 +553,7 @@ ReflexInstallViewModes = function(deps)
                 ViewHistoryRestore(routing_view_saved_snap)
                 routing_view_saved_snap = nil
             end
+            markDirty()
         else
             local sources = RoutingViewCollectSelectedSources()
             if #sources == 0 then return end
@@ -573,9 +585,24 @@ ReflexInstallViewModes = function(deps)
         return true
     end
 
+    RoutingViewExit = function()
+        if not routing_view_active then return end
+        routing_view_active = false
+        routing_view_source = nil
+        routing_view_sources = {}
+        routing_view_tracks = {}
+        if routing_view_saved_snap then
+            ViewHistoryRestore(routing_view_saved_snap)
+            routing_view_saved_snap = nil
+        end
+        markDirty()
+        ViewModeRememberProjectState()
+    end
+
     SelectedViewApply = function()
         if not next(selected_view_tracks) then
             selected_view_active = false
+            markDirty()
             ViewModeRememberProjectState()
             return
         end
@@ -595,6 +622,7 @@ ReflexInstallViewModes = function(deps)
         r.UpdateArrange()
         r.Undo_EndBlock("Track Navigator: Selected Tracks View", 0)
         ViewModeDeferScroll(ViewModeFirstTrackInSet(selected_view_tracks))
+        markDirty()
         ViewModeRememberProjectState()
     end
 
@@ -607,6 +635,7 @@ ReflexInstallViewModes = function(deps)
                 ViewHistoryRestore(selected_view_saved_snap)
                 selected_view_saved_snap = nil
             end
+            markDirty()
         else
             local tracks = SelectedViewCollectTracks()
             if not next(tracks) then return end
@@ -644,6 +673,7 @@ ReflexInstallViewModes = function(deps)
             ViewHistoryRestore(selected_view_saved_snap)
             selected_view_saved_snap = nil
         end
+        markDirty()
         ViewModeRememberProjectState()
     end
 
@@ -781,6 +811,7 @@ ReflexInstallViewModes = function(deps)
     ActiveViewApply = function()
         active_view_tracks = ActiveViewScan()
         if not next(active_view_tracks) then
+            markDirty()
             ViewModeRememberProjectState()
             return
         end
@@ -799,6 +830,7 @@ ReflexInstallViewModes = function(deps)
         r.UpdateArrange()
         r.Undo_EndBlock("Track Navigator: Active View", 0)
         ViewModeDeferScroll(ViewModeFirstTrackInSet(active_view_tracks))
+        markDirty()
         ViewModeRememberProjectState()
     end
 
@@ -841,6 +873,7 @@ ReflexInstallViewModes = function(deps)
             ViewHistoryRestore(active_view_saved_snap)
             active_view_saved_snap = nil
         end
+        markDirty()
         ViewModeRememberProjectState()
     end
 end

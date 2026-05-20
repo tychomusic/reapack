@@ -10,12 +10,18 @@ ReflexInstallNavInclusionCore = function(deps)
 
     -- Custom NAV items: GUID-keyed and persisted per-project.
     nav_included = {}  -- nav_included[guid] = true
+    nav_custom_set = {} -- nav_custom_set[guid] = true
 
     LoadNavIncluded = function()
         nav_included = {}
         local _, v = r.GetProjExtState(0, "reflex", "nav_included")
         if v ~= "" then
             for guid in v:gmatch("([^|]+)") do nav_included[guid] = true end
+        end
+        nav_custom_set = {}
+        local _, cv = r.GetProjExtState(0, "reflex", "nav_custom_set")
+        if cv ~= "" then
+            for guid in cv:gmatch("([^|]+)") do nav_custom_set[guid] = true end
         end
         _include_last_proj = r.EnumProjects(-1)
     end
@@ -25,6 +31,13 @@ ReflexInstallNavInclusionCore = function(deps)
         for guid in pairs(nav_included) do parts[#parts + 1] = guid end
         table.sort(parts)
         r.SetProjExtState(0, "reflex", "nav_included", table.concat(parts, "|"))
+    end
+
+    SaveNavCustomSet = function()
+        local parts = {}
+        for guid in pairs(nav_custom_set) do parts[#parts + 1] = guid end
+        table.sort(parts)
+        r.SetProjExtState(0, "reflex", "nav_custom_set", table.concat(parts, "|"))
     end
 
     MaybeReloadNavIncluded = function()
@@ -39,6 +52,11 @@ ReflexInstallNavInclusionCore = function(deps)
     NavIncludedTrack = function(track)
         if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
         return nav_included[r.GetTrackGUID(track)] == true
+    end
+
+    NavCustomSetTrack = function(track)
+        if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
+        return nav_custom_set[r.GetTrackGUID(track)] == true
     end
 
     NavSetTrackIncluded = function(track, included)
@@ -60,12 +78,41 @@ ReflexInstallNavInclusionCore = function(deps)
         return true
     end
 
+    NavSetTrackCustomSet = function(track, included)
+        if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
+        if included and not NavCanIncludeTrack(track) then return false end
+        local guid = r.GetTrackGUID(track)
+        if included then nav_custom_set[guid] = true
+        else nav_custom_set[guid] = nil end
+        SaveNavCustomSet()
+        markDirty()
+        return true
+    end
+
+    NavRemoveCustomSetGuid = function(guid)
+        if not guid or guid == "" or not nav_custom_set[guid] then return false end
+        nav_custom_set[guid] = nil
+        SaveNavCustomSet()
+        markDirty()
+        return true
+    end
+
     NavResetIncludedTracks = function()
         local changed = false
         for _ in pairs(nav_included) do changed = true; break end
         if not changed then return false end
         nav_included = {}
         SaveNavIncluded()
+        markDirty()
+        return true
+    end
+
+    NavResetCustomSetTracks = function()
+        local changed = false
+        for _ in pairs(nav_custom_set) do changed = true; break end
+        if not changed then return false end
+        nav_custom_set = {}
+        SaveNavCustomSet()
         markDirty()
         return true
     end
@@ -84,7 +131,14 @@ ReflexInstallNavInclusionCore = function(deps)
                 changed = true
             end
         end
+        for guid in pairs(nav_custom_set) do
+            if not live[guid] then
+                nav_custom_set[guid] = nil
+                changed = true
+            end
+        end
         if changed then SaveNavIncluded() end
+        if changed then SaveNavCustomSet() end
         return changed
     end
 
@@ -97,6 +151,33 @@ ReflexInstallNavInclusionCore = function(deps)
             local track = r.GetTrack(0, i)
             local guid = r.GetTrackGUID(track)
             if nav_included[guid] then
+                local allowed = NavCanIncludeTrack(track)
+                if allowed or opts.include_blocked then
+                    local _, name = r.GetTrackName(track)
+                    entries[#entries + 1] = {
+                        track = track,
+                        guid = guid,
+                        name = name,
+                        color = r.GetTrackColor(track),
+                        idx = i,
+                        is_folder = (r.GetMediaTrackInfo_Value(track, "I_FOLDERDEPTH") == 1),
+                        blocked = not allowed,
+                    }
+                end
+            end
+        end
+        return entries
+    end
+
+    NavCustomSetEntries = function(opts)
+        opts = opts or {}
+        NavPruneIncluded()
+        local entries = {}
+        local nt = r.CountTracks(0)
+        for i = 0, nt - 1 do
+            local track = r.GetTrack(0, i)
+            local guid = r.GetTrackGUID(track)
+            if nav_custom_set[guid] then
                 local allowed = NavCanIncludeTrack(track)
                 if allowed or opts.include_blocked then
                     local _, name = r.GetTrackName(track)
@@ -134,6 +215,30 @@ ReflexInstallNavInclusionCore = function(deps)
         end
         if changed then
             SaveNavIncluded()
+            markDirty()
+        end
+        return added, skipped
+    end
+
+    NavAddSelectedTracksToCustomSet = function()
+        local changed = false
+        local added = 0
+        local skipped = 0
+        for i = 0, r.CountSelectedTracks(0) - 1 do
+            local track = r.GetSelectedTrack(0, i)
+            if NavCanIncludeTrack(track) then
+                local guid = r.GetTrackGUID(track)
+                if not nav_custom_set[guid] then
+                    nav_custom_set[guid] = true
+                    changed = true
+                    added = added + 1
+                end
+            else
+                skipped = skipped + 1
+            end
+        end
+        if changed then
+            SaveNavCustomSet()
             markDirty()
         end
         return added, skipped

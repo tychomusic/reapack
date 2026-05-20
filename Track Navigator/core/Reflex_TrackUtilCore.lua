@@ -120,7 +120,10 @@ ReflexInstallTrackUtilCore = function(deps)
     end
 
     IsItemVisible = function(item)
-        if item and item.custom then return NavTrackActuallyVisible(item.track) end
+        if item and (item.custom or item.tree_search_result) then return NavTrackActuallyVisible(item.track) end
+        if item and ((item.tree_depth or 0) > 0 or item.ghost_parent) then
+            return NavTrackActuallyVisible(item.track)
+        end
         return IsFolderVisible(item)
     end
 end

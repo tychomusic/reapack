@@ -4,26 +4,96 @@
 
 ReflexInstallNavActionCore = function(deps)
     local r = deps.r
+    local markDirty = deps.mark_dirty or function() end
 
-    EnsurePinnedVisible = function()
-        if next(pinned_folders) == nil then return end
-        for _, entry in ipairs(top_folders) do
-            if PinnedTrack(entry.track) then
-                local was_hidden = r.GetMediaTrackInfo_Value(entry.track, "B_SHOWINTCP") ~= 1
-                -- Show folder and all descendants
-                SetFolderVisible(entry, true)
-                if was_hidden then
-                    -- Uncollapse and expand only when re-showing from hidden
-                    SetFolderCollapsed(entry, false)
-                    if opt_expand_children then ExpandChildFolders(entry.track, entry.idx) end
-                end
-                -- Restore sub-group selection (all children selected)
-                local sg = sub_group_by_name[entry.name]
-                if sg and #sg.entries > 0 then
-                    for _, e in ipairs(sg.entries) do sg.selected[e.display_name] = true end
-                end
+    local function NavSetTrackValueIfNeeded(track, parm, value)
+        if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
+        if r.GetMediaTrackInfo_Value(track, parm) == value then return false end
+        r.SetMediaTrackInfo_Value(track, parm, value)
+        return true
+    end
+
+    local function NavEnsureTrackVisible(track)
+        local changed = false
+        changed = NavSetTrackValueIfNeeded(track, "B_SHOWINTCP", 1) or changed
+        changed = NavSetTrackValueIfNeeded(track, "B_SHOWINMIXER", 1) or changed
+        return changed
+    end
+
+    local function NavCaptureTrackSelection()
+        local selected = {}
+        local count = r.CountSelectedTracks and r.CountSelectedTracks(0) or 0
+        for i = 0, count - 1 do
+            local track = r.GetSelectedTrack(0, i)
+            if track then selected[#selected + 1] = track end
+        end
+        return selected
+    end
+
+    local function NavRestoreTrackSelection(selected)
+        if type(selected) ~= "table" then return end
+        local nt = r.CountTracks(0)
+        for i = 0, nt - 1 do
+            local track = r.GetTrack(0, i)
+            if track then r.SetTrackSelected(track, false) end
+        end
+        for _, track in ipairs(selected) do
+            if track and r.ValidatePtr(track, "MediaTrack*") then
+                r.SetTrackSelected(track, true)
             end
         end
+    end
+
+    local function NavCaptureTcpScroll()
+        if not (r.JS_Window_FindChildByID and r.JS_Window_GetScrollInfo) then return nil end
+        local tcp = r.JS_Window_FindChildByID(r.GetMainHwnd(), 1000)
+        if not tcp then return nil end
+        local ok, pos = r.JS_Window_GetScrollInfo(tcp, "v")
+        if ok and type(pos) == "number" then return pos end
+        return nil
+    end
+
+    local function NavRestoreTcpScroll(pos)
+        if type(pos) ~= "number" or not (r.JS_Window_FindChildByID and r.JS_Window_SetScrollPos) then return end
+        local tcp = r.JS_Window_FindChildByID(r.GetMainHwnd(), 1000)
+        if tcp then
+            r.JS_Window_SetScrollPos(tcp, "v", math.max(0, math.floor(pos + 0.5)))
+        end
+    end
+
+    EnsurePinnedVisible = function()
+        if next(pinned_folders) == nil then return false end
+        local changed = false
+        local pending_pins = {}
+        local pending_count = 0
+        for guid in pairs(pinned_folders) do
+            pending_pins[guid] = true
+            pending_count = pending_count + 1
+        end
+        for _, entry in ipairs(top_folders) do
+            local guid = r.GetTrackGUID(entry.track)
+            if pending_pins[guid] and PinnedTrack(entry.track) then
+                pending_pins[guid] = nil
+                pending_count = pending_count - 1
+                changed = NavEnsureTrackVisible(entry.track) or changed
+            end
+        end
+        if pending_count <= 0 then return changed end
+        local nt = r.CountTracks(0)
+        for i = 0, nt - 1 do
+            local track = r.GetTrack(0, i)
+            local guid = r.GetTrackGUID(track)
+            if pending_pins[guid]
+               and not (NavTrackAutoIgnored and NavTrackAutoIgnored(track))
+               and not (NavTrackInHiddenSubtree and NavTrackInHiddenSubtree(track)) then
+                pending_pins[guid] = nil
+                pending_count = pending_count - 1
+                changed = (NavRevealParentChain(track) == true) or changed
+                changed = NavEnsureTrackVisible(track) or changed
+                if pending_count <= 0 then break end
+            end
+        end
+        return changed
     end
 
     ScrollTrackToCenter = function(track)
@@ -63,6 +133,15 @@ ReflexInstallNavActionCore = function(deps)
     -- HELPERS
     -- =========================================================================
 
+    local function NavItemSubGroup(item)
+        if not item or item.kind ~= "folder" then return nil end
+        if item.sub_group then return item.sub_group end
+        if (item.tree_depth or 0) == 0 and not item.ghost_parent and item.entry then
+            return sub_group_by_name[item.entry.name]
+        end
+        return nil
+    end
+
     HideEverything = function()
         ViewHistoryPush()
         for _, entry in ipairs(top_folders) do
@@ -76,8 +155,11 @@ ReflexInstallNavActionCore = function(deps)
     end
 
     ShowFolderItem = function(item, expand_all)
-        local sg = sub_group_by_name[item.entry.name]
-        if opt_live_mode and item.entry.name == "SONGS" then
+        if item and item.entry and item.entry.track then
+            NavRevealParentChain(item.entry.track)
+        end
+        local sg = NavItemSubGroup(item)
+        if sg and sg.is_song_sub then
             ShowSongsForCurrentSong(item.entry, expand_all or opt_expand_children)
             -- Mark all song sections selected, exit section mode
             for _, e in ipairs(songs_sub.entries) do songs_sub.selected[e.display_name] = true end
@@ -116,10 +198,12 @@ ReflexInstallNavActionCore = function(deps)
             parents[#parents + 1] = parent
             parent = r.GetParentTrack(parent)
         end
+        local changed = false
         for i = #parents, 1, -1 do
-            SetTrackVis(parents[i], true)
-            r.SetMediaTrackInfo_Value(parents[i], "I_FOLDERCOMPACT", 0)
+            changed = NavEnsureTrackVisible(parents[i]) or changed
+            changed = NavSetTrackValueIfNeeded(parents[i], "I_FOLDERCOMPACT", 0) or changed
         end
+        return changed
     end
 
     NavShowCustomItem = function(item, expand_all)
@@ -215,7 +299,12 @@ ReflexInstallNavActionCore = function(deps)
     end
 
     IsAloneVisible = function(item)
-        local root_entry = item.ghost_parent or (item.custom and NavTopRootEntry(item.track)) or nil
+        local uses_root_solo_scope = item.custom
+            or item.tree_search_result
+            or (item.kind == "folder" and (item.tree_depth or 0) > 0)
+        local root_entry = item.ghost_parent
+            or (uses_root_solo_scope and NavTopRootEntry(item.track))
+            or nil
         local vt = 0
         local item_name = root_entry and root_entry.name
             or item.kind == "folder" and item.entry.name
@@ -229,7 +318,7 @@ ReflexInstallNavActionCore = function(deps)
                 end
             end
         end
-        if item.custom then
+        if uses_root_solo_scope then
             return vt == 1
                 and NavItemSoloWithinRoot(item, root_entry)
         end
@@ -239,11 +328,11 @@ ReflexInstallNavActionCore = function(deps)
         end
         if item.kind == "folder" then
             if vt ~= 1 or not IsFolderVisible(item.entry) then return false end
+            local sg = NavItemSubGroup(item)
             -- SONGS in section mode: always re-show full song on click
-            if opt_live_mode and item.entry.name == "SONGS" and songs_section_mode then return false end
+            if sg and sg.is_song_sub and songs_section_mode then return false end
             if item.is_folder and not FolderSubtreeFullyShown(item.entry) then return false end
             -- Sub-group parent: only "alone" when all whitelisted children are visible
-            local sg = item.sub_group
             if sg and #sg.entries > 0 then
                 for _, e in ipairs(sg.entries) do
                     if r.GetMediaTrackInfo_Value(e.track, "B_SHOWINTCP") ~= 1 then return false end
@@ -329,14 +418,14 @@ ReflexInstallNavActionCore = function(deps)
             return
         end
         if item.kind == "folder" then
-            local sg = sub_group_by_name[item.entry.name]
-            if IsFolderVisible(item.entry) then
+            local sg = NavItemSubGroup(item)
+            if IsItemVisible(item) then
                 if sg then SaveSubGroupState(sg) end
-                if opt_live_mode and item.entry.name == "SONGS" then songs_follow_active = false end
+                if sg and sg.is_song_sub then songs_follow_active = false end
                 SetFolderVisible(item.entry, false)
             else
                 -- Re-show: sub-groups restore saved selection, others show normally
-                if opt_live_mode and item.entry.name == "SONGS" then
+                if sg and sg.is_song_sub then
                     if songs_section_mode then
                         ShowSongSectionsSelected(is_alt or opt_expand_children)
                     else
@@ -347,6 +436,7 @@ ReflexInstallNavActionCore = function(deps)
                     ShowSubGroupSelected(sg)
                     if is_alt then ExpandAllChildFolders(item.entry.track, item.entry.idx) end
                 else
+                    NavRevealParentChain(item.entry.track)
                     SetFolderVisible(item.entry, true)
                     SetFolderCollapsed(item.entry, false)
                     if is_alt then ExpandAllChildFolders(item.entry.track, item.entry.idx)
@@ -393,13 +483,14 @@ ReflexInstallNavActionCore = function(deps)
             if item.custom then
                 NavShowCustomItem(item, false)
             elseif item.kind == "folder" then
-                local sg = sub_group_by_name[item.entry.name]
-                if opt_live_mode and item.entry.name == "SONGS" then
+                local sg = NavItemSubGroup(item)
+                if sg and sg.is_song_sub then
                     ShowSongsForCurrentSong(item.entry, opt_expand_children); SetFolderCollapsed(item.entry, false)
                     for _, e in ipairs(songs_sub.entries) do songs_sub.selected[e.display_name] = true end
                     songs_section_mode = false
                 elseif sg then parent_sgs[sg.parent_name] = sg; active_sgs[sg.parent_name] = sg
                 else
+                    NavRevealParentChain(item.entry.track)
                     SetFolderVisible(item.entry, true); SetFolderCollapsed(item.entry, false)
                     if opt_expand_children then ExpandChildFolders(item.entry.track, item.entry.idx) end
                 end
@@ -420,10 +511,15 @@ ReflexInstallNavActionCore = function(deps)
         ExitSpecialViews()
         ViewHistoryPushTlf()
         local item = render_list[ri]
+        local preserve_tcp_state = is_cmd == true and is_shift ~= true and is_ctrl ~= true
+        local selected_before = preserve_tcp_state and NavCaptureTrackSelection() or nil
+        local tcp_scroll_before = preserve_tcp_state and NavCaptureTcpScroll() or nil
         r.Undo_BeginBlock(); r.PreventUIRefresh(1)
         local do_scroll = true
         if is_shift then HandleTracksShift(ri)
-        elseif is_cmd then HandleTracksCmd(ri, is_alt)
+        elseif is_cmd then
+            HandleTracksCmd(ri, is_alt)
+            do_scroll = false
         elseif is_ctrl and not is_cmd then
             -- Child-expand chord: expand/collapse folder and all children.
             if item.custom and item.is_folder then
@@ -459,6 +555,7 @@ ReflexInstallNavActionCore = function(deps)
                     pinned_folders[guid] = true
                 end
                 SavePinnedFolders()
+                markDirty()
                 do_scroll = false
             elseif item.kind == "sub_child" then
                 if item.sub_group.is_song_sub then
@@ -478,6 +575,10 @@ ReflexInstallNavActionCore = function(deps)
         SyncGhostVisibility()
         EnsurePinnedVisible()
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
+        if preserve_tcp_state then
+            NavRestoreTrackSelection(selected_before)
+            NavRestoreTcpScroll(tcp_scroll_before)
+        end
         tracks_last_click = item.label
         if do_scroll then local st = item.track; r.defer(function() ScrollTrackToCenter(st) end) end
         r.Undo_EndBlock("Track Navigator: " .. item.label, 0)
@@ -612,6 +713,31 @@ ReflexInstallNavActionCore = function(deps)
         SyncGhostVisibility()
         r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
         r.Undo_EndBlock("Track Navigator: Show All Tracks", 0)
+    end
+
+    TrackNavigatorTltRenderIndexByOrdinal = function(ordinal)
+        ordinal = math.floor(tonumber(ordinal) or 0)
+        if ordinal < 1 then return nil end
+        local pos = 0
+        for ri, item in ipairs(render_list) do
+            if item.kind == "folder"
+                and item.entry
+                and not item.custom
+                and not item.ghost_parent
+                and (item.tree_depth or 0) == 0
+                and not (NavTrackAutoIgnored and NavTrackAutoIgnored(item.entry.track)) then
+                pos = pos + 1
+                if pos == ordinal then return ri end
+            end
+        end
+        return nil
+    end
+
+    TrackNavigatorShowOnlyTltOrdinal = function(ordinal)
+        local ri = TrackNavigatorTltRenderIndexByOrdinal(ordinal)
+        if not ri then return false end
+        HandleTracksClick(ri, false, false, false, false)
+        return true
     end
 
     -- Show all songs, retaining each song folder's current collapsed/expanded state.

@@ -1,15 +1,37 @@
 -- @description Track Navigator
--- @version 1.2.6
+-- @version 1.2.7
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @metapackage
 -- @provides
 --   [main] Track Navigator.lua
+--   [main] actions/Track Navigator - Focus Search.lua
+--   [main] actions/Track Navigator - Active View - Enable.lua
+--   [main] actions/Track Navigator - Active View - Rebuild.lua
+--   [main] actions/Track Navigator - Active View - Exit.lua
+--   [main] actions/Track Navigator - Selected Tracks View - Enable.lua
+--   [main] actions/Track Navigator - Selected Tracks View - Rebuild.lua
+--   [main] actions/Track Navigator - Selected Tracks View - Exit.lua
+--   [main] actions/Track Navigator - Routing View - Enable.lua
+--   [main] actions/Track Navigator - Routing View - Rebuild.lua
+--   [main] actions/Track Navigator - Routing View - Exit.lua
+--   [main] actions/Track Navigator - Show Only TLT 01.lua
+--   [main] actions/Track Navigator - Show Only TLT 02.lua
+--   [main] actions/Track Navigator - Show Only TLT 03.lua
+--   [main] actions/Track Navigator - Show Only TLT 04.lua
+--   [main] actions/Track Navigator - Show Only TLT 05.lua
+--   [main] actions/Track Navigator - Show Only TLT 06.lua
+--   [main] actions/Track Navigator - Show Only TLT 07.lua
+--   [main] actions/Track Navigator - Show Only TLT 08.lua
+--   [main] actions/Track Navigator - Show Only TLT 09.lua
+--   [main] actions/Track Navigator - Show Only TLT 10.lua
 --   [nomain] Track Navigator_Theme_Default.lua
+--   [nomain] actions/Track Navigator_ActionBridge.lua
 --   [nomain] core/Reflex_FontCore.lua
 --   [nomain] core/Reflex_StyleCore.lua
 --   [nomain] core/Reflex_ColorCore.lua
 --   [nomain] core/Reflex_PinCore.lua
+--   [nomain] core/Reflex_NavTreeCore.lua
 --   [nomain] core/Reflex_NavExclusionCore.lua
 --   [nomain] core/Reflex_NavInclusionCore.lua
 --   [nomain] core/Reflex_RealistCore.lua
@@ -24,5 +46,6 @@
 --   [nomain] icons/Nav.Active.A.png
 --   [nomain] icons/Nav.Select.S.png
 --   [nomain] icons/Nav.Route.R.png
+--   [nomain] icons/Nav.CustomSet.Asterisk.png
 --   [nomain] icons/Navigator.mark.png
 --   [nomain] icons/Tycho-Logo-dots.png

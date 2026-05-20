@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2.6
+ * Version:     1.2.7
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2.6"
+TRACK_NAVIGATOR_VERSION = "1.2.7"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -34,6 +34,34 @@ if not imgui_ok or not r.ImGui_CreateContext then
 end
 
 local ctx = r.ImGui_CreateContext("Track Navigator")
+
+local function TrackNavigatorSetImGuiConfigBool(name, value)
+    if not (r.ImGui_SetConfigVar and r["ImGui_ConfigVar_" .. name]) then return end
+    local ok_var, var = pcall(r["ImGui_ConfigVar_" .. name])
+    if ok_var and type(var) == "number" then
+        pcall(r.ImGui_SetConfigVar, ctx, var, value and 1 or 0)
+    end
+end
+
+local function TrackNavigatorSetImGuiConfigFlag(name, enabled)
+    if not (r.ImGui_GetConfigVar and r.ImGui_SetConfigVar
+        and r.ImGui_ConfigVar_Flags and r["ImGui_ConfigFlags_" .. name]) then
+        return
+    end
+    local ok_var, flags_var = pcall(r.ImGui_ConfigVar_Flags)
+    local ok_flag, flag = pcall(r["ImGui_ConfigFlags_" .. name])
+    if not ok_var or not ok_flag or type(flag) ~= "number" then return end
+    local ok_flags, flags = pcall(r.ImGui_GetConfigVar, ctx, flags_var)
+    if not ok_flags or type(flags) ~= "number" then return end
+    flags = math.floor(flags)
+    local next_flags = enabled and (flags | flag) or (flags & ~flag)
+    if next_flags ~= flags then
+        pcall(r.ImGui_SetConfigVar, ctx, flags_var, next_flags)
+    end
+end
+
+TrackNavigatorSetImGuiConfigBool("NavEscapeClearFocusWindow", false)
+TrackNavigatorSetImGuiConfigFlag("NavEnableKeyboard", false)
 
 local script_dir = debug.getinfo(1, 'S').source:match('@?(.*[/\\])') or ''
 package.path = script_dir .. 'core/?.lua;' .. script_dir .. '?.lua;' .. package.path
@@ -186,6 +214,7 @@ TrackNavigatorClampScale = function(v)
 end
 
 local TRACK_NAVIGATOR_INSTANCE_KEY = "track_navigator_instance_token"
+local TRACK_NAVIGATOR_COMMAND_KEY = "track_navigator_external_command"
 local track_navigator_instance_token = tostring({}) .. ":" .. tostring(r.time_precise and r.time_precise() or os.clock())
 r.SetExtState(PREF, TRACK_NAVIGATOR_INSTANCE_KEY, track_navigator_instance_token, false)
 if r.atexit then
@@ -204,6 +233,11 @@ opt_helper_tooltips = LoadPref("helper_tooltips", false)
 opt_viewlock = LoadPref("view_lock", false)
 opt_live_mode = LoadPref("tycho_live_mode", false)
 opt_nav_ignore_archive = LoadPref("nav_ignore_archive", true)
+opt_nav_tlt_expand = LoadPref("nav_tlt_expand", true)
+opt_nav_show_search = LoadPref("nav_show_search", true)
+opt_nav_custom_set_mode = LoadPref("nav_custom_set_mode", false)
+opt_nav_indent_tlts = LoadPref("nav_indent_tlts", true)
+opt_nav_flip_indent = LoadPref("nav_flip_indent", false)
 opt_esc_key_to_close = LoadPref("esc_key_to_close", true)
 opt_view_mode_restore_arrange = LoadPref("view_mode_restore_arrange", false)
 local ui_scale = LoadPref("navigator_scale_v1", nil)
@@ -610,6 +644,14 @@ remote_ctx_tlf_guid = nil
 remote_ctx_tlf_track = nil
 remote_ctx_tlf_ghost_parent = nil
 remote_ctx_tlf_custom = false
+nav_tlt_search_text = ""
+nav_tlt_search_effective_query = ""
+nav_tlt_search_visible = false
+nav_tlt_search_esc_consumed = false
+nav_tlt_search_hide_clear = false
+nav_tlt_search_recent_clear_frames = 0
+nav_tlt_search_focus_requested_frames = 0
+nav_tlt_search_window_focus_requested_frames = 0
 last_nav_h = 0
 last_nav_natural_h = 0
 last_nav_collapsed_visible_h = 0
@@ -659,6 +701,14 @@ package.loaded["Reflex_PinCore"] = nil
 require("Reflex_PinCore")({ r = r, PREF = PREF })
 LoadPinnedFolders()
 
+package.loaded["Reflex_NavTreeCore"] = nil
+require("Reflex_NavTreeCore")({
+    r = r,
+    get_render_list = function() return render_list end,
+    mark_dirty = function() needs_rescan = true end,
+})
+LoadNavTreeExpansion()
+
 package.loaded["Reflex_NavExclusionCore"] = nil
 require("Reflex_NavExclusionCore")({
     r = r,
@@ -681,6 +731,11 @@ require("Reflex_NavInclusionCore")({
     mark_dirty = function() needs_rescan = true; needs_song_rescan = true end,
 })
 LoadNavIncluded()
+local loaded_custom_set_entries = NavCustomSetEntries and NavCustomSetEntries({ include_blocked = true }) or {}
+if opt_nav_custom_set_mode == true and #loaded_custom_set_entries == 0 then
+    opt_nav_custom_set_mode = false
+    SavePref("nav_custom_set_mode", false)
+end
 
 package.loaded["Reflex_RealistCore"] = nil
 require("Reflex_RealistCore")({
@@ -699,6 +754,8 @@ require("Reflex_TrackScanCore")({
     live_mode = function() return opt_live_mode == true end,
     track_auto_ignored = function(track) return NavTrackAutoIgnored and NavTrackAutoIgnored(track) or false end,
     get_included_entries = function() return NavIncludedEntries and NavIncludedEntries() or {} end,
+    get_custom_set_entries = function() return NavCustomSetEntries and NavCustomSetEntries() or {} end,
+    custom_set_mode = function() return opt_nav_custom_set_mode == true end,
     get_sub_groups = function() return sub_groups end,
     get_sub_group_by_name = function() return sub_group_by_name end,
     get_songs_sub = function() return songs_sub end,
@@ -753,10 +810,16 @@ require("Reflex_ViewHistory")({
 })
 
 package.loaded["Reflex_NavActionCore"] = nil
-require("Reflex_NavActionCore")({ r = r })
+require("Reflex_NavActionCore")({
+    r = r,
+    mark_dirty = function() needs_rescan = true; needs_song_rescan = true end,
+})
 
 package.loaded["Reflex_ViewModes"] = nil
-require("Reflex_ViewModes")({ r = r })
+require("Reflex_ViewModes")({
+    r = r,
+    mark_dirty = function() needs_rescan = true; needs_song_rescan = true end,
+})
 
 nav_dock_request = nil
 nav_quit_requested = false
@@ -802,6 +865,7 @@ local window_initialized = false
 local last_track_count = 0
 local last_project_state = 0
 local project_state_rescan_pending = false
+local pinned_visibility_reconcile_pending = false
 local last_rescan_time = 0
 local RESCAN_THROTTLE = 0.5
 
@@ -868,6 +932,21 @@ TrackNavigatorEscapePressed = function()
     return ok_pressed and pressed == true
 end
 
+TrackNavigatorSearchShortcutPressed = function()
+    if not (r.ImGui_IsKeyPressed and r.ImGui_Key_F) then return false end
+    local ok_key, key = pcall(r.ImGui_Key_F)
+    if not ok_key or type(key) ~= "number" then return false end
+    local ok_pressed, pressed = pcall(r.ImGui_IsKeyPressed, ctx, key, false)
+    if not ok_pressed or pressed ~= true then return false end
+    local mods = 0
+    if r.ImGui_GetKeyMods then
+        local ok_mods, value = pcall(r.ImGui_GetKeyMods, ctx)
+        if ok_mods and type(value) == "number" then mods = value end
+    end
+    local nav_mods = TrackNavigatorModState(mods)
+    return nav_mods.cmd and not nav_mods.shift and not nav_mods.alt
+end
+
 TrackNavigatorAnyPopupOpen = function()
     if not (r.ImGui_IsPopupOpen and r.ImGui_PopupFlags_AnyPopup) then return false end
     local ok_flags, flags = pcall(r.ImGui_PopupFlags_AnyPopup)
@@ -876,12 +955,102 @@ TrackNavigatorAnyPopupOpen = function()
     return ok_open and popup_open == true
 end
 
+TrackNavigatorRequestTltSearchFocus = function()
+    current_page = "tracks"
+    if not navigator_expanded then
+        navigator_expanded = true
+        SavePref("navigator_expanded", true)
+    end
+    if opt_nav_show_search == false then
+        opt_nav_show_search = true
+        SavePref("nav_show_search", true)
+    end
+    nav_tlt_search_hide_clear = false
+    nav_tlt_search_recent_clear_frames = 0
+    nav_tlt_search_focus_requested_frames = 8
+    nav_tlt_search_window_focus_requested_frames = 8
+    needs_rescan = true
+end
+
+TrackNavigatorRunExternalCommand = function(command)
+    if command == "focus_tlt_search" then
+        TrackNavigatorRequestTltSearchFocus()
+        return true
+    elseif command == "active_enable" then
+        if not active_view_active then ActiveViewToggle() end
+        return true
+    elseif command == "active_rebuild" then
+        ActiveViewToggle()
+        return true
+    elseif command == "active_exit" then
+        ActiveViewExit()
+        return true
+    elseif command == "selected_enable" then
+        if not selected_view_active then SelectedViewToggle() end
+        return true
+    elseif command == "selected_rebuild" then
+        SelectedViewRefreshFromSelection()
+        return true
+    elseif command == "selected_exit" then
+        SelectedViewExit()
+        return true
+    elseif command == "routing_enable" then
+        if not routing_view_active then RoutingViewToggle() end
+        return true
+    elseif command == "routing_rebuild" then
+        RoutingViewRefreshFromSelection()
+        return true
+    elseif command == "routing_exit" then
+        RoutingViewExit()
+        return true
+    end
+    local slot = tostring(command or ""):match("^tlt_(%d%d)_show_only$")
+    if slot and TrackNavigatorShowOnlyTltOrdinal then
+        return TrackNavigatorShowOnlyTltOrdinal(tonumber(slot))
+    end
+    return false
+end
+
+TrackNavigatorPollExternalCommand = function()
+    local raw = r.GetExtState(PREF, TRACK_NAVIGATOR_COMMAND_KEY)
+    if raw == "" then return false end
+    if r.DeleteExtState then r.DeleteExtState(PREF, TRACK_NAVIGATOR_COMMAND_KEY, false) end
+    local command = tostring(raw):match("^([^|]+)") or tostring(raw)
+    return TrackNavigatorRunExternalCommand(command)
+end
+
+TrackNavigatorReconcilePinnedVisibility = function()
+    if not EnsurePinnedVisible or not pinned_folders or next(pinned_folders) == nil then return false end
+    local changed = EnsurePinnedVisible()
+    if changed then
+        if SyncGhostVisibility then SyncGhostVisibility() end
+        r.TrackList_AdjustWindows(false)
+        r.UpdateArrange()
+        needs_rescan = true
+        needs_song_rescan = true
+    end
+    return changed
+end
+
+TrackNavigatorRequestPinnedVisibilityReconcile = function()
+    if pinned_folders and next(pinned_folders) ~= nil then
+        pinned_visibility_reconcile_pending = true
+    end
+end
+
+TrackNavigatorSpecialViewActive = function()
+    return routing_view_active == true
+        or selected_view_active == true
+        or active_view_active == true
+end
+
 TrackNavigatorLoop = function()
     if r.GetExtState(PREF, TRACK_NAVIGATOR_INSTANCE_KEY) ~= track_navigator_instance_token then
         return
     end
 
     MaybeReloadPins()
+    MaybeReloadNavTreeExpansion()
     MaybeReloadNavExcluded()
     MaybeReloadNavIncluded()
     MaybeSyncViewModeProject()
@@ -899,11 +1068,14 @@ TrackNavigatorLoop = function()
         for _, sg in ipairs(sub_groups) do sg.entry_ref = nil; sg.entries = {} end
         needs_rescan = true
         needs_song_rescan = true
+        if nt > 0 then TrackNavigatorRequestPinnedVisibilityReconcile() end
     elseif nt ~= last_track_count then
         needs_rescan = true
         needs_song_rescan = true
+        TrackNavigatorRequestPinnedVisibilityReconcile()
     elseif proj_state ~= last_project_state then
         project_state_rescan_pending = true
+        TrackNavigatorRequestPinnedVisibilityReconcile()
     end
     if project_state_rescan_pending then
         local now = r.time_precise()
@@ -924,6 +1096,19 @@ TrackNavigatorLoop = function()
     elseif not project_state_rescan_pending then
         last_project_state = proj_state
     end
+    if pinned_visibility_reconcile_pending
+        and nt > 0
+        and not project_state_rescan_pending
+        and not TrackNavigatorSpecialViewActive() then
+        local pins_changed = TrackNavigatorReconcilePinnedVisibility()
+        pinned_visibility_reconcile_pending = false
+        if pins_changed then
+            last_project_state = r.GetProjectStateChangeCount(0)
+            project_state_rescan_pending = false
+        end
+    end
+
+    TrackNavigatorPollExternalCommand()
 
     if (not opt_live_mode or not songs_entry_ref) and current_page == "songs" then current_page = "tracks" end
 
@@ -966,6 +1151,8 @@ TrackNavigatorLoop = function()
     pushDockColor(r.ImGui_Col_Button, main_bg)
     pushDockColor(r.ImGui_Col_ButtonHovered, main_bg)
     pushDockColor(r.ImGui_Col_ButtonActive, main_bg)
+    pushDockColor(r.ImGui_Col_NavHighlight, 0x00000000)
+    pushDockColor(r.ImGui_Col_NavCursor, 0x00000000)
     pushDockColor(r.ImGui_Col_NavWindowingHighlight, 0x00000000)
     pushDockColor(r.ImGui_Col_NavWindowingDimBg, 0x00000000)
     pushDockColor(r.ImGui_Col_ResizeGrip, C.window_outline)
@@ -998,6 +1185,10 @@ TrackNavigatorLoop = function()
         end
         pcall(r.ImGui_SetNextWindowDockID, ctx, nav_dock_request)
         nav_dock_request = nil
+    end
+    if (nav_tlt_search_window_focus_requested_frames or 0) > 0 then
+        if r.ImGui_SetNextWindowFocus then pcall(r.ImGui_SetNextWindowFocus, ctx) end
+        nav_tlt_search_window_focus_requested_frames = nav_tlt_search_window_focus_requested_frames - 1
     end
     local min_nav_w = S(34)
     local min_window_w = S(UI.edge_pad) + min_nav_w + S(UI.edge_pad / 2) + 1
@@ -1055,7 +1246,14 @@ TrackNavigatorLoop = function()
         else
             nav_current_dock_id = nav_window_docked and -1 or 0
         end
-        local nav_esc_pressed = opt_esc_key_to_close and TrackNavigatorEscapePressed()
+        local raw_nav_esc_pressed = TrackNavigatorEscapePressed()
+        local nav_esc_pressed = opt_esc_key_to_close and raw_nav_esc_pressed
+        if TrackNavigatorSearchShortcutPressed() then
+            TrackNavigatorRequestTltSearchFocus()
+        end
+        if (nav_tlt_search_window_focus_requested_frames or 0) > 0 and r.ImGui_SetWindowFocus then
+            pcall(r.ImGui_SetWindowFocus, ctx)
+        end
         local nav_expanded_before_draw = navigator_expanded
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
         local wx, wy = r.ImGui_GetWindowPos(ctx)
@@ -1120,6 +1318,7 @@ TrackNavigatorLoop = function()
             nav_ar_x_offset = -nav_right_dock_gap_offset - 0.5
         end
         nav_popup_active_this_frame = false
+        nav_tlt_search_esc_consumed = false
         NavDrawSection({
             bw = bw,
             win_h = win_h,
@@ -1148,6 +1347,7 @@ TrackNavigatorLoop = function()
             end
         end
         if nav_esc_pressed
+            and not nav_tlt_search_esc_consumed
             and not nav_popup_active_this_frame
             and not nav_popup_active_previous_frame
             and not TrackNavigatorAnyPopupOpen() then
