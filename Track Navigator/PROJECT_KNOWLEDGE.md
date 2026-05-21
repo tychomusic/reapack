@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2.8
+Current public version: 1.2.9
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -29,7 +29,7 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - `actions/` contains ReaPack-visible helper actions. These actions send one-shot commands through the `track_navigator_external_command` ExtState key; the running standalone Track Navigator consumes them on its defer loop. Most helper actions no-op if Track Navigator is not running rather than leaving stale commands; `Focus Search` is the exception and launches Navigator before focusing the search row.
 - `core/Reflex_NavViewCore.lua` draws NAV UI: NAV buttons, global NAV.menu, TLT context menus, Help / Manual, docking menu, and the main NAV list.
 - `core/Reflex_NavActionCore.lua` owns NAV visibility actions.
-- `core/Reflex_ViewModes.lua` owns Routing, Selected, and Active view modes.
+- `core/Reflex_ViewModes.lua` owns Routing, Selected, Armed, and Active view modes.
 - `core/Reflex_ViewHistory.lua` owns view history state.
 - `core/Reflex_NavTreeCore.lua` owns GUID-keyed Navigator tree disclosure persistence.
 - `core/Reflex_PinCore.lua`, `Reflex_NavExclusionCore.lua`, and `Reflex_NavInclusionCore.lua` own pin/hidden/manual visibility and custom-set persistence.
@@ -108,7 +108,7 @@ Use this shorthand in discussion and bug reports.
 - The arrow glyph has built-in text/advance padding, so `CalcTextSize` does not equal visible triangle pixels. Size against rendered screenshots when tuning; the current code compensates the glyph font size while keeping layout and hit geometry on the 14px indicator slot.
 - The TLT title clips before the tree arrow with the same style as the old title clipping; pin state must not change the text limit.
 - The arrow hit target is the pill's full arrow-side cap plus a small inward allowance. It should be easy to click without stealing normal body clicks left of that region.
-- In expanded TLT rows, the colored endcap is its own locate/track-selection target from the colored circle's inner edge through the pill edge. Hover shows the hand cursor. Plain click selects the real REAPER track and scrolls TCP to it; Cmd-click on macOS / Ctrl-click on Windows toggles the track in the REAPER track selection; Shift-click selects a track-number range from the last endcap selection anchor; primary+Shift adds that range. If the clicked track is hidden or inside a hidden/collapsed parent chain, reveal the target and required parents first, push view history, and do not solo/show-only the TLT. This must work symmetrically in mirrored mode.
+- In expanded TLT rows, the colored endcap is its own locate/track-selection target from the colored circle's inner edge through the pill edge. Hover shows the hand cursor. Plain click selects the real REAPER track and scrolls TCP to it; Cmd-click on macOS / Ctrl-click on Windows toggles the track in the REAPER track selection; Shift-click selects a track-number range from the last endcap selection anchor; primary+Shift adds that range. Opt/Alt-click in the colored endcap must not select the REAPER track; it follows normal TLT modifier behavior and pins/unpins the TLT. If the clicked track is hidden or inside a hidden/collapsed parent chain, reveal the target and required parents first, push view history, and do not solo/show-only the TLT. This must work symmetrically in mirrored mode.
 - TLT context menus include `Show children` for folder tracks. It adds the TLT's direct children as manual Track Navigator buttons, like selecting those child tracks and using `Show selected tracks`, while leaving the parent TLT visible. It does not change REAPER TCP/Mixer visibility or Navigator tree disclosure state. This is useful when `Enable TLT expand` is off and should remain non-conflicting when it is on.
 - Collapsed arrow: points right, rest color `#23262a`, hover color `#393a3d`; inactive TLT arrows use `#3d3d3d`. Expanded arrow: points down and uses `#515151`. Partial/pinned-path hover arrow: points right, active color `#393a3d`.
 - After changing TLT arrow layout, reload Track Navigator in REAPER and, if spacing is disputed, use screenshot-based pixel measurement before further tuning.
@@ -126,7 +126,10 @@ Use this shorthand in discussion and bug reports.
 
 ## ReaPack Actions
 - Track Navigator exposes ReaPack-visible actions for `NAV.A`, `NAV.S`, and `NAV.R`: `Enable`, `Rebuild`, and `Exit`. Enable enters only when inactive; Rebuild matches the Opt/Alt-click behavior; Exit restores the saved pre-entry view when that mode is active.
+- Track Navigator also exposes action-only Armed View actions: `Enable`, `Rebuild`, and `Exit`. Armed View has no UI affordance for now, captures/restores state like A/S/R, and shows only currently record-armed tracks.
+- `Track Navigator - Scroll to Record Armed Tracks` scrolls TCP to the first record-armed track by track number without entering Armed View.
 - Track Navigator also exposes `Show Only TLT 01..10` actions. These target the first ten non-auto-ignored natural top-level folders in the current NAV list and call the same plain-click path as a normal TLT button, preserving Navigator's solo-visibility behavior.
+- The standalone script self-registers helper actions on startup with `AddRemoveReaScript` so local working copies under `Tycho/reapack` expose the same helper actions as ReaPack-installed copies.
 - `Track Navigator - Focus Search` opens/focuses the TLT search row and is allowed to launch the standalone Navigator when it is not already running. Other helper actions remain running-instance-only.
 - The helper action files are intentionally thin command senders. Keep Navigator behavior in the running standalone script and shared cores so toolbar/MIDI actions and mouse UI stay consistent.
 

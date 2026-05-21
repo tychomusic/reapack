@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2.8
+ * Version:     1.2.9
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2.8"
+TRACK_NAVIGATOR_VERSION = "1.2.9"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -64,6 +64,81 @@ TrackNavigatorSetImGuiConfigBool("NavEscapeClearFocusWindow", false)
 TrackNavigatorSetImGuiConfigFlag("NavEnableKeyboard", false)
 
 local script_dir = debug.getinfo(1, 'S').source:match('@?(.*[/\\])') or ''
+
+local function TrackNavigatorRegisterHelperActions()
+    if not r.AddRemoveReaScript then return end
+    local function normalize_path(path)
+        path = tostring(path or ""):gsub("\\", "/")
+        path = path:gsub("/+", "/")
+        return path
+    end
+    local function helper_registered(path)
+        local kb_path = (r.GetResourcePath and r.GetResourcePath() or "") .. "/reaper-kb.ini"
+        local fh = io.open(kb_path, "r")
+        if not fh then return false end
+        local abs = normalize_path(path)
+        local rel = abs
+        local scripts_root = normalize_path((r.GetResourcePath and r.GetResourcePath() or "") .. "/Scripts/")
+        if rel:sub(1, #scripts_root) == scripts_root then
+            rel = rel:sub(#scripts_root + 1)
+        end
+        for line in fh:lines() do
+            local nline = normalize_path(line)
+            if nline:find('"' .. rel .. '"', 1, true)
+                or nline:find('"' .. abs .. '"', 1, true) then
+                fh:close()
+                return true
+            end
+        end
+        fh:close()
+        return false
+    end
+    local actions = {
+        "Track Navigator - Focus Search.lua",
+        "Track Navigator - Active View - Enable.lua",
+        "Track Navigator - Active View - Rebuild.lua",
+        "Track Navigator - Active View - Exit.lua",
+        "Track Navigator - Armed View - Enable.lua",
+        "Track Navigator - Armed View - Rebuild.lua",
+        "Track Navigator - Armed View - Exit.lua",
+        "Track Navigator - Selected Tracks View - Enable.lua",
+        "Track Navigator - Selected Tracks View - Rebuild.lua",
+        "Track Navigator - Selected Tracks View - Exit.lua",
+        "Track Navigator - Routing View - Enable.lua",
+        "Track Navigator - Routing View - Rebuild.lua",
+        "Track Navigator - Routing View - Exit.lua",
+        "Track Navigator - Scroll to Record Armed Tracks.lua",
+        "Track Navigator - Show Only TLT 01.lua",
+        "Track Navigator - Show Only TLT 02.lua",
+        "Track Navigator - Show Only TLT 03.lua",
+        "Track Navigator - Show Only TLT 04.lua",
+        "Track Navigator - Show Only TLT 05.lua",
+        "Track Navigator - Show Only TLT 06.lua",
+        "Track Navigator - Show Only TLT 07.lua",
+        "Track Navigator - Show Only TLT 08.lua",
+        "Track Navigator - Show Only TLT 09.lua",
+        "Track Navigator - Show Only TLT 10.lua",
+    }
+    local missing = {}
+    for _, name in ipairs(actions) do
+        local path = script_dir .. "actions/" .. name
+        local fh = io.open(path, "r")
+        if fh then
+            fh:close()
+            if not helper_registered(path) then
+                missing[#missing + 1] = path
+            end
+        end
+    end
+    for i, path in ipairs(missing) do
+        pcall(r.AddRemoveReaScript, true, 0, path, i == #missing)
+    end
+    if #missing > 0 and r.UpdateActionList then
+        pcall(r.UpdateActionList)
+    end
+end
+
+TrackNavigatorRegisterHelperActions()
 package.path = script_dir .. 'core/?.lua;' .. script_dir .. '?.lua;' .. package.path
 
 local nt_ok, nav_theme = pcall(dofile, script_dir .. 'Track Navigator_Theme.lua')
@@ -665,6 +740,9 @@ routing_view_saved_snap = nil
 selected_view_active = false
 selected_view_tracks = {}
 selected_view_saved_snap = nil
+armed_view_active = false
+armed_view_tracks = {}
+armed_view_saved_snap = nil
 active_view_active = false
 active_view_tracks = {}
 active_view_peak_times = {}
@@ -985,6 +1063,17 @@ TrackNavigatorRunExternalCommand = function(command)
     elseif command == "active_exit" then
         ActiveViewExit()
         return true
+    elseif command == "armed_enable" then
+        if not armed_view_active then ArmedViewToggle() end
+        return true
+    elseif command == "armed_rebuild" then
+        ArmedViewRefreshFromRecordArm()
+        return true
+    elseif command == "armed_exit" then
+        ArmedViewExit()
+        return true
+    elseif command == "armed_scroll" then
+        return TrackNavigatorScrollToRecordArmed and TrackNavigatorScrollToRecordArmed() == true
     elseif command == "selected_enable" then
         if not selected_view_active then SelectedViewToggle() end
         return true
@@ -1041,6 +1130,7 @@ end
 TrackNavigatorSpecialViewActive = function()
     return routing_view_active == true
         or selected_view_active == true
+        or armed_view_active == true
         or active_view_active == true
 end
 

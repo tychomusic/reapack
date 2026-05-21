@@ -3652,12 +3652,32 @@ ReflexInstallNavViewCore = function(deps)
                       local nav_mods = NavMods(mods)
                       nav_tlt_pending_click = nil
                       clicked_main = false
-                      NavDebugEvent("NAV.pill.endcap_select", {
-                          mods = mods,
-                          label = item.label,
-                          item_active = r.ImGui_IsItemActive(ctx),
-                      })
-                      NavApplyTlfEndcapSelection(item, nav_mods)
+                      if nav_mods.pin or nav_mods.child_expand or nav_mods.custom_set then
+                          NavDebugEvent("NAV.pill.endcap_action", {
+                              mods = mods,
+                              label = item.label,
+                              item_active = r.ImGui_IsItemActive(ctx),
+                          })
+                          if nav_mods.custom_set then
+                              NavToggleTrackCustomSet(NavTlfItemTrack(item))
+                          else
+                              local show_all, primary, shift, pin, child_expand = NavTrackClickMods(mods)
+                              local was_visible = vis
+                              if show_all then
+                                  ShowAllTracks()
+                              else
+                                  HandleTracksClick(ri, primary, shift, pin, child_expand)
+                                  NavMaybeSuppressTlfHover(item, was_visible, show_all, primary)
+                              end
+                          end
+                      else
+                          NavDebugEvent("NAV.pill.endcap_select", {
+                              mods = mods,
+                              label = item.label,
+                              item_active = r.ImGui_IsItemActive(ctx),
+                          })
+                          NavApplyTlfEndcapSelection(item, nav_mods)
+                      end
                   end
               end
 
@@ -3738,6 +3758,7 @@ ReflexInstallNavViewCore = function(deps)
                   r.ImGui_TextColored(ctx, C.text_dim, "Click: select and scroll to track")
                   r.ImGui_TextColored(ctx, C.text_dim, NavPrimaryLabel() .. ": add/remove from track selection")
                   r.ImGui_TextColored(ctx, C.text_dim, "Shift: range select tracks")
+                  r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. ": toggle pin")
                   r.ImGui_EndTooltip(ctx)
                   PopTooltipStyle()
               elseif arrow_hovered and opt_tooltips and opt_helper_tooltips ~= false then
