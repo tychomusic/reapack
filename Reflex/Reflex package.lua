@@ -1,11 +1,10 @@
 -- @description Reflex
--- @version 20.665
+-- @version 20.666
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Initial public ReaPack package for Reflex v20.665.
---   Requires ReaImGui 0.10+ and SWS Extension; FX Window Toggle requires js_ReaScriptAPI.
+--   Fix Windows ReaImGui Remote child boundary assertion after manual cursor layout.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua

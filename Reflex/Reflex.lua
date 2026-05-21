@@ -3,7 +3,7 @@
  * Description: Folder visibility and collapse manager for REAPER sessions.
  *              Companion to Realist. Realist-styled UI.
  * Author:      S.Hansen / Tycho
- * Version:     20.665
+ * Version:     20.666
  *
  * Click:       solo (if others visible) or toggle collapse (if alone)
  * CMD+click:   add/remove from visible set
@@ -20,7 +20,7 @@ local r = reaper
 
 -- Single source of truth for Reflex version. Update this when bumping
 -- the header comment; used by settings panel title.
-REFLEX_VERSION = "20.665"
+REFLEX_VERSION = "20.666"
 
 ReflexDependencyError = function(detail)
     local msg = "Reflex requires ReaImGui 0.10 or newer."
@@ -6504,6 +6504,8 @@ RemoteDrawSection = function(bw)
         row_y = row_y + row_h + gap
     end
     r.ImGui_SetCursorPos(ctx, start_x, row_y)
+    -- Windows ReaImGui requires a submitted item after manual cursor extension.
+    r.ImGui_Dummy(ctx, 1, 1)
 
     -- Context menu
     if ctx_menu_idx then
