@@ -1,10 +1,10 @@
 -- @description Reflex
--- @version 20.666
+-- @version 20.667
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Fix Windows ReaImGui Remote child boundary assertion after manual cursor layout.
+--   Hide Remote by default, draw Reflex arrows font-independently on Windows, and update embedded Navigator mirror phase.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua

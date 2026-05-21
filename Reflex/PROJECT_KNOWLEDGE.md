@@ -4,7 +4,7 @@
 
 Reflex is a standalone ReaImGui script for REAPER providing track visibility/collapse management, a track inspector with FX chain display, A/B compare system, volume/pan controls, envelope management, inline routing panel, FX plugin browser, routing view, sends view, flow view, send topology view, view history, noise floor detection, and a configurable macro pad (Remote) with pages. It is a companion to the Realist live performance system for Tycho.
 
-**Current version: v20.666** (~10,700-line main script; I/O Manager split into shared core modules)
+**Current version: v20.667** (~10,700-line main script; I/O Manager split into shared core modules)
 
 **Dependencies:** REAPER's built-in Lua 5.4, ReaImGui 0.10+. SWS still exists in some Reflex-only legacy paths (`BR_GetMediaTrackSendInfo_Track` in routing panels/send topology and `BR_GetMediaTrackSendInfo_Envelope` for send envelope matching), but standalone Navigator's `NAV.R` no longer requires SWS as of v20.662 / Navigator v20.662; it uses native `GetTrackSendInfo_Value(..., "P_DESTTRACK"/"P_SRCTRACK")` only. Prefer native REAPER/Lua APIs over SWS wherever they can provide the same behavior.
 
@@ -20,7 +20,7 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - Package path: `Reflex/`
 - Package metadata: `Reflex/Reflex package.lua`
 - Main script: `Reflex/Reflex.lua`
-- Public version: `20.666`
+- Public version: `20.667`
 - Author metadata: `S.Hansen / Tycho`
 - Release package excludes generated/user-local state files such as `remote_buttons.txt`, `remote_pages.txt`, and `fx_browser_action.txt`.
 - ReaPack installs `Reflex_Theme_Default.lua`; user customization belongs in optional `Reflex_Theme.lua`, which is not provided by the package.
@@ -1119,7 +1119,9 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 - **Configurable internal key bindings** — externalize hardcoded modifier-bit helpers into user-editable mappings.
 - **Button import from REAPER toolbars** (parse `reaper-menu.ini`).
 
-### Completed since previous PK update (v20.438 → v20.666)
+### Completed since previous PK update (v20.438 → v20.667)
+
+- ✅ **Remote default off + Windows arrow cleanup + embedded NAV phase update (v20.667; Navigator v20.667).** New installs now default `RMT` hidden (`remote_visible=false`) while preserving any existing saved preference. Reflex's right/down/up arrow controls now draw vector icons instead of `▶`/`▼`/`▲` text glyphs, avoiding Windows emoji fallback for right-pointing arrows. Embedded/standalone Reflex Navigator now matches Track Navigator 1.2.8's mirror phase: default unmirrored TLT rows keep the colored circles and indentation on the left; enabling `Mirror TLT buttons` moves them to the opposite side.
 
 - ✅ **Remote child boundary sentinel for Windows ReaImGui (v20.666).** `RMT` now submits a tiny dummy item after its manual grid cursor advance so Windows ReaImGui records the extended child bounds before `ImGui_EndChild()`. This fixes the Windows-only `SetCursorPos()/SetCursorScreenPos() to extend window/parent boundaries` error seen when inline Remote is visible.
 

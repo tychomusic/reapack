@@ -736,28 +736,35 @@ ReflexInstallNavViewCore = function(deps)
         return math.max(0.5, px * 0.5 * scale)
     end
 
-    local function NavTreeDisclosureFontSize(font, target_w, glyph)
-        target_w = math.max(1, target_w or 1)
-        if not font then return target_w end
-        r.ImGui_PushFont(ctx, font, target_w)
-        local gw = r.ImGui_CalcTextSize(ctx, glyph)
-        r.ImGui_PopFont(ctx)
-        if not gw or gw <= 0 then return target_w end
-        return math.max(1, target_w * (target_w / gw))
-    end
-
-    local function NavDrawTreeDisclosureGlyph(dl, cx, cy, font, size, glyph, col)
-        local pushed = false
-        if font and size then
-            r.ImGui_PushFont(ctx, font, math.max(1, size))
-            pushed = true
+    local function NavDrawArrowIcon(dl, cx, cy, size, direction, col)
+        size = math.max(1, size or NavRetinaPx(12))
+        local half_w = size * 0.28
+        local half_h = size * 0.34
+        if direction == "down" then
+            r.ImGui_DrawList_AddTriangleFilled(dl,
+                cx, cy + half_h,
+                cx - half_w, cy - half_h,
+                cx + half_w, cy - half_h,
+                col)
+        elseif direction == "up" then
+            r.ImGui_DrawList_AddTriangleFilled(dl,
+                cx, cy - half_h,
+                cx - half_w, cy + half_h,
+                cx + half_w, cy + half_h,
+                col)
+        elseif direction == "left" then
+            r.ImGui_DrawList_AddTriangleFilled(dl,
+                cx - half_w, cy,
+                cx + half_w, cy - half_h,
+                cx + half_w, cy + half_h,
+                col)
+        else
+            r.ImGui_DrawList_AddTriangleFilled(dl,
+                cx + half_w, cy,
+                cx - half_w, cy - half_h,
+                cx - half_w, cy + half_h,
+                col)
         end
-        local gw = r.ImGui_CalcTextSize(ctx, glyph)
-        local th = r.ImGui_GetTextLineHeight(ctx)
-        local tx = Round(cx - gw * 0.5)
-        local ty = Round(cy - th * 0.5)
-        r.ImGui_DrawList_AddText(dl, tx, ty, col, glyph)
-        if pushed then r.ImGui_PopFont(ctx) end
     end
 
     local function NavArTooltip(primary, secondary)
@@ -2502,11 +2509,7 @@ ReflexInstallNavViewCore = function(deps)
           local nav_left_pad_shared = 0  -- collapsed dots/arrow now flush with expanded TLT pills' left edge (which has no padding from BeginChild WindowPadding(0,0))
           local nav_single_row_h = nav_dot_r * 2 + S(3.75)  -- inter-row pad matches expanded ItemSpacing.y so collapsed/expanded inter-row gaps are visually identical
 
-          -- Arrow font: same step as the previous expanded section header (148%
-          -- of UI.font_title). Used by both branches so the glyph stays the same
-          -- size when toggling.
-          local nav_arrow_step_shared = math.max(5, math.min(20, math.floor(GetFontStep(UI.font_title) * 1.2 + 0.5)))
-          local nav_arrow_font_shared = scaled_fonts[nav_arrow_step_shared]
+          local nav_arrow_icon_size = nav_dot_r * 0.72
           local COL_NAV_ARROW_REST = rgb(0x545758)
 
           -- A/S/R nav buttons. Expanded NAV pins them to the top-right header
@@ -2739,23 +2742,10 @@ ReflexInstallNavViewCore = function(deps)
                   NavOpenGlobalMenuAtMouse()
               end
 
-              -- Draw down-arrow at the same (tx, ty) the collapsed view uses
-              -- for its right-arrow. The down-glyph and right-glyph have
-              -- different bounding-box asymmetry so they need different X
-              -- nudges to land at the same optical center. Right-arrow uses
-              -- -S(1.375) (1 logical px = ~2 retina px at 100% scale).
-              -- Down-arrow needs ~2 more retina px of leftward nudge, so
-              -- -S(2) total (2 logical px = ~3 retina px) lands the down-arrow
-              -- one logical px further left than the right-arrow.
-              local arrow_glyph_h = "\xE2\x96\xBC"
-              local nav_arrow_font_pushed = NavPushFont(nav_arrow_font_shared)
-              local arrow_gw_h = r.ImGui_CalcTextSize(ctx, arrow_glyph_h)
-              local arrow_th_h = r.ImGui_GetTextLineHeight(ctx)
-              local arrow_ty_h = nav_cy_h + Round((nav_single_row_h - arrow_th_h) / 2) - S(1.375)
-              local arrow_tx_h = nav_cx_h + nav_left_pad_shared + Round((nav_arrow_area - arrow_gw_h) / 2) - S(2) + nav_header_x_offset
+              local arrow_cx_h = nav_cx_h + nav_left_pad_shared + nav_arrow_area * 0.5 + nav_header_x_offset
+              local arrow_cy_h = nav_cy_h + nav_single_row_h * 0.5
               local arrow_col_h = nav_hovered and C.text or COL_NAV_ARROW_REST
-              r.ImGui_DrawList_AddText(dl_h, arrow_tx_h, arrow_ty_h, arrow_col_h, arrow_glyph_h)
-              NavPopFont(nav_arrow_font_pushed)
+              NavDrawArrowIcon(dl_h, arrow_cx_h, arrow_cy_h, nav_arrow_icon_size, "down", arrow_col_h)
               if nav_clicked then
                   local mods = NavClickMods()
                   local nav_mods = NavMods(mods)
@@ -2875,9 +2865,8 @@ ReflexInstallNavViewCore = function(deps)
               end
               local row_h = single_row_h * num_rows
 
-              -- Arrow button (uses the SHARED arrow font so the glyph stays
-              -- the same size when toggling expanded/collapsed).
-              local arrow_font = nav_arrow_font_shared
+              -- Arrow button uses a font-independent icon so Windows cannot
+              -- fall back to emoji presentation for right-pointing arrows.
               local arrow_hit = mini_tlf_h
               local arrow_cx = nav_cx + nav_left_pad + dot_r + nav_header_x_offset
               local arrow_cy = nav_cy + single_row_h * 0.5
@@ -2944,22 +2933,8 @@ ReflexInstallNavViewCore = function(deps)
                       SavePref("navigator_expanded", true)
                   end
               end
-              -- Draw arrow glyph at 148% size, white on hover. Centered in the
-              -- arrow column (which is one dot-step wide) so it sits in the same
-              -- column slot that wrapped-row dots will occupy below it.
-              local arrow_font_pushed = NavPushFont(arrow_font)
-              local arrow_glyph = "\xE2\x96\xB6"
-              local arrow_gw = r.ImGui_CalcTextSize(ctx, arrow_glyph)
-              local arrow_th = r.ImGui_GetTextLineHeight(ctx)
-              -- 1 retina px nudge up + 1 retina px nudge left to optically align
-              -- the arrow glyph with the dot column grid (the glyph's bounding
-              -- box has asymmetric padding so geometric centering looks off).
-              -- 1 retina px = S(1/1.6) per PK retina convention.
-              local arrow_ty = nav_cy + Round((single_row_h - arrow_th) / 2) - S(1.375)
-              local arrow_tx = nav_cx + nav_left_pad + Round((arrow_area - arrow_gw) / 2) - S(1.375) + nav_header_x_offset
               local arrow_col = arrow_hovered and C.text or COL_NAV_ARROW_REST
-              r.ImGui_DrawList_AddText(dl, arrow_tx, arrow_ty, arrow_col, arrow_glyph)
-              NavPopFont(arrow_font_pushed)
+              NavDrawArrowIcon(dl, arrow_cx, arrow_cy, nav_arrow_icon_size, "right", arrow_col)
 
               for _, placement in ipairs(asr_placements) do
                   DrawArButton(placement.cx, NavAsrRowCenter(nav_cy, placement.row), placement.which)
@@ -3150,15 +3125,9 @@ ReflexInstallNavViewCore = function(deps)
           local pin_collide_threshold = tlf_h + pin_dot_r + circ_r + S(7.5)
           local tree_expand_enabled = opt_nav_tlt_expand ~= false
           local tree_indent_step = math.max(0, S(16) - NavRetinaPx(10))
-          local tree_arrow_glyph_right = "\xE2\x96\xB6"
-          local tree_arrow_glyph_down = "\xE2\x96\xBC"
-          local tree_arrow_font = nav_arrow_font_shared or scaled_fonts[5]
           local tree_arrow_w = tree_indicator_d
+          local tree_arrow_icon_size = tree_indicator_d
           local custom_set_indicator_w = NavRetinaPx(16)
-          -- The NAV arrow glyph has transparent/advance padding: a 14px text
-          -- advance renders closer to a 10px visible triangle. Size the font
-          -- from the compensated advance, while keeping layout/hit geometry 14px.
-          local tree_arrow_font_size = NavTreeDisclosureFontSize(tree_arrow_font, tree_arrow_w * 1.4, tree_arrow_glyph_right)
           local tree_arrow_half = tree_arrow_w * 0.5
           local custom_set_indicator_half = custom_set_indicator_w * 0.5
           local tree_arrow_hit = tree_indicator_d
@@ -3171,12 +3140,12 @@ ReflexInstallNavViewCore = function(deps)
           local clear_cross_x_shift = NavRetinaPx(6)
           local search_text_y_shift = -NavRetinaPx(1)
           local clear_cross_y_shift = NavRetinaPx(1)
-	          local clear_cross_col_rest = COL_CLEAR_X_REST
-	          local clear_cross_col_hover = COL_CLEAR_X_HOVER
-	          local tlt_mirror = nav_mirror == true
-	          local function NavTltClickTime()
-	              return r.time_precise and r.time_precise() or os.clock()
-	          end
+          local clear_cross_col_rest = COL_CLEAR_X_REST
+          local clear_cross_col_hover = COL_CLEAR_X_HOVER
+          local tlt_mirror = nav_mirror ~= true
+          local function NavTltClickTime()
+              return r.time_precise and r.time_precise() or os.clock()
+          end
 	          local function NavFindTltRenderIndexByGuid(guid)
 	              if not guid then return nil, nil end
 	              for idx, row in ipairs(render_list or {}) do
@@ -3629,7 +3598,7 @@ ReflexInstallNavViewCore = function(deps)
                       r.ImGui_DrawList_AddRectFilled(dl, row_cx, row_cy, row_cx + pill_w, row_cy + tlf_h, pill_bg, tlf_r)
                   end
               end
-              -- Colored circle (left endcap when mirror, right endcap otherwise).
+              -- Colored circle (left endcap by default, right endcap when mirrored).
               local circ_cx
               if pill_collapsed then
                   circ_cx = collapsed_cx
@@ -3676,7 +3645,7 @@ ReflexInstallNavViewCore = function(deps)
                   end
               end
 
-              -- TLT name text. Right-aligned by default; left-aligned in mirror.
+              -- TLT name text. Left-aligned by default; right-aligned when mirrored.
               -- Already clipped above; nil display_label means show no text.
               local text_h = r.ImGui_GetTextLineHeight(ctx)
               local text_y = row_cy + Round((tlf_h - text_h) / 2)
@@ -3718,17 +3687,16 @@ ReflexInstallNavViewCore = function(deps)
 	                          COL_TREE_PARTIAL_REST,
 	                          nav_circle_segments
 	                      )
-	                  else
-	                      NavDrawTreeDisclosureGlyph(
-	                          dl,
-	                          layout.arrow_cx,
-	                          mid_y,
-	                          tree_arrow_font,
-	                          tree_arrow_font_size,
-	                          arrow_down and tree_arrow_glyph_down or tree_arrow_glyph_right,
-	                          arrow_col
-	                      )
-	                  end
+		                  else
+		                      NavDrawArrowIcon(
+		                          dl,
+		                          layout.arrow_cx,
+		                          mid_y,
+		                          tree_arrow_icon_size,
+		                          arrow_down and "down" or "right",
+		                          arrow_col
+		                      )
+		                  end
 
 	                  if arrow_clicked then
 	                      local mods = NavClickMods()

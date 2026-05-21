@@ -3,7 +3,7 @@
  * Description: Folder visibility and collapse manager for REAPER sessions.
  *              Companion to Realist. Realist-styled UI.
  * Author:      S.Hansen / Tycho
- * Version:     20.666
+ * Version:     20.667
  *
  * Click:       solo (if others visible) or toggle collapse (if alone)
  * CMD+click:   add/remove from visible set
@@ -20,7 +20,7 @@ local r = reaper
 
 -- Single source of truth for Reflex version. Update this when bumping
 -- the header comment; used by settings panel title.
-REFLEX_VERSION = "20.666"
+REFLEX_VERSION = "20.667"
 
 ReflexDependencyError = function(detail)
     local msg = "Reflex requires ReaImGui 0.10 or newer."
@@ -445,6 +445,45 @@ DrawIcon = function(dl, cx, cy, size, icon, col)
     end
 end
 
+DrawArrowIcon = function(dl, cx, cy, size, direction, col)
+    size = math.max(1, size or S(10))
+    local half_w = size * 0.28
+    local half_h = size * 0.34
+    if direction == "right" then
+        r.ImGui_DrawList_AddTriangleFilled(dl,
+            cx + half_w, cy,
+            cx - half_w, cy - half_h,
+            cx - half_w, cy + half_h,
+            col)
+    elseif direction == "left" then
+        r.ImGui_DrawList_AddTriangleFilled(dl,
+            cx - half_w, cy,
+            cx + half_w, cy - half_h,
+            cx + half_w, cy + half_h,
+            col)
+    elseif direction == "up" then
+        r.ImGui_DrawList_AddTriangleFilled(dl,
+            cx, cy - half_h,
+            cx - half_w, cy + half_h,
+            cx + half_w, cy + half_h,
+            col)
+    else
+        r.ImGui_DrawList_AddTriangleFilled(dl,
+            cx, cy + half_h,
+            cx - half_w, cy - half_h,
+            cx + half_w, cy - half_h,
+            col)
+    end
+end
+
+ArrowDirFromContent = function(content)
+    if content == "\xE2\x96\xB6" then return "right" end
+    if content == "\xE2\x96\xBC" then return "down" end
+    if content == "\xE2\x96\xB2" then return "up" end
+    if content == "\xE2\x97\x80" then return "left" end
+    return nil
+end
+
 -- Draw a dashed outline tracing a rounded rectangle (v20.404). Traces the
 -- full perimeter including arc corners as a dense polyline, then walks it
 -- with a dash/gap cursor emitting AddLine per tiny sub-segment. This makes
@@ -526,7 +565,7 @@ end
 -- ── Nav button primitives ────────────────────────────────────────────────
 -- Four canonical shapes: NavSquare, NavCircle, NavPill, NavRect.
 -- All accept (id, x, y, ..., content, opts?) and return hov, clicked, active.
--- content: "+"/"-"/"×"/"x" → DrawIcon (font-independent), any other string → centered text,
+-- content: "+"/"-"/"×"/"x"/arrows → font-independent icons, any other string → centered text,
 --          nil → no content (caller draws its own).
 -- opts (all optional):
 --   bg, hov, active                colors — default to style table (C.fx_ctrl_bg/hover/active for square/circle/rect)
@@ -627,7 +666,10 @@ GLYPH_NUDGE = {
 -- centers on exact integer pixels, then applies per-glyph optical offset.
 NavDrawContent = function(dl, x, y, w, h, content, fg)
     if content == nil or content == "" then return end
-    if content == "+" or content == "-" or content == "x" or content == "×" then
+    local arrow_dir = ArrowDirFromContent(content)
+    if arrow_dir then
+        DrawArrowIcon(dl, x + w / 2, y + h / 2, math.min(w, h) * 0.62, arrow_dir, fg)
+    elseif content == "+" or content == "-" or content == "x" or content == "×" then
         DrawIcon(dl, x + w / 2, y + h / 2, math.min(w, h), content, fg)
     else
         local tw, th = r.ImGui_CalcTextSize(ctx, content)
@@ -1789,7 +1831,7 @@ local insp_pin_sel_frames = 0             -- frame counter: skip frame 0 to avoi
 
 -- Remote macro pad state
 local remote_expanded = true  -- internal only, always expanded when visible
-local remote_visible = LoadPref("remote_visible", true)
+local remote_visible = LoadPref("remote_visible", false)
 local remote_height = LoadPref("remote_height", 120)
 local remote_dragging = false
 local settings_open = false
@@ -2576,7 +2618,6 @@ end
 
 InspDrawSectionHeader = function(label, expanded, id, opts)
     opts = opts or {}
-    local arrow = expanded and "\xE2\x96\xBC" or "\xE2\x96\xB6"
     -- Slightly larger font for headers
     local hdr_step = GetFontStep(UI.font_title)
     local hdr_font = scaled_fonts[hdr_step]
@@ -2599,16 +2640,11 @@ InspDrawSectionHeader = function(label, expanded, id, opts)
     local text_h = r.ImGui_GetTextLineHeight(ctx)
     local ty = cy + Round((h - text_h) / 2)
     r.ImGui_DrawList_AddText(dl, cx + S(4), ty, C.section_text, label)
-    -- Arrow: optional separate font and color
-    local arrow_font = opts.arrow_font
-    if arrow_font then r.ImGui_PushFont(ctx, arrow_font) end
+    -- Arrow: draw as a vector icon to avoid Windows emoji fallback.
     local arrow_col = opts.arrow_color or C.section_text
     if opts.arrow_hov_color and hovered then arrow_col = opts.arrow_hov_color end
     local arrow_x = label == "" and (cx + S(4)) or (cx + bw - S(16))
-    local arrow_th = arrow_font and r.ImGui_GetTextLineHeight(ctx) or text_h
-    local arrow_ty = cy + Round((h - arrow_th) / 2)
-    r.ImGui_DrawList_AddText(dl, arrow_x, arrow_ty, arrow_col, arrow)
-    if arrow_font then r.ImGui_PopFont(ctx) end
+    DrawArrowIcon(dl, arrow_x + S(5), cy + h * 0.5, S(10), expanded and "down" or "right", arrow_col)
     if hdr_font then r.ImGui_PopFont(ctx) end
     return clicked, rclicked, hovered
 end
@@ -2959,10 +2995,8 @@ InspDrawRoutingButton = function(track, sx, sy, override_w)
     local is_expanded = insp_routing_expanded[track] == true
     local arrow_cx = scx + pill_w - pill_pad_x - dot_r
     local arrow_cy = scy + pill_h / 2
-    local arrow_label = is_expanded and "\xE2\x96\xBC" or "\xE2\x96\xB6"
     local arrow_col = (is_expanded or is_hovered) and C.text or C.text_dim
-    local atw, ath = r.ImGui_CalcTextSize(ctx, arrow_label)
-    r.ImGui_DrawList_AddText(dl, arrow_cx - Round(atw / 2), arrow_cy - Round(ath / 2), arrow_col, arrow_label)
+    DrawArrowIcon(dl, arrow_cx, arrow_cy, pill_h * 0.48, is_expanded and "down" or "right", arrow_col)
 
     -- Record click position on mouse down
     if is_clicked then
@@ -3531,7 +3565,6 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
 
     -- Expand arrow — hidden when collapsed unless row hovered
     r.ImGui_SetCursorPos(ctx, arrow_x, btn_y)
-    local arrow_label = is_exp and "\xE2\x96\xBC" or "\xE2\x96\xB6"
     local arrow_cx, arrow_cy = r.ImGui_GetCursorScreenPos(ctx)
     r.ImGui_InvisibleButton(ctx, "##ea", ab_w, ctrl_h)
     Tip("Opt: toggle all")
@@ -3547,9 +3580,8 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
         if is_exp then arrow_col = 0xFFFFFFFF
         elseif arrow_hov then arrow_col = instr_arrow_hov
         else arrow_col = instr_arrow_dim end
-        local atw = r.ImGui_CalcTextSize(ctx, arrow_label)
-        r.ImGui_DrawList_AddText(dl, arrow_cx + Round((ab_w - atw) / 2),
-            arrow_cy + Round((ctrl_h - r.ImGui_GetTextLineHeight(ctx)) / 2), arrow_col, arrow_label)
+        DrawArrowIcon(dl, arrow_cx + ab_w * 0.5, arrow_cy + ctrl_h * 0.5,
+            ctrl_h * 0.52, is_exp and "down" or "right", arrow_col)
     end
     if arrow_clicked then
         local mods = r.ImGui_GetKeyMods(ctx)
@@ -7575,8 +7607,8 @@ end
 FlowDrawInlineButton = function(bw, btn_id, full_row)
     local btn_h = S(UI.btn_h)
     local label = "FLOW"
-    local arrow_label = flow_view_active and "\xE2\x96\xB2" or "\xE2\x96\xB6"
-    local arrow_w = r.ImGui_CalcTextSize(ctx, arrow_label)
+    local arrow_dir = flow_view_active and "up" or "right"
+    local arrow_w = math.max(S(8), btn_h * 0.34)
     local label_w = r.ImGui_CalcTextSize(ctx, label)
     local th = r.ImGui_GetTextLineHeight(ctx)
     local pad_x = S(10)
@@ -7607,7 +7639,8 @@ FlowDrawInlineButton = function(bw, btn_id, full_row)
         end
         local ty = iy + Round((btn_h - th) / 2)
         r.ImGui_DrawList_AddText(dl, ix + pad_x, ty, txt_col, label)
-        r.ImGui_DrawList_AddText(dl, ix + pad_x + label_w + arrow_pad, ty, arrow_col, arrow_label)
+        DrawArrowIcon(dl, ix + pad_x + label_w + arrow_pad + arrow_w * 0.5,
+            iy + btn_h * 0.5, btn_h * 0.48, arrow_dir, arrow_col)
     else
         -- Standalone button
         local scx, scy = r.ImGui_GetCursorScreenPos(ctx)
@@ -7632,7 +7665,8 @@ FlowDrawInlineButton = function(bw, btn_id, full_row)
         end
         local ty = scy + Round((btn_h - th) / 2)
         r.ImGui_DrawList_AddText(dl, scx + pad_x, ty, txt_col, label)
-        r.ImGui_DrawList_AddText(dl, scx + pad_x + label_w + arrow_pad, ty, arrow_col, arrow_label)
+        DrawArrowIcon(dl, scx + pad_x + label_w + arrow_pad + arrow_w * 0.5,
+            scy + btn_h * 0.5, btn_h * 0.48, arrow_dir, arrow_col)
     end
     return total_w
 end
@@ -7727,7 +7761,6 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
     -- SND section (collapsible send controls — default collapsed, before title)
     if source_track and send_idx and r.ValidatePtr(source_track, "MediaTrack*") then
         local snd_expanded = sends_snd_expanded[send_idx] == true
-        local snd_arrow = snd_expanded and "\xE2\x96\xBC" or "\xE2\x96\xB6"
 
         -- SND header row: [SND .................. arrow] — full-width hit area
         -- v20.441: arrow moved to right endcap (chevron convention, mirrors
@@ -7750,9 +7783,10 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             snd_txt_col = C.text_muted
         end
         local text_y = y + Round((btn_h - r.ImGui_GetTextLineHeight(ctx)) / 2)
-        local arrow_w = r.ImGui_CalcTextSize(ctx, snd_arrow)
+        local arrow_w = math.max(S(8), btn_h * 0.34)
         r.ImGui_DrawList_AddText(dl, x, text_y, snd_txt_col, "SND")
-        r.ImGui_DrawList_AddText(dl, x + inner_w - arrow_w, text_y, arrow_col, snd_arrow)
+        DrawArrowIcon(dl, x + inner_w - arrow_w * 0.5, y + btn_h * 0.5,
+            btn_h * 0.48, snd_expanded and "down" or "right", arrow_col)
         if r.ImGui_IsItemClicked(ctx, 0) then
             -- v20.441: in distant rendering mode, SND is force-expanded every
             -- frame and clicking it should collapse the entire distant card
@@ -8872,9 +8906,8 @@ SettingsCollapsingRow = function(label, is_expanded)
     local ty = cy + Round((row_h - text_h) / 2)
     r.ImGui_DrawList_AddText(dl, cx, ty, txt_col, label)
     -- Right-aligned arrow
-    local arrow = is_expanded and "\xE2\x96\xBC" or "\xE2\x96\xB6"
-    local ar_tw = r.ImGui_CalcTextSize(ctx, arrow)
-    r.ImGui_DrawList_AddText(dl, cx + avail_w - right_inset - ar_tw, ty, txt_col, arrow)
+    DrawArrowIcon(dl, cx + avail_w - right_inset - S(5), cy + row_h * 0.5,
+        S(10), is_expanded and "down" or "right", txt_col)
     if clicked then return not is_expanded end
     return is_expanded
 end

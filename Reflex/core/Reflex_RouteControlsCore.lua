@@ -10,6 +10,20 @@ ReflexInstallRouteControlsCore = function(deps)
     local routeSliderBefore = nil
     local routeSliderMoved = false
 
+    local function DrawRouteArrowIcon(dl, cx, cy, size, col)
+        size = math.max(1, size or S(10))
+        local shaft = size * 0.45
+        local head_w = size * 0.32
+        local head_h = size * 0.34
+        local thick = math.max(1, size * 0.11)
+        r.ImGui_DrawList_AddLine(dl, cx - shaft, cy, cx + shaft - head_w, cy, col, thick)
+        r.ImGui_DrawList_AddTriangleFilled(dl,
+            cx + shaft, cy,
+            cx + shaft - head_w, cy - head_h,
+            cx + shaft - head_w, cy + head_h,
+            col)
+    end
+
 -- Mode labels for send mode dropdown
 RouteSendModeLabels = { [0] = "Post", [1] = "Pre", [3] = "PreFX" }
 RouteSendModeFullLabels = { [0] = "Post-Fader", [1] = "Pre-Fade / Post-FX", [3] = "Pre-Fade / Pre-FX" }
@@ -379,7 +393,7 @@ DrawRouteRow = function(prefix, idx, dl, track, category, name, name_col, src_nc
     -- src_ch, arrow, dst_ch, MIDI on Row 1
     RouteChannelDropdown(prefix .. "sch" .. idx, dl, track, category, idx, "I_SRCCHAN", src_nchan,
         src_x, cy, dd_w2, btn_h, false, true)
-    r.ImGui_DrawList_AddText(dl, arrow_x, cy + Round((btn_h - th) / 2), C.text_muted, "\xE2\x86\x92")
+    DrawRouteArrowIcon(dl, arrow_x + S(5), cy + btn_h * 0.5, S(10), C.text_muted)
     RouteChannelDropdown(prefix .. "dch" .. idx, dl, track, category, idx, "I_DSTCHAN", dest_nchan,
         dst_x, cy, dd_w2, btn_h, true, false)
     RouteMidiDropdown(prefix .. "midi" .. idx, dl, track, category, idx, midi_x, cy, midi_w, btn_h, false)
