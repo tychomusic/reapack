@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2.7
+ * Version:     1.2.8
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2.7"
+TRACK_NAVIGATOR_VERSION = "1.2.8"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."

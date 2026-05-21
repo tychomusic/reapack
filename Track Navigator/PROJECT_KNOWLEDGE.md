@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2.7
+Current public version: 1.2.8
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -74,7 +74,7 @@ Use this shorthand in discussion and bug reports.
 - `Collapse all` in `NAV.menu` and TLT context menus clears explicit expansion and layer override state only. It must not clear pins or custom visibility rules.
 - Custom visibility is structural, not disclosure state: `Hide in Track Navigator` removes the TLT/subtree; `Hide in Track Navigator - show children` grafts direct children upward; `Show selected tracks` creates promoted aliases that should resolve into their natural context as ancestors become visible.
 - Promoted deep rows should appear under the nearest visible ancestor rather than at true full depth when intermediate ancestors are hidden. Avoid duplicates: a promoted alias should disappear once the same track is represented by the structural tree.
-- `Indent TLTs` in `NAV.menu` controls child-row indentation and defaults on. When off, hierarchy and disclosure state remain structural but all TLT buttons draw flush with the top-level row x-position. `Flip indent` keeps the left edge fixed and indents from the right edge instead; it must shorten the pill without changing the internal mirror phase. Tree arrows live opposite the colored dot in both mirrored and non-mirrored layouts.
+- `Indent TLTs` in `NAV.menu` controls child-row indentation and defaults on. When off, hierarchy and disclosure state remain structural but all TLT buttons draw flush with the top-level row x-position. Default unmirrored TLTs indent from the left and put colored circles on the left. `Flip indent` keeps the left edge fixed and indents from the right edge instead; it must shorten the pill without changing the internal mirror phase. Tree arrows live opposite the colored dot in both mirrored and non-mirrored layouts.
 - `Enable TLT expand` in `NAV.menu` gates the disclosure prototype. When off, the Track Navigator list returns to legacy flat top-level/custom visibility behavior with no tree arrows or expandable child rows.
 
 ## TLT Search

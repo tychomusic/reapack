@@ -3158,7 +3158,7 @@ ReflexInstallNavViewCore = function(deps)
           local clear_cross_y_shift = NavRetinaPx(1)
 	          local clear_cross_col_rest = COL_CLEAR_X_REST
 	          local clear_cross_col_hover = COL_CLEAR_X_HOVER
-	          local tlt_mirror = nav_mirror == true
+	          local tlt_mirror = nav_mirror ~= true
 	          local function NavTltClickTime()
 	              return r.time_precise and r.time_precise() or os.clock()
 	          end
@@ -3614,7 +3614,7 @@ ReflexInstallNavViewCore = function(deps)
                       r.ImGui_DrawList_AddRectFilled(dl, row_cx, row_cy, row_cx + pill_w, row_cy + tlf_h, pill_bg, tlf_r)
                   end
               end
-              -- Colored circle (left endcap when mirror, right endcap otherwise).
+              -- Colored circle (left endcap by default, right endcap when mirrored).
               local circ_cx
               if pill_collapsed then
                   circ_cx = collapsed_cx
@@ -3661,7 +3661,7 @@ ReflexInstallNavViewCore = function(deps)
                   end
               end
 
-              -- TLT name text. Right-aligned by default; left-aligned in mirror.
+              -- TLT name text. Left-aligned by default; right-aligned when mirrored.
               -- Already clipped above; nil display_label means show no text.
               local text_h = r.ImGui_GetTextLineHeight(ctx)
               local text_y = row_cy + Round((tlf_h - text_h) / 2)
