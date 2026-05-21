@@ -6,9 +6,9 @@ This is the repo-level knowledge file for the Tycho ReaPack repository. It descr
 - Repo root: `/Applications/Reaper/Scripts/Tycho/reapack`
 - GitHub remote: `https://github.com/tychomusic/reapack.git`
 - ReaPack import URL: `https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml`
-- Current package in this repo: Track Navigator
+- Current packages in this repo: Track Navigator, Reflex
 - Current Track Navigator public version: 1.2.7
-- Future package expected here: Reflex
+- Current Reflex public version: 20.665
 
 ## Package Knowledge Convention
 - Each package should have its own `PROJECT_KNOWLEDGE.md`.
@@ -24,8 +24,10 @@ This is the repo-level knowledge file for the Tycho ReaPack repository. It descr
 - `.reapack-index.conf`: ReaPack indexer config.
 - `Track Navigator/`: current public package.
 - `Track Navigator/PROJECT_KNOWLEDGE.md`: Track Navigator package knowledge.
+- `Reflex/`: current public package.
+- `Reflex/PROJECT_KNOWLEDGE.md`: Reflex package knowledge.
 
-## Intended Future Layout
+## Layout
 ```text
 reapack/
   AGENTS.md
@@ -38,11 +40,11 @@ reapack/
     PROJECT_KNOWLEDGE.md
 ```
 
-Reflex is not currently managed from this repo. Until it is moved here, use `/Applications/Reaper/Scripts/Tycho/Reflex` only as read-only reference unless the user explicitly asks to switch to Reflex work.
+Reflex is now packaged from this repo for ReaPack release work. `/Applications/Reaper/Scripts/Tycho/Reflex` remains the source/reference workspace unless the user explicitly asks to edit it directly.
 
 ## Track Navigator And Reflex
 - Track Navigator is the standalone public ReaPack package for NAV.
-- Reflex has its own embedded Navigator and remains the upstream/sibling reference for shared NAV behavior.
+- Reflex is the public ReaPack package for the full inspector/visibility/routing/Remote workflow and has its own embedded Navigator.
 - Track Navigator contains `core/Reflex_*.lua` files because the NAV code descends from shared Reflex-era helpers. The names are currently part of package layout and `require` paths; do not rename casually.
 - When changing shared NAV behavior, note whether Reflex should receive the same change in a separate task.
 - Do not mix Track Navigator release work with Reflex source edits unless the user explicitly asks for a cross-package port.
@@ -87,7 +89,7 @@ PROJECT_KNOWLEDGE.md
 Then read the package-specific PROJECT_KNOWLEDGE.md for the package being edited.
 
 Current package:
-Track Navigator
+Track Navigator or Reflex
 
 Current Track Navigator version:
 1.2.7
@@ -96,7 +98,7 @@ ReaPack import URL:
 https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml
 
 Reflex:
-Use /Applications/Reaper/Scripts/Tycho/Reflex only as read-only reference unless I explicitly ask for Reflex work or a Reflex port.
+Use /Applications/Reaper/Scripts/Tycho/Reflex as the source/reference workspace. Package and release work happens in /Applications/Reaper/Scripts/Tycho/reapack/Reflex unless I explicitly ask to edit the source workspace directly.
 ```
 
 ## Validation Baseline

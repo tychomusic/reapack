@@ -14,11 +14,12 @@ ReaPack repository for Tycho REAPER scripts. This is a multi-package repo: each 
   - Knowledge: `Track Navigator/PROJECT_KNOWLEDGE.md`
   - Main script: `Track Navigator/Track Navigator.lua`
   - Package metadata: `Track Navigator/Track Navigator package.lua`
-
-## Future Packages
-- Reflex is expected to eventually live in this ReaPack repo as its own package.
-- Until Reflex is moved into this repo, `/Applications/Reaper/Scripts/Tycho/Reflex` is a read-only sibling/reference unless the user explicitly asks to work in Reflex.
-- If work moves to Reflex, switch to the Reflex root and follow Reflex's own `AGENTS.md` and `PROJECT_KNOWLEDGE.md`.
+- Reflex:
+  - Package path: `Reflex/`
+  - Knowledge: `Reflex/PROJECT_KNOWLEDGE.md`
+  - Main script: `Reflex/Reflex.lua`
+  - Package metadata: `Reflex/Reflex package.lua`
+  - Source/reference workspace: `/Applications/Reaper/Scripts/Tycho/Reflex`
 
 ## Cross-Package Rules
 - Keep package-specific behavior, versioning, and architecture rules in that package's `PROJECT_KNOWLEDGE.md`.

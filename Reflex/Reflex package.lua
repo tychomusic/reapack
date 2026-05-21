@@ -1,0 +1,19 @@
+-- @description Reflex
+-- @version 20.665
+-- @author S.Hansen / Tycho
+-- @link GitHub repository https://github.com/tychomusic/reapack
+-- @link Requirements https://github.com/tychomusic/reapack#reflex
+-- @changelog
+--   Initial public ReaPack package for Reflex v20.665.
+--   Requires ReaImGui 0.10+ and SWS Extension; FX Window Toggle requires js_ReaScriptAPI.
+-- @metapackage
+-- @provides
+--   [main] Reflex.lua
+--   [main] Navigator.lua
+--   [main] Reflex_IOManager.lua
+--   [main] Reflex_WindowToggle.lua
+--   [main] Reflex_HistoryBack.lua
+--   [main] Reflex_HistoryForward.lua
+--   [nomain] Reflex_Theme_Default.lua
+--   [nomain] core/*.lua
+--   [nomain] icons/*.png
