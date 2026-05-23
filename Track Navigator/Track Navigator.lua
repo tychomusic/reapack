@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2.10
+ * Version:     1.2.11
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2.10"
+TRACK_NAVIGATOR_VERSION = "1.2.11"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -175,6 +175,21 @@ TrackNavigatorIsMacOS = function()
     return os:find("OSX", 1, true) ~= nil
         or os:find("macOS", 1, true) ~= nil
         or os:find("Mac", 1, true) ~= nil
+end
+
+TrackNavigatorReaperThemeName = function()
+    if not r.GetLastColorThemeFile then return nil end
+    local ok, path = pcall(r.GetLastColorThemeFile)
+    if not ok or type(path) ~= "string" or path == "" then return nil end
+    local name = path:match("([^/\\]+)$") or path
+    name = name:gsub("%.ReaperThemeZip$", ""):gsub("%.ReaperTheme$", "")
+    return name
+end
+
+TrackNavigatorIsReapertipsTheme = function()
+    local name = TrackNavigatorReaperThemeName()
+    if not name then return false end
+    return name:lower():find("reapertips", 1, true) ~= nil
 end
 
 TrackNavigatorDockPosition = function(dock_id)
@@ -1235,10 +1250,13 @@ TrackNavigatorLoop = function()
     local nav_is_mac = TrackNavigatorIsMacOS()
     local nav_standard_edge_gap = S(UI.edge_pad)
     local nav_chrome_gap_delta = nav_standard_edge_gap - 3
+    local nav_use_reapertips_dock_compensation = nav_is_mac and TrackNavigatorIsReapertipsTheme()
     local nav_pre_begin_dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
     local nav_pre_begin_side_dock_pos = (nav_pre_begin_dock_pos == 1 or nav_pre_begin_dock_pos == 3)
         and nav_pre_begin_dock_pos or nav_last_side_dock_pos
-    local nav_window_pad_x = (nav_window_docked and nav_is_mac and nav_pre_begin_side_dock_pos == 3)
+    local nav_window_pad_x = (nav_window_docked
+        and nav_use_reapertips_dock_compensation
+        and nav_pre_begin_side_dock_pos == 3)
         and 3 or nav_standard_edge_gap
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_WindowBg(), main_bg)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Border(), C.border)
@@ -1409,7 +1427,7 @@ TrackNavigatorLoop = function()
         local bw, win_h = r.ImGui_GetContentRegionAvail(ctx)
         local dock_pos = TrackNavigatorDockPosition(nav_current_dock_id)
         local visual_dock_pos = nil
-        if nav_window_docked and nav_is_mac then
+        if nav_window_docked and nav_use_reapertips_dock_compensation then
             visual_dock_pos = TrackNavigatorVisualSideDockPosition(wx, ww, dock_pos)
         end
         nav_last_side_dock_pos = (visual_dock_pos == 1 or visual_dock_pos == 3) and visual_dock_pos or nil

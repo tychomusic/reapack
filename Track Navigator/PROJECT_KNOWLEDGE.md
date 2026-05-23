@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2.10
+Current public version: 1.2.11
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -178,7 +178,8 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
 - In standalone `NAV.menu`, the bottom action cluster is `Show all tracks`, dock controls, then `Quit`. `Show all tracks` keeps the separated section above the cluster; the dock controls have no visible separators above or below, just dock-only separator-height gaps reduced by 5 px.
 - `Esc key to close` is a standalone global option. When disabled, the main script ignores Esc for quitting. When enabled, Esc closes active NAV/help/TLT popups first and only quits the standalone script when no NAV popup was active in the current or previous frame. Popup activity is reported from `Reflex_NavViewCore` to the standalone wrapper instead of relying only on generic `IsPopupOpen(...AnyPopup...)` timing.
 - Standalone Track Navigator needs a single-instance guard. Re-running the action without one can leave older deferred ImGui contexts alive, making layout tests appear unchanged or inconsistent.
-- Mac side-dock gap compensation has separate layout layers:
+- Mac side-dock gap compensation is Reapertips-theme-only. `TrackNavigatorIsReapertipsTheme()` reads REAPER's active color theme filename via `GetLastColorThemeFile()` and enables the measured spacer compensation only when the name contains `reapertips`. Other themes use the normal edge gap with no side-dock body/header offsets.
+- Reapertips mac side-dock gap compensation has separate layout layers:
   - `NAV.pill` / TLT rows are anchored inside the `##nav_scroll` child in `core/Reflex_NavViewCore.lua`. Parent cursor nudges before `NavDrawSection` do not move these rows.
   - `NAV.arr`, wrapped collapsed dots, and A/S/R controls are drawn in the parent/header layer before `##nav_scroll`.
   - Do not treat docked Navigator gaps as one margin or assume right-dock can be fixed by blindly mirroring left-dock numbers. Left dock is the measured tuned baseline; right dock needs the same layer-by-layer treatment with the inside compensation gap on the opposite side.
