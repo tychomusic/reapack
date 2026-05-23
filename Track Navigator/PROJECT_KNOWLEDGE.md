@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2.9
+Current public version: 1.2.10
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -124,10 +124,19 @@ Use this shorthand in discussion and bug reports.
 - Keep the three controls grouped in A/S/R order. Wide expanded mode pins all three to the top row. When width gets tight, all three drop together to row 2; then A stays on row 2 while S/R drop together to row 3; then A, S, and R stack individually. Collapsed mode follows the same A/S/R grouping before TLT dots.
 - A/S/R labels are image assets in `icons/`, not live text. Do not tune normal A/S/R centering with fallback text nudges; create or edit the PNG asset so it uses the same `NavDrawArLabelImage` path as the other buttons. `Nav.Select.S.png` uses alpha bounds `24,23,39,41` in a 64x64 source, matching A/R's vertical placement.
 
+## View History
+- Standalone Track Navigator shows Previous/Next view buttons in the bottom-left corner when `Show history buttons` is enabled in `NAV.menu`. They mirror the A/S/R button geometry: same diameter, horizontal gap, row cadence, and stack behavior. When the width cannot fit both buttons side by side, Back is the first row and Forward is the row below.
+- History buttons reserve bottom space from the standalone NAV list. As the window gets shorter, the gap between the final visible TLT row and the history buttons shrinks until the list scrolls.
+- A direction with no available history uses Reflex's disabled history look. An available history direction rests as a dimmed A-colored button and hovers into the normal available view-mode treatment.
+- View history snapshots include REAPER TCP/Mixer visibility, folder compact state, selected tracks, TCP/arrange work state, Navigator tree disclosure/layer overrides, pins, hidden/promoted/manual visibility, custom set membership/mode, and TLT search text.
+- Tree disclosure changes push history before they mutate state, including `Collapse all`, so Back can recover an accidentally collapsed Navigator tree.
+- Track Navigator exposes `History Back` and `History Forward` helper actions. They send commands through the running standalone action bridge so user-bound REAPER shortcuts work even when the Navigator window is not focused. The standalone window must keep keyboard passthrough active so these shortcuts reach REAPER unless an ImGui item is actively editing/dragging.
+
 ## ReaPack Actions
 - Track Navigator exposes ReaPack-visible actions for `NAV.A`, `NAV.S`, and `NAV.R`: `Enable`, `Rebuild`, and `Exit`. Enable enters only when inactive; Rebuild matches the Opt/Alt-click behavior; Exit restores the saved pre-entry view when that mode is active.
-- Track Navigator also exposes action-only Armed View actions: `Enable`, `Rebuild`, and `Exit`. Armed View has no UI affordance for now, captures/restores state like A/S/R, and shows only currently record-armed tracks.
-- `Track Navigator - Scroll to Record Armed Tracks` scrolls TCP to the first record-armed track by track number without entering Armed View.
+- Track Navigator also exposes action-only Armed View actions: `Enable`, `Rebuild`, `Exit`, and `Toggle`. Armed View has no UI affordance for now, captures/restores state like A/S/R, and shows only currently record-armed tracks.
+- Track Navigator exposes action-only History Back and History Forward commands that target the running standalone history stack.
+- `Track Navigator - Scroll to Record Armed Tracks` selects and scrolls TCP to the first record-armed track by track number without entering Armed View.
 - Track Navigator also exposes `Show Only TLT 01..10` actions. These target the first ten non-auto-ignored natural top-level folders in the current NAV list and call the same plain-click path as a normal TLT button, preserving Navigator's solo-visibility behavior.
 - The standalone script self-registers helper actions on startup with `AddRemoveReaScript` so local working copies under `Tycho/reapack` expose the same helper actions as ReaPack-installed copies.
 - `Track Navigator - Focus Search` opens/focuses the TLT search row and is allowed to launch the standalone Navigator when it is not already running. Other helper actions remain running-instance-only.
@@ -136,7 +145,7 @@ Use this shorthand in discussion and bug reports.
 ## Tooltips
 - `NAV.menu` has a `Modifier key tooltips` option (`helper_tooltips`) for verbose shortcut/helper tooltips. It defaults off and sits directly above `All tooltips`, with no separator between those options and `Help / Manual`.
 - `All tooltips` (`track_navigator_tooltips`) disables every Track Navigator tooltip when off.
-- In `NAV.menu` global options, `Ignore ARCHIVE` sits below `Esc key to close`; `Indent TLTs`, `Flip indent`, and `Mirror TLT buttons` are a separated group; `Show search` is the final row of that options section.
+- In `NAV.menu` global options, `Ignore ARCHIVE` sits below `Esc key to close`; `Indent TLTs`, `Flip indent`, and `Mirror TLT buttons` are a separated group; `Show search` and standalone `Show history buttons` are the final rows of that options section.
 - With modifier-key tooltips off, expanded `NAV.pill` simple track-name tooltips should appear only when the drawn label is clipped down to two UTF-8 characters or fewer. Collapsed `NAV.dot` tooltips still show the track name because dots have no visible label.
 - TLT tooltip titles show the REAPER track number prefix plus the full track name, e.g. `45: Synths`; the number prefix uses the normal TLT name color and the track name is white.
 
@@ -185,7 +194,7 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
 - The floating window outline is a custom 1 px line in `#525254`, not ImGui's normal border. Draw straight edges with filled rects and only use arc strokes for rounded corners. This avoids the fuzzy gradient / over-antialiased look ImGui can produce on straight lines.
 - Draw the floating outline on the foreground draw list when available so it traces the whole window edge. Keep `WindowBorderSize` at zero and let the custom outline define the visible edge.
 - `NAV.menu` and `NAV.help` use the same custom solid-outline path with native popup/window borders disabled, and use doubled popup outer padding so the menu content does not feel cramped. Section separators use `#262930` and draw full-width from inside outline edge to inside outline edge.
-- `NAV.menu` position is clamped to the visible work area only once when it opens, after its first measured size is known. Do not clamp it continuously while visible: users must be able to drag the Options window freely past screen edges without shape jitter or resize artifacts.
+- `NAV.menu` position is seeded inside the visible work area before it opens, then corrected once after its first measured size is known. Its height is capped to the visible work area so long option stacks scroll instead of spilling off-screen. Do not clamp it continuously while visible: users must be able to drag the Options window freely past screen edges without shape jitter or resize artifacts.
 - Match resize grip colors to the outline color so the lower-right handle does not fall back to ImGui blue.
 - Collapsed width can become very narrow when TLTs are circles. The minimum width should be based on the minimum NAV content width plus edge padding, not a large arbitrary ImGui window minimum.
 - Collapsed minimum height should follow the number of wrapped dot rows. Expanded minimum height should fit the visible NAV rows when reasonable, capped to the usable viewport so a very large project does not force an oversized window.

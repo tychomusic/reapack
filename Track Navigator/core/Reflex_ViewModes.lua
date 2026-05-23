@@ -809,6 +809,8 @@ ReflexInstallViewModes = function(deps)
     TrackNavigatorScrollToRecordArmed = function()
         local track = ViewModeFirstTrackInSet(ArmedViewCollectTracks())
         if not track then return false end
+        if r.SetOnlyTrackSelected then r.SetOnlyTrackSelected(track) end
+        if r.UpdateArrange then r.UpdateArrange() end
         ViewModeDeferScroll(track)
         return true
     end

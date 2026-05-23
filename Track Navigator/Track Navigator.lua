@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2.9
+ * Version:     1.2.10
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2.9"
+TRACK_NAVIGATOR_VERSION = "1.2.10"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -95,12 +95,15 @@ local function TrackNavigatorRegisterHelperActions()
     end
     local actions = {
         "Track Navigator - Focus Search.lua",
+        "Track Navigator - History Back.lua",
+        "Track Navigator - History Forward.lua",
         "Track Navigator - Active View - Enable.lua",
         "Track Navigator - Active View - Rebuild.lua",
         "Track Navigator - Active View - Exit.lua",
         "Track Navigator - Armed View - Enable.lua",
         "Track Navigator - Armed View - Rebuild.lua",
         "Track Navigator - Armed View - Exit.lua",
+        "Track Navigator - Armed View - Toggle.lua",
         "Track Navigator - Selected Tracks View - Enable.lua",
         "Track Navigator - Selected Tracks View - Rebuild.lua",
         "Track Navigator - Selected Tracks View - Exit.lua",
@@ -315,6 +318,7 @@ opt_nav_indent_tlts = LoadPref("nav_indent_tlts", true)
 opt_nav_flip_indent = LoadPref("nav_flip_indent", false)
 opt_esc_key_to_close = LoadPref("esc_key_to_close", true)
 opt_view_mode_restore_arrange = LoadPref("view_mode_restore_arrange", false)
+opt_nav_show_history_buttons = LoadPref("nav_show_history_buttons", true)
 local ui_scale = LoadPref("navigator_scale_v1", nil)
 if ui_scale == nil then
     local old = LoadPref("ui_scale_v2", nil)
@@ -1054,6 +1058,12 @@ TrackNavigatorRunExternalCommand = function(command)
     if command == "focus_tlt_search" then
         TrackNavigatorRequestTltSearchFocus()
         return true
+    elseif command == "history_back" then
+        if ViewHistoryBack then ViewHistoryBack() end
+        return true
+    elseif command == "history_forward" then
+        if ViewHistoryForward then ViewHistoryForward() end
+        return true
     elseif command == "active_enable" then
         if not active_view_active then ActiveViewToggle() end
         return true
@@ -1071,6 +1081,9 @@ TrackNavigatorRunExternalCommand = function(command)
         return true
     elseif command == "armed_exit" then
         ArmedViewExit()
+        return true
+    elseif command == "armed_toggle" then
+        ArmedViewToggle()
         return true
     elseif command == "armed_scroll" then
         return TrackNavigatorScrollToRecordArmed and TrackNavigatorScrollToRecordArmed() == true
@@ -1132,6 +1145,22 @@ TrackNavigatorSpecialViewActive = function()
         or selected_view_active == true
         or armed_view_active == true
         or active_view_active == true
+end
+
+TrackNavigatorHistoryButtonsVisible = function()
+    return opt_nav_show_history_buttons ~= false
+end
+
+TrackNavigatorHistoryBottomReserve = function(content_w)
+    if not TrackNavigatorHistoryButtonsVisible() then return 0 end
+    local mini_tlf_h = S(34)
+    local dot_r = math.floor(mini_tlf_h / 2)
+    local btn_d = dot_r * 2
+    local gap = S(4)
+    local row_h = btn_d + S(3.75)
+    local pair_w = btn_d * 2 + gap
+    local rows = (tonumber(content_w) or 0) >= pair_w and 1 or 2
+    return row_h * rows + gap
 end
 
 TrackNavigatorLoop = function()
@@ -1288,11 +1317,15 @@ TrackNavigatorLoop = function()
     if not navigator_expanded and last_nav_collapsed_visible_h and last_nav_collapsed_visible_h > 0 then
         min_nav_visible_h = math.max(min_nav_visible_h, last_nav_collapsed_visible_h)
     end
+    local history_content_w = last_window_w and last_window_w > 0
+        and math.max(0, last_window_w - nav_window_pad_x * 2)
+        or min_nav_w
+    local nav_history_bottom_reserve = TrackNavigatorHistoryBottomReserve(history_content_w)
     local min_bottom_pad = navigator_expanded and S(UI.edge_pad) or (S(UI.edge_pad / 2) + 1)
-    local min_window_h = S(UI.edge_pad) + S(1.25) + min_nav_visible_h + min_bottom_pad
+    local min_window_h = S(UI.edge_pad) + S(1.25) + min_nav_visible_h + nav_history_bottom_reserve + min_bottom_pad
     local content_fit_window_h = min_window_h
     if navigator_expanded and last_nav_expanded_visible_h and last_nav_expanded_visible_h > 0 then
-        local desired_window_h = S(UI.edge_pad) + S(1.25) + last_nav_expanded_visible_h + S(UI.edge_pad)
+        local desired_window_h = S(UI.edge_pad) + S(1.25) + last_nav_expanded_visible_h + nav_history_bottom_reserve + S(UI.edge_pad)
         content_fit_window_h = math.max(content_fit_window_h, math.min(desired_window_h, TrackNavigatorMaxAutoWindowHeight()))
     end
     if not nav_window_docked and navigator_expanded then
@@ -1407,6 +1440,7 @@ TrackNavigatorLoop = function()
             nav_header_x_offset = -nav_right_dock_gap_offset
             nav_ar_x_offset = -nav_right_dock_gap_offset - 0.5
         end
+        local nav_draw_history_bottom_reserve = TrackNavigatorHistoryBottomReserve(bw)
         nav_popup_active_this_frame = false
         nav_tlt_search_esc_consumed = false
         NavDrawSection({
@@ -1420,7 +1454,7 @@ TrackNavigatorLoop = function()
             arrow_w = S(28),
             bh = S(BASE_H),
             base_pad_y = BASE_PAD_Y,
-            nav_bottom_extra = 0,
+            nav_bottom_extra = nav_draw_history_bottom_reserve,
             nav_context_scope = "window",
             nav_body_x_offset = nav_body_x_offset,
             nav_header_x_offset = nav_header_x_offset,
@@ -1456,6 +1490,8 @@ TrackNavigatorLoop = function()
     PopPopupStyle()
     r.ImGui_PopStyleVar(ctx, 7 + smooth_tess_count)
     r.ImGui_PopStyleColor(ctx, 5 + dock_color_count)
+
+    if ReflexApplyKeyboardPassthrough then ReflexApplyKeyboardPassthrough() end
 
     if open and not nav_quit_requested then r.defer(TrackNavigatorLoop) end
 end

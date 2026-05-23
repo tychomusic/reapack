@@ -252,6 +252,24 @@ ReflexInstallStyleCore = function(deps)
         r.ImGui_Dummy(ctx, w or S(140), line_h)
     end
 
+    ReflexConfigureKeyboardPassthrough = function()
+        if not (r.ImGui_SetConfigVar and r.ImGui_ConfigVar_NavCaptureKeyboard) then return end
+        local ok_var, nav_capture = pcall(r.ImGui_ConfigVar_NavCaptureKeyboard)
+        if ok_var and type(nav_capture) == "number" then
+            pcall(r.ImGui_SetConfigVar, ctx, nav_capture, 0)
+        end
+    end
+
+    ReflexApplyKeyboardPassthrough = function()
+        local active = r.ImGui_IsAnyItemActive and r.ImGui_IsAnyItemActive(ctx) or false
+        if r.ImGui_SetNextFrameWantCaptureKeyboard then
+            pcall(r.ImGui_SetNextFrameWantCaptureKeyboard, ctx, active)
+        end
+        return active
+    end
+
+    ReflexConfigureKeyboardPassthrough()
+
 end
 
 return ReflexInstallStyleCore

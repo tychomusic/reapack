@@ -11,6 +11,72 @@ ReflexInstallViewHistory = function(deps)
     local resetInspEnvExpanded = deps.reset_insp_env_expanded
     local setInspPinSuppressSelected = deps.set_insp_pin_suppress_selected
 
+    local function ViewHistoryCopyMap(src)
+        local dst = {}
+        for k, v in pairs(src or {}) do dst[k] = v end
+        return dst
+    end
+
+    local function ViewHistoryMapsEqual(a, b)
+        for k, v in pairs(a or {}) do if not b or b[k] ~= v then return false end end
+        for k, v in pairs(b or {}) do if not a or a[k] ~= v then return false end end
+        return true
+    end
+
+    local function ViewHistoryCaptureNavigatorState(snap)
+        snap.nav_pinned_folders = ViewHistoryCopyMap(pinned_folders)
+        snap.nav_tree_expanded = ViewHistoryCopyMap(nav_tree_expanded)
+        snap.nav_tree_layer_overrides = ViewHistoryCopyMap(nav_tree_layer_overrides)
+        snap.nav_included = ViewHistoryCopyMap(nav_included)
+        snap.nav_excluded = ViewHistoryCopyMap(nav_excluded)
+        snap.nav_hidden = ViewHistoryCopyMap(nav_hidden)
+        snap.nav_custom_set = ViewHistoryCopyMap(nav_custom_set)
+        snap.nav_custom_set_mode = opt_nav_custom_set_mode == true
+        snap.nav_tlt_search_text = nav_tlt_search_text or ""
+        snap.nav_tlt_search_effective_query = nav_tlt_search_effective_query or snap.nav_tlt_search_text
+    end
+
+    local function ViewHistoryRestoreNavigatorState(snap)
+        if snap.nav_pinned_folders then
+            pinned_folders = ViewHistoryCopyMap(snap.nav_pinned_folders)
+            if SavePinnedFolders then SavePinnedFolders() end
+        end
+        if snap.nav_tree_expanded then
+            nav_tree_expanded = ViewHistoryCopyMap(snap.nav_tree_expanded)
+            nav_tree_layer_overrides = ViewHistoryCopyMap(snap.nav_tree_layer_overrides)
+            if SaveNavTreeExpansion then SaveNavTreeExpansion() end
+        end
+        if snap.nav_included then
+            nav_included = ViewHistoryCopyMap(snap.nav_included)
+            if SaveNavIncluded then SaveNavIncluded() end
+        end
+        if snap.nav_excluded then
+            nav_excluded = ViewHistoryCopyMap(snap.nav_excluded)
+            if SaveNavExcluded then SaveNavExcluded() end
+        end
+        if snap.nav_hidden then
+            nav_hidden = ViewHistoryCopyMap(snap.nav_hidden)
+            if SaveNavHidden then SaveNavHidden() end
+        end
+        if snap.nav_custom_set then
+            nav_custom_set = ViewHistoryCopyMap(snap.nav_custom_set)
+            if SaveNavCustomSet then SaveNavCustomSet() end
+        end
+        if snap.nav_custom_set_mode ~= nil then
+            opt_nav_custom_set_mode = snap.nav_custom_set_mode == true
+            if SavePref then SavePref("nav_custom_set_mode", opt_nav_custom_set_mode) end
+        end
+        if snap.nav_tlt_search_text ~= nil then
+            nav_tlt_search_text = snap.nav_tlt_search_text or ""
+            nav_tlt_search_effective_query = snap.nav_tlt_search_effective_query or nav_tlt_search_text
+            nav_tlt_search_hide_clear = nav_tlt_search_text == ""
+            nav_tlt_search_recent_clear_frames = nav_tlt_search_text == "" and 8 or 0
+        end
+        needs_rescan = true
+        needs_song_rescan = true
+        if BuildRenderList then BuildRenderList() end
+    end
+
     local function ViewHistoryTcpWindow()
         if not (r.GetMainHwnd and r.JS_Window_FindChildByID) then return nil end
         return r.JS_Window_FindChildByID(r.GetMainHwnd(), 1000)
@@ -84,6 +150,7 @@ ReflexInstallViewHistory = function(deps)
         if insp_pinned and insp_track and r.ValidatePtr(insp_track, "MediaTrack*") then
             snap.pinned_guid = r.GetTrackGUID(insp_track)
         end
+        ViewHistoryCaptureNavigatorState(snap)
         -- v20.428: capture flow view state so Back/Forward restore the chain
         -- that was visible at snapshot time. Without this, restoring a flow-view
         -- snapshot leaves flow_view_anchor stale, and the pin marker (which
@@ -139,6 +206,7 @@ ReflexInstallViewHistory = function(deps)
         r.TrackList_AdjustWindows(false)
         r.UpdateArrange()
         ViewHistoryRestoreWorkState(snap.work_state)
+        ViewHistoryRestoreNavigatorState(snap)
         -- Restore pin state
         if snap.pinned ~= nil then
             setInspPinned(snap.pinned)
@@ -207,6 +275,16 @@ ReflexInstallViewHistory = function(deps)
         -- chains (or flow-on vs flow-off) collapse into one entry on dedup.
         if (a.flow_active or false) ~= (b.flow_active or false) then return false end
         if a.flow_anchor_guid ~= b.flow_anchor_guid then return false end
+        if (a.nav_custom_set_mode or false) ~= (b.nav_custom_set_mode or false) then return false end
+        if (a.nav_tlt_search_text or "") ~= (b.nav_tlt_search_text or "") then return false end
+        if (a.nav_tlt_search_effective_query or "") ~= (b.nav_tlt_search_effective_query or "") then return false end
+        if not ViewHistoryMapsEqual(a.nav_pinned_folders, b.nav_pinned_folders) then return false end
+        if not ViewHistoryMapsEqual(a.nav_tree_expanded, b.nav_tree_expanded) then return false end
+        if not ViewHistoryMapsEqual(a.nav_tree_layer_overrides, b.nav_tree_layer_overrides) then return false end
+        if not ViewHistoryMapsEqual(a.nav_included, b.nav_included) then return false end
+        if not ViewHistoryMapsEqual(a.nav_excluded, b.nav_excluded) then return false end
+        if not ViewHistoryMapsEqual(a.nav_hidden, b.nav_hidden) then return false end
+        if not ViewHistoryMapsEqual(a.nav_custom_set, b.nav_custom_set) then return false end
         for k, v in pairs(a.vis) do if b.vis[k] ~= v then return false end end
         for k, v in pairs(b.vis) do if a.vis[k] ~= v then return false end end
         for k, v in pairs(a.mixer or {}) do if not b.mixer or b.mixer[k] ~= v then return false end end
@@ -272,6 +350,10 @@ ReflexInstallViewHistory = function(deps)
         end
         if view_history_idx == view_history_count then return true end
         return view_history_idx > 1
+    end
+
+    ViewHistoryCanForward = function()
+        return view_history_idx < view_history_count
     end
 
     ViewHistoryBack = function()

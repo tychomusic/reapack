@@ -1,17 +1,20 @@
 -- @description Track Navigator
--- @version 1.2.9
+-- @version 1.2.10
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @metapackage
 -- @provides
 --   [main] Track Navigator.lua
 --   [main] actions/Track Navigator - Focus Search.lua
+--   [main] actions/Track Navigator - History Back.lua
+--   [main] actions/Track Navigator - History Forward.lua
 --   [main] actions/Track Navigator - Active View - Enable.lua
 --   [main] actions/Track Navigator - Active View - Rebuild.lua
 --   [main] actions/Track Navigator - Active View - Exit.lua
 --   [main] actions/Track Navigator - Armed View - Enable.lua
 --   [main] actions/Track Navigator - Armed View - Rebuild.lua
 --   [main] actions/Track Navigator - Armed View - Exit.lua
+--   [main] actions/Track Navigator - Armed View - Toggle.lua
 --   [main] actions/Track Navigator - Selected Tracks View - Enable.lua
 --   [main] actions/Track Navigator - Selected Tracks View - Rebuild.lua
 --   [main] actions/Track Navigator - Selected Tracks View - Exit.lua
