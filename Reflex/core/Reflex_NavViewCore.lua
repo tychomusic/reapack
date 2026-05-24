@@ -2101,7 +2101,10 @@ ReflexInstallNavViewCore = function(deps)
                 "Pins and custom visibility stay unchanged.",
             })
         end
-        if tree_clicked and NavTreeResetExpansion then NavTreeResetExpansion() end
+        if tree_clicked and NavTreeResetExpansion then
+            if ViewHistoryPush then ViewHistoryPush() end
+            NavTreeResetExpansion()
+        end
         ReflexPopupStackGap(S(4))
         if nav_reset_confirm then
             ReflexPopupLabel("Reset custom visibility?", { col = C.text, min_w = menu_w })
@@ -2262,7 +2265,10 @@ ReflexInstallNavViewCore = function(deps)
                 "Pins and custom visibility stay unchanged.",
             })
         end
-        if clicked and NavTreeResetExpansion then NavTreeResetExpansion() end
+        if clicked and NavTreeResetExpansion then
+            if ViewHistoryPush then ViewHistoryPush() end
+            NavTreeResetExpansion()
+        end
     end
 
     local function NavDrawOptionsMenuItem(menu_w)
@@ -2475,8 +2481,9 @@ ReflexInstallNavViewCore = function(deps)
         local nav_header_x_offset = params.nav_header_x_offset or 0
         local nav_ar_x_offset = params.nav_ar_x_offset or nav_header_x_offset
 
-          -- ── NAVIGATOR SECTION (fixed, non-scrolling) ──
-          local nav_start_y = r.ImGui_GetCursorPosY(ctx)
+	          -- ── NAVIGATOR SECTION (fixed, non-scrolling) ──
+	          local nav_start_x = r.ImGui_GetCursorPosX(ctx)
+	          local nav_start_y = r.ImGui_GetCursorPosY(ctx)
           -- nav_end_y: bottom edge of the last visible NAV element. Set in
           -- both navigator_expanded branches below; consumed by the bottom-
           -- margin block to position the content child flush with NAV bottom
@@ -3078,7 +3085,8 @@ ReflexInstallNavViewCore = function(deps)
 
           local search_gap = NavRetinaPx(12)
           local search_min_w = NavRetinaPx(125)
-          local search_pre_w = math.max(0, bw - nav_body_x_offset)
+          local nav_list_w = math.max(0, bw - nav_body_x_offset)
+          local search_pre_w = nav_list_w
           local search_can_show = current_page == "tracks"
               and opt_nav_show_search ~= false
               and search_pre_w >= search_min_w
@@ -3087,14 +3095,176 @@ ReflexInstallNavViewCore = function(deps)
           -- requested 12px gaps above and below.
           local nav_body_gap = search_can_show and search_gap or S(3.75)
           local nav_body_y = nav_start_y + nav_single_row_h * nav_ar_flow_rows + nav_body_gap
-          r.ImGui_SetCursorPosY(ctx, nav_body_y)
+
+          local sticky_search_h = 0
+          if search_can_show then
+              local tlf_h = S(34)
+              local tlf_r = math.floor(tlf_h / 2)
+              local circ_gap = Round(S(9.56))
+              local search_text_extra_indent = NavRetinaPx(7)
+              local clear_cross_d = NavRetinaPx(14)
+              local clear_cross_x_shift = NavRetinaPx(6)
+              local search_text_y_shift = -NavRetinaPx(1)
+              local clear_cross_y_shift = NavRetinaPx(1)
+              local pin_dot_r = NavRetinaPx(14) * 0.5
+              local function NavStickyPushNoNavItemFlag()
+                  if not (r.ImGui_PushItemFlag and r.ImGui_ItemFlags_NoNav) then return false end
+                  local ok, flag = pcall(r.ImGui_ItemFlags_NoNav)
+                  if not ok or type(flag) ~= "number" then return false end
+                  r.ImGui_PushItemFlag(ctx, flag, true)
+                  return true
+              end
+              local function NavStickyReleaseTltSearchFocus()
+                  if r.ImGui_SetWindowFocusEx then pcall(r.ImGui_SetWindowFocusEx, ctx, "") end
+                  if r.ImGui_SetWindowFocus then pcall(r.ImGui_SetWindowFocus, ctx) end
+              end
+              local function NavStickyClearTltSearch()
+                  nav_tlt_search_text = ""
+                  nav_tlt_search_hide_clear = true
+                  nav_tlt_search_recent_clear_frames = 8
+              end
+              local function NavDrawStickyTltSearchBox()
+                  nav_tlt_search_visible = true
+                  if (nav_tlt_search_recent_clear_frames or 0) > 0 then
+                      nav_tlt_search_recent_clear_frames = nav_tlt_search_recent_clear_frames - 1
+                  end
+                  r.ImGui_SetCursorPosY(ctx, nav_body_y)
+                  r.ImGui_SetCursorPosX(ctx, nav_start_x + nav_body_x_offset)
+                  local row_cx, row_cy = r.ImGui_GetCursorScreenPos(ctx)
+                  local pill_w = nav_list_w
+                  local mid_y = row_cy + tlf_h * 0.5
+                  local dl = r.ImGui_GetWindowDrawList(ctx)
+                  local mouse_x, mouse_y = r.ImGui_GetMousePos(ctx)
+                  local pill_hovered = mouse_x >= row_cx and mouse_x <= row_cx + pill_w
+                      and mouse_y >= row_cy and mouse_y <= row_cy + tlf_h
+                  local pill_clicked = pill_hovered and r.ImGui_IsMouseClicked(ctx, 0)
+                  if pill_hovered then nav_context_blocked = true end
+                  if pill_clicked then
+                      nav_tlt_search_hide_clear = false
+                      nav_tlt_search_recent_clear_frames = 0
+                  end
+
+                  local cap_r = tlf_h * 0.5
+                  if r.ImGui_DrawList_PathClear and r.ImGui_DrawList_PathArcTo and r.ImGui_DrawList_PathFillConvex then
+                      local pi = math.pi
+                      local segs = math.max(12, math.floor(nav_circle_segments / 2))
+                      r.ImGui_DrawList_PathClear(dl)
+                      r.ImGui_DrawList_PathArcTo(dl, row_cx + cap_r, mid_y, cap_r, pi * 0.5, pi * 1.5, segs)
+                      r.ImGui_DrawList_PathArcTo(dl, row_cx + pill_w - cap_r, mid_y, cap_r, pi * 1.5, pi * 2.5, segs)
+                      r.ImGui_DrawList_PathFillConvex(dl, COL_TLT_SEARCH_BG)
+                  else
+                      r.ImGui_DrawList_AddRectFilled(dl, row_cx, row_cy, row_cx + pill_w, row_cy + tlf_h, COL_TLT_SEARCH_BG, tlf_r)
+                  end
+
+                  local clear_cx = row_cx + pill_w - tlf_h * 0.5
+                  local clear_draw_cx = clear_cx - clear_cross_x_shift
+                  local text_left = row_cx + circ_gap + search_text_extra_indent
+                  local text_right = clear_draw_cx - pin_dot_r - circ_gap
+                  local input_w = math.max(1, text_right - text_left)
+                  local text_h = r.ImGui_GetTextLineHeight(ctx)
+                  local input_pad_y = math.max(0, Round((tlf_h - text_h) / 2) - search_text_y_shift)
+                  local new_text = nav_tlt_search_text or ""
+                  local focus_requested = (nav_tlt_search_focus_requested_frames or 0) > 0
+
+                  r.ImGui_SetCursorScreenPos(ctx, text_left, row_cy)
+                  r.ImGui_SetNextItemWidth(ctx, input_w)
+                  if (pill_clicked or focus_requested) and r.ImGui_SetKeyboardFocusHere then
+                      r.ImGui_SetKeyboardFocusHere(ctx)
+                  end
+                  if focus_requested then
+                      nav_tlt_search_hide_clear = false
+                      nav_tlt_search_recent_clear_frames = 0
+                      nav_tlt_search_focus_requested_frames = nav_tlt_search_focus_requested_frames - 1
+                  end
+                  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), 0x00000000)
+                  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBgHovered(), 0x00000000)
+                  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBgActive(), 0x00000000)
+                  local input_text_col = NavIsPinnedOnlySearchQuery(new_text)
+                      and COL_TLT_SEARCH_SPECIAL
+                      or COL_TLT_NAME_TEXT
+                  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), input_text_col)
+                  local input_color_count = 4
+                  if r.ImGui_Col_InputTextCursor then
+                      local ok, cursor_col = pcall(r.ImGui_Col_InputTextCursor)
+                      if ok and type(cursor_col) == "number" then
+                          r.ImGui_PushStyleColor(ctx, cursor_col, COL_TLT_SEARCH_CURSOR)
+                          input_color_count = input_color_count + 1
+                      end
+                  end
+                  if r.ImGui_Col_TextSelectedBg then
+                      local ok, selected_col = pcall(r.ImGui_Col_TextSelectedBg)
+                      if ok and type(selected_col) == "number" then
+                          r.ImGui_PushStyleColor(ctx, selected_col, COL_TLT_SEARCH_SELECTION)
+                          input_color_count = input_color_count + 1
+                      end
+                  end
+                  r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FramePadding(), 0, input_pad_y)
+                  local input_changed
+                  input_changed, new_text = r.ImGui_InputText(ctx, "##nav_tlt_search", new_text)
+                  local input_active = r.ImGui_IsItemActive(ctx) or (r.ImGui_IsItemFocused and r.ImGui_IsItemFocused(ctx))
+                  local esc_pressed = type(TrackNavigatorEscapePressed) == "function" and TrackNavigatorEscapePressed()
+                  local release_focus = false
+                  r.ImGui_PopStyleVar(ctx, 1)
+                  r.ImGui_PopStyleColor(ctx, input_color_count)
+                  if input_changed then
+                      nav_tlt_search_text = new_text or ""
+                      nav_tlt_search_hide_clear = false
+                      nav_tlt_search_recent_clear_frames = 0
+                  end
+
+                  if esc_pressed
+                     and ((nav_tlt_search_text or "") ~= ""
+                          or input_active
+                          or (nav_tlt_search_recent_clear_frames or 0) > 0) then
+                      NavStickyClearTltSearch()
+                      nav_tlt_search_esc_consumed = true
+                      release_focus = true
+                      input_active = false
+                  end
+
+                  local show_clear = not nav_tlt_search_hide_clear
+                      and (input_active or (nav_tlt_search_text or "") ~= "")
+                  if show_clear then
+                      local hit = tlf_h
+                      local clear_x = row_cx + pill_w - hit
+                      r.ImGui_SetCursorScreenPos(ctx, clear_x, row_cy)
+                      local no_nav_pushed = NavStickyPushNoNavItemFlag()
+                      r.ImGui_InvisibleButton(ctx, "##nav_tlt_search_clear", hit, tlf_h)
+                      if no_nav_pushed then r.ImGui_PopItemFlag(ctx) end
+                      local clear_hovered = r.ImGui_IsItemHovered(ctx)
+                      if clear_hovered then nav_context_blocked = true end
+                      if r.ImGui_IsItemClicked(ctx, 0) then
+                          NavStickyClearTltSearch()
+                          release_focus = true
+                          input_active = false
+                          show_clear = false
+                      end
+                      if show_clear then
+                          NavDrawClearCross(dl, clear_draw_cx, mid_y - clear_cross_y_shift, clear_cross_d, clear_hovered, COL_CLEAR_X_REST, COL_CLEAR_X_HOVER)
+                      end
+                  end
+                  if release_focus then NavStickyReleaseTltSearchFocus() end
+
+                  NavSetTltSearchEffectiveQuery(nav_tlt_search_text or "", true)
+              end
+              NavDrawStickyTltSearchBox()
+              sticky_search_h = tlf_h + search_gap
+          else
+              nav_tlt_search_visible = false
+              nav_tlt_search_hide_clear = false
+              nav_tlt_search_recent_clear_frames = 0
+              NavSetTltSearchEffectiveQuery("", true)
+          end
+          local nav_list_y = nav_body_y + sticky_search_h
+          r.ImGui_SetCursorPosY(ctx, nav_list_y)
 
           -- Make NAV's expanded list scrollable when it would otherwise push the
           -- inspector + remote off the bottom of the window. No ImGui scrollbar
           -- (NoScrollbar flag) - thin indicator drawn after EndChild matching
           -- the inspector pattern. Children resize naturally to interior width.
           local _bottom_used = vh_row_h + rem_h + (rem_h > 0 and divider_h or 0) + nav_bottom_extra
-          local _nav_block_max_h = math.max(S(120), win_h - _bottom_used)
+          local _nav_top_used = nav_list_y - nav_start_y
+          local _nav_block_max_h = math.max(1, win_h - _nav_top_used - _bottom_used)
           local _nav_h
           if last_nav_natural_h and last_nav_natural_h > 0 then
               _nav_h = math.min(last_nav_natural_h, _nav_block_max_h)
@@ -3103,16 +3273,22 @@ ReflexInstallNavViewCore = function(deps)
           end
 
           r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, 0)
-          if nav_body_x_offset ~= 0 then
-              r.ImGui_SetCursorPosX(ctx, r.ImGui_GetCursorPosX(ctx) + nav_body_x_offset)
-          end
+          r.ImGui_SetCursorPosX(ctx, nav_start_x + nav_body_x_offset)
 
           -- Standalone callers pass a width already adjusted for their current
           -- chrome: docked keeps the REAPER edge blend, floating keeps the
           -- standard left/right window padding.
-          local _nav_child_visible = r.ImGui_BeginChild(ctx, "##nav_scroll", bw - nav_body_x_offset, _nav_h, 0, r.ImGui_WindowFlags_NoScrollbar())
+          local _nav_child_visible = r.ImGui_BeginChild(ctx, "##nav_scroll", nav_list_w, _nav_h, 0, r.ImGui_WindowFlags_NoScrollbar())
           if _nav_child_visible then
               local _nav_child_y0 = r.ImGui_GetCursorPosY(ctx)
+              local _nav_child_clip_y1 = -math.huge
+              local _nav_child_clip_y2 = math.huge
+              if r.ImGui_GetWindowPos and r.ImGui_GetWindowSize then
+                  local _, child_screen_y = r.ImGui_GetWindowPos(ctx)
+                  local _, child_h = r.ImGui_GetWindowSize(ctx)
+                  _nav_child_clip_y1 = child_screen_y
+                  _nav_child_clip_y2 = child_screen_y + child_h
+              end
               -- Use child's interior width so rows aren't clipped by any scrollbar
               -- artifact and resize naturally.
               bw = r.ImGui_GetContentRegionAvail(ctx)
@@ -3144,13 +3320,6 @@ ReflexInstallNavViewCore = function(deps)
           local tree_arrow_hit_inset = NavRetinaPx(22)
           local custom_set_indicator_gap = NavRetinaPx(15)
           local tree_text_gap = circ_gap
-          local search_text_extra_indent = NavRetinaPx(7)
-          local clear_cross_d = NavRetinaPx(14)
-          local clear_cross_x_shift = NavRetinaPx(6)
-          local search_text_y_shift = -NavRetinaPx(1)
-          local clear_cross_y_shift = NavRetinaPx(1)
-          local clear_cross_col_rest = COL_CLEAR_X_REST
-          local clear_cross_col_hover = COL_CLEAR_X_HOVER
           local tlt_mirror = nav_mirror ~= true
           local function NavTltClickTime()
               return r.time_precise and r.time_precise() or os.clock()
@@ -3165,17 +3334,18 @@ ReflexInstallNavViewCore = function(deps)
 	          local function NavToggleTreeFromItem(item, mods, source)
 	              if not (item and item.tree_expandable) then return false end
 	              local nav_mods = NavMods(mods or 0)
-	              NavDebugEvent(source or "NAV.pill.tree_toggle", {
-	                  mods = mods or 0,
-	                  label = item.label,
-	                  item_active = r.ImGui_IsItemActive(ctx),
-	                  state = item.tree_expanded and "collapse" or "expand",
-	              })
-	              if nav_mods.pin then
-	                  if NavTreeToggleGeneration then NavTreeToggleGeneration(item) end
-	              elseif NavTreeToggleItem then
-	                  NavTreeToggleItem(item)
-	              end
+		              NavDebugEvent(source or "NAV.pill.tree_toggle", {
+		                  mods = mods or 0,
+		                  label = item.label,
+		                  item_active = r.ImGui_IsItemActive(ctx),
+		                  state = item.tree_expanded and "collapse" or "expand",
+		              })
+		              if ViewHistoryPush then ViewHistoryPush() end
+		              if nav_mods.pin then
+		                  if NavTreeToggleGeneration then NavTreeToggleGeneration(item) end
+		              elseif NavTreeToggleItem then
+		                  NavTreeToggleItem(item)
+		              end
 	              BuildRenderList()
 	              return true
 	          end
@@ -3201,25 +3371,6 @@ ReflexInstallNavViewCore = function(deps)
 	              local raw = math.max(0, depth or 0) * tree_indent_step
 	              local min_w = math.max(tlf_h, S(104))
               return math.min(raw, math.max(0, bw - min_w))
-          end
-          local function NavPushNoNavItemFlag()
-              if not (r.ImGui_PushItemFlag and r.ImGui_ItemFlags_NoNav) then return false end
-              local ok, flag = pcall(r.ImGui_ItemFlags_NoNav)
-              if not ok or type(flag) ~= "number" then return false end
-              r.ImGui_PushItemFlag(ctx, flag, true)
-              return true
-          end
-          local function NavReleaseTltSearchFocus()
-              if r.ImGui_SetWindowFocusEx then pcall(r.ImGui_SetWindowFocusEx, ctx, "") end
-              if r.ImGui_SetWindowFocus then pcall(r.ImGui_SetWindowFocus, ctx) end
-          end
-          local function NavClearTltSearch()
-              nav_tlt_search_text = ""
-              nav_tlt_search_hide_clear = true
-              nav_tlt_search_recent_clear_frames = 8
-          end
-          local function NavDrawSearchClearCross(dl, cx, cy, hovered)
-              NavDrawClearCross(dl, cx, cy, clear_cross_d, hovered, clear_cross_col_rest, clear_cross_col_hover)
           end
           local function NavTlfRowMetrics(item)
               local indent = NavTlfIndent(item and item.tree_depth or 0)
@@ -3328,149 +3479,11 @@ ReflexInstallNavViewCore = function(deps)
               end
               return 0, true
           end
-          local function NavDrawTltSearchBox()
-              nav_tlt_search_visible = true
-              if (nav_tlt_search_recent_clear_frames or 0) > 0 then
-                  nav_tlt_search_recent_clear_frames = nav_tlt_search_recent_clear_frames - 1
-              end
-              local row_cx, row_cy = r.ImGui_GetCursorScreenPos(ctx)
-              local pill_w = bw
-              local mid_y = row_cy + tlf_h * 0.5
-              local dl = r.ImGui_GetWindowDrawList(ctx)
-              local mouse_x, mouse_y = r.ImGui_GetMousePos(ctx)
-              local pill_hovered = mouse_x >= row_cx and mouse_x <= row_cx + pill_w
-                  and mouse_y >= row_cy and mouse_y <= row_cy + tlf_h
-              local pill_clicked = pill_hovered and r.ImGui_IsMouseClicked(ctx, 0)
-              if pill_hovered then
-                  nav_context_blocked = true
-              end
-              if pill_clicked then
-                  nav_tlt_search_hide_clear = false
-                  nav_tlt_search_recent_clear_frames = 0
-              end
-
-              local pill_bg = COL_TLT_SEARCH_BG
-              local cap_r = tlf_h * 0.5
-              if r.ImGui_DrawList_PathClear and r.ImGui_DrawList_PathArcTo and r.ImGui_DrawList_PathFillConvex then
-                  local pi = math.pi
-                  local segs = math.max(12, math.floor(nav_circle_segments / 2))
-                  r.ImGui_DrawList_PathClear(dl)
-                  r.ImGui_DrawList_PathArcTo(dl, row_cx + cap_r, mid_y, cap_r, pi * 0.5, pi * 1.5, segs)
-                  r.ImGui_DrawList_PathArcTo(dl, row_cx + pill_w - cap_r, mid_y, cap_r, pi * 1.5, pi * 2.5, segs)
-                  r.ImGui_DrawList_PathFillConvex(dl, pill_bg)
-              else
-                  r.ImGui_DrawList_AddRectFilled(dl, row_cx, row_cy, row_cx + pill_w, row_cy + tlf_h, pill_bg, tlf_r)
-              end
-
-              local clear_cx = row_cx + pill_w - tlf_h * 0.5
-              local clear_draw_cx = clear_cx - clear_cross_x_shift
-              local text_left = row_cx + circ_gap + search_text_extra_indent
-              local text_right = clear_draw_cx - pin_dot_r - circ_gap
-              local input_w = math.max(1, text_right - text_left)
-              local text_h = r.ImGui_GetTextLineHeight(ctx)
-              local input_pad_y = math.max(0, Round((tlf_h - text_h) / 2) - search_text_y_shift)
-              local new_text = nav_tlt_search_text or ""
-              local focus_requested = (nav_tlt_search_focus_requested_frames or 0) > 0
-
-              r.ImGui_SetCursorScreenPos(ctx, text_left, row_cy)
-              r.ImGui_SetNextItemWidth(ctx, input_w)
-              if (pill_clicked or focus_requested) and r.ImGui_SetKeyboardFocusHere then
-                  r.ImGui_SetKeyboardFocusHere(ctx)
-              end
-              if focus_requested then
-                  nav_tlt_search_hide_clear = false
-                  nav_tlt_search_recent_clear_frames = 0
-                  nav_tlt_search_focus_requested_frames = nav_tlt_search_focus_requested_frames - 1
-              end
-              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), 0x00000000)
-              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBgHovered(), 0x00000000)
-              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBgActive(), 0x00000000)
-              local input_text_col = NavIsPinnedOnlySearchQuery(new_text)
-                  and COL_TLT_SEARCH_SPECIAL
-                  or COL_TLT_NAME_TEXT
-              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), input_text_col)
-              local input_color_count = 4
-              if r.ImGui_Col_InputTextCursor then
-                  local ok, cursor_col = pcall(r.ImGui_Col_InputTextCursor)
-                  if ok and type(cursor_col) == "number" then
-                      r.ImGui_PushStyleColor(ctx, cursor_col, COL_TLT_SEARCH_CURSOR)
-                      input_color_count = input_color_count + 1
-                  end
-              end
-              if r.ImGui_Col_TextSelectedBg then
-                  local ok, selected_col = pcall(r.ImGui_Col_TextSelectedBg)
-                  if ok and type(selected_col) == "number" then
-                      r.ImGui_PushStyleColor(ctx, selected_col, COL_TLT_SEARCH_SELECTION)
-                      input_color_count = input_color_count + 1
-                  end
-              end
-              r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FramePadding(), 0, input_pad_y)
-              local input_changed
-              input_changed, new_text = r.ImGui_InputText(ctx, "##nav_tlt_search", new_text)
-              local input_active = r.ImGui_IsItemActive(ctx) or (r.ImGui_IsItemFocused and r.ImGui_IsItemFocused(ctx))
-              local esc_pressed = type(TrackNavigatorEscapePressed) == "function" and TrackNavigatorEscapePressed()
-              local release_focus = false
+          if #render_list == 0 then
+              r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ItemSpacing(), 0, 0)
+              r.ImGui_Dummy(ctx, 1, 0)
               r.ImGui_PopStyleVar(ctx, 1)
-              r.ImGui_PopStyleColor(ctx, input_color_count)
-              if input_changed then
-                  nav_tlt_search_text = new_text or ""
-                  nav_tlt_search_hide_clear = false
-                  nav_tlt_search_recent_clear_frames = 0
-              end
-
-              if esc_pressed
-                 and ((nav_tlt_search_text or "") ~= ""
-                      or input_active
-                      or (nav_tlt_search_recent_clear_frames or 0) > 0) then
-                  NavClearTltSearch()
-                  nav_tlt_search_esc_consumed = true
-                  release_focus = true
-                  input_active = false
-              end
-
-              local show_clear = not nav_tlt_search_hide_clear
-                  and (input_active or (nav_tlt_search_text or "") ~= "")
-              if show_clear then
-                  local hit = tlf_h
-                  local clear_x = row_cx + pill_w - hit
-                  r.ImGui_SetCursorScreenPos(ctx, clear_x, row_cy)
-                  local no_nav_pushed = NavPushNoNavItemFlag()
-                  r.ImGui_InvisibleButton(ctx, "##nav_tlt_search_clear", hit, tlf_h)
-                  if no_nav_pushed then r.ImGui_PopItemFlag(ctx) end
-                  local clear_hovered = r.ImGui_IsItemHovered(ctx)
-                  if clear_hovered then nav_context_blocked = true end
-                  if r.ImGui_IsItemClicked(ctx, 0) then
-                      NavClearTltSearch()
-                      release_focus = true
-                      input_active = false
-                      show_clear = false
-                  end
-                  if show_clear then
-                      NavDrawSearchClearCross(dl, clear_draw_cx, mid_y - clear_cross_y_shift, clear_hovered)
-                  end
-              end
-              if release_focus then
-                  NavReleaseTltSearchFocus()
-              end
-
-              NavSetTltSearchEffectiveQuery(nav_tlt_search_text or "", true)
-              r.ImGui_SetCursorScreenPos(ctx, row_cx, row_cy + tlf_h + search_gap)
           end
-          if search_can_show then
-              NavDrawTltSearchBox()
-              if #render_list == 0 then
-                  -- Empty search results still need one submitted item after
-                  -- the cursor move, or ReaImGui reports an EndChild bounds error.
-                  r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ItemSpacing(), 0, 0)
-                  r.ImGui_Dummy(ctx, 1, 0)
-                  r.ImGui_PopStyleVar(ctx, 1)
-              end
-	          else
-	              nav_tlt_search_visible = false
-	              nav_tlt_search_hide_clear = false
-	              nav_tlt_search_recent_clear_frames = 0
-	              NavSetTltSearchEffectiveQuery("", true)
-	          end
 	          NavDispatchPendingTltClick(false)
 	          local shared_label_char_limit = nil
 	          for _, item in ipairs(render_list) do
@@ -3493,10 +3506,15 @@ ReflexInstallNavViewCore = function(deps)
               local row_cx = base_row_x + (opt_nav_flip_indent == true and 0 or indent)
               local row_cy = base_row_y
               local dl = r.ImGui_GetWindowDrawList(ctx)
+              local row_fully_visible = row_cy >= _nav_child_clip_y1
+                  and row_cy + tlf_h <= _nav_child_clip_y2
 
               -- Pill collapse rule: when the row is too narrow to keep the
               -- colored circle and label breathing room, snap the whole pill to
               -- the same dark/colored concentric circle used by minimized TLTs.
+              if not row_fully_visible then
+                  r.ImGui_Dummy(ctx, bw, tlf_h)
+              else
 
               -- Opacity: 40% when inactive, 100% when visible or hovered
               r.ImGui_InvisibleButton(ctx, "##tlf" .. ri, bw, tlf_h)
@@ -3642,17 +3660,37 @@ ReflexInstallNavViewCore = function(deps)
                   NavSetHandCursor()
                   if clicked_main then
                       local mods = NavClickMods()
-                      local nav_mods = NavMods(mods)
-                      nav_tlt_pending_click = nil
-                      clicked_main = false
-                      NavDebugEvent("NAV.pill.endcap_select", {
-                          mods = mods,
-                          label = item.label,
-                          item_active = r.ImGui_IsItemActive(ctx),
-                      })
-                      NavApplyTlfEndcapSelection(item, nav_mods)
-                  end
-              end
+	                      local nav_mods = NavMods(mods)
+	                      nav_tlt_pending_click = nil
+	                      clicked_main = false
+	                      if nav_mods.pin or nav_mods.child_expand or nav_mods.custom_set then
+	                          NavDebugEvent("NAV.pill.endcap_action", {
+	                              mods = mods,
+	                              label = item.label,
+	                              item_active = r.ImGui_IsItemActive(ctx),
+	                          })
+	                          if nav_mods.custom_set then
+	                              NavToggleTrackCustomSet(NavTlfItemTrack(item))
+	                          else
+	                              local show_all, primary, shift, pin, child_expand = NavTrackClickMods(mods)
+	                              local was_visible = vis
+	                              if show_all then
+	                                  ShowAllTracks()
+	                              else
+	                                  HandleTracksClick(ri, primary, shift, pin, child_expand)
+	                                  NavMaybeSuppressTlfHover(item, was_visible, show_all, primary)
+	                              end
+	                          end
+	                      else
+	                          NavDebugEvent("NAV.pill.endcap_select", {
+	                              mods = mods,
+	                              label = item.label,
+	                              item_active = r.ImGui_IsItemActive(ctx),
+	                          })
+	                          NavApplyTlfEndcapSelection(item, nav_mods)
+	                      end
+	                  end
+	              end
 
               -- TLT name text. Left-aligned by default; right-aligned when mirrored.
               -- Already clipped above; nil display_label means show no text.
@@ -3815,9 +3853,10 @@ ReflexInstallNavViewCore = function(deps)
 	                  else
 	                      HandleTracksClick(ri, primary, shift, pin, child_expand)
 	                      NavMaybeSuppressTlfHover(item, was_visible, show_all, primary)
-                  end
+	                  end
+	              end
               end
-          end
+	          end
           r.ImGui_PopStyleVar(ctx, 1)  -- ItemSpacing
           NavPopFont(tlf_font_pushed)
 

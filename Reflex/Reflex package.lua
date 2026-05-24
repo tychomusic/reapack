@@ -1,10 +1,10 @@
 -- @description Reflex
--- @version 20.670
+-- @version 20.671
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Embed Reflex theme defaults, remove the external theme file, and fix right-dock gap compensation.
+--   Bring embedded Reflex Navigator rendering in line with standalone Track Navigator: sticky search, smart TLT clipping, and history-aware tree changes.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua

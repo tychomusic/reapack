@@ -3,11 +3,11 @@
  * Description: Standalone Navigator section for Reflex.
  *              Top NAV visibility manager only.
  * Author:      S.Hansen / Tycho
- * Version:     20.670
+ * Version:     20.671
 --]]
 
 local r = reaper
-NAVIGATOR_VERSION = "20.670"
+NAVIGATOR_VERSION = "20.671"
 
 NavigatorDependencyError = function(detail)
     local msg = "Navigator requires ReaImGui 0.10 or newer."
