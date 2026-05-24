@@ -312,7 +312,13 @@ ReflexInstallNavViewCore = function(deps)
         local lo, hi = math.min(anchor_idx, target_idx), math.max(anchor_idx, target_idx)
         for i = lo, hi do
             local track = r.GetTrack(0, i)
-            if track then r.SetTrackSelected(track, true) end
+            if track
+               and (track == anchor_track
+                    or track == target_track
+                    or type(NavTrackActuallyVisible) ~= "function"
+                    or NavTrackActuallyVisible(track)) then
+                r.SetTrackSelected(track, true)
+            end
         end
         return true
     end
@@ -347,8 +353,11 @@ ReflexInstallNavViewCore = function(deps)
         NavRevealLocateTrackIfNeeded(track)
         if nav_mods.shift then
             local anchor_track = NavTrackFromGuid(nav_tlt_select_anchor_guid)
+            local had_anchor = anchor_track ~= nil
             if not anchor_track then anchor_track = track end
-            NavSelectTrackRange(anchor_track, track, nav_mods.primary == true)
+            if NavSelectTrackRange(anchor_track, track, nav_mods.primary == true) and not had_anchor then
+                nav_tlt_select_anchor_guid = r.GetTrackGUID(track)
+            end
         elseif nav_mods.primary then
             local selected
             if r.IsTrackSelected then

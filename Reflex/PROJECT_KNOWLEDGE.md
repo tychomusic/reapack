@@ -4,7 +4,7 @@
 
 Reflex is a standalone ReaImGui script for REAPER providing track visibility/collapse management, a track inspector with FX chain display, A/B compare system, volume/pan controls, envelope management, inline routing panel, FX plugin browser, routing view, sends view, flow view, send topology view, view history, noise floor detection, and a configurable macro pad (Remote) with pages. It is a companion to the Realist live performance system for Tycho.
 
-**Current version: v20.667** (~10,700-line main script; I/O Manager split into shared core modules)
+**Current version: v20.669** (~10,700-line main script; I/O Manager split into shared core modules)
 
 **Dependencies:** REAPER's built-in Lua 5.4, ReaImGui 0.10+. SWS still exists in some Reflex-only legacy paths (`BR_GetMediaTrackSendInfo_Track` in routing panels/send topology and `BR_GetMediaTrackSendInfo_Envelope` for send envelope matching), but standalone Navigator's `NAV.R` no longer requires SWS as of v20.662 / Navigator v20.662; it uses native `GetTrackSendInfo_Value(..., "P_DESTTRACK"/"P_SRCTRACK")` only. Prefer native REAPER/Lua APIs over SWS wherever they can provide the same behavior.
 
@@ -20,7 +20,7 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - Package path: `Reflex/`
 - Package metadata: `Reflex/Reflex package.lua`
 - Main script: `Reflex/Reflex.lua`
-- Public version: `20.667`
+- Public version: `20.669`
 - Author metadata: `S.Hansen / Tycho`
 - Release package excludes generated/user-local state files such as `remote_buttons.txt`, `remote_pages.txt`, and `fx_browser_action.txt`.
 - ReaPack installs `Reflex_Theme_Default.lua`; user customization belongs in optional `Reflex_Theme.lua`, which is not provided by the package.
@@ -113,6 +113,9 @@ Scripts/Tycho/Reflex/
   Reflex_WindowToggle.lua   FX window toggle (v1.3) — bind as REAPER action
   Reflex_HistoryBack.lua    View history back (sets ExtState, bind as REAPER action)
   Reflex_HistoryForward.lua View history forward (sets ExtState, bind as REAPER action)
+  Reflex_Navigator_ArmedViewToggle.lua       Navigator Armed View toggle action
+  Reflex_Navigator_ScrollToRecordArmed.lua   Select/scroll to first record-armed track action
+  Reflex_NavigatorActionBridge.lua            Shared ExtState bridge for Navigator actions
   core/
     Reflex_StyleCore.lua      Shared popup/menu/tooltip style helpers used by Reflex + Navigator
     Reflex_ViewHistory.lua   View history snapshot/restore/back/forward module
@@ -120,7 +123,7 @@ Scripts/Tycho/Reflex/
     Reflex_NavViewCore.lua   Shared NAV.arr/NAV.dot/NAV.pill/A-S-R renderer used by Reflex + Navigator
     Reflex_NavTreeCore.lua   GUID-keyed Navigator tree disclosure persistence
     Reflex_RemoteCore.lua    Remote button/page persistence and mutation helpers
-    Reflex_ViewModes.lua     Routing / Selected / Active View relationship, scan, apply, and toggle helpers
+    Reflex_ViewModes.lua     Routing / Selected / Armed / Active View relationship, scan, apply, and toggle helpers
     Reflex_FlowCore.lua      Flow View chain, toggle, focus, and refresh helpers
     Reflex_FontCore.lua      Scaled font lookup and push/pop helpers
     Reflex_FXBrowserCore.lua FX browser action persistence and backend/cache helpers
@@ -230,6 +233,7 @@ Communication via `hdr` table returned from `InspDrawHeader` with layout, track 
 | `AnalyzeSendTopology` / `DebugSendTopology` / `NavRoutingTargetTrack` / `SendsViewToggle` / `SendsViewBuildList` / `SendsViewBuildGroups` / `SendsViewRefresh` / `SendsViewCheckRefresh` | v20.532 moved to `core/Reflex_SendTopologyCore.lua`. SEND topology/list/group/refresh backend: builds `SEND.folder`, `SEND.col`, and `SEND.distant` data, preserves remote-only and SC-badge refresh behavior, and keeps the routing target policy used by SEND add panels. | SEND view button/draw loop/add panels |
 | `RoutingViewGetParentChain` / `RoutingViewGetChildren` / `RoutingViewGetSendDests` / `RoutingViewGetRecvSources` | v20.518. Routing/Active View relationship helpers; build parent/child/send/receive track sets used by `RoutingViewScan` and `ActiveViewScan`. v20.661 changed send/receive track resolution to native-only `GetTrackSendInfo_Value(..., "P_DESTTRACK"/"P_SRCTRACK")`, so standalone Navigator `NAV.R` no longer needs SWS and SWS cannot mask native lookup failures during QA. | `Reflex_ViewModes.lua` |
 | `ViewModeFirstTrackInSet(track_set)` / `ViewModeScrollTrackToCenter(track)` / `ViewModeDeferScroll(track)` | v20.519. View-mode post-apply scroll helpers. Routing View scrolls to `routing_view_source`; Active View scrolls to the first visible result by track number. Uses direct JS TCP scrolling without changing selection on the next defer cycle after visibility changes settle; falls back to `ScrollTrackToCenter` if JS scroll is unavailable. | `Reflex_ViewModes.lua` |
+| `ArmedViewCollectTracks` / `ArmedViewToggle` / `ArmedViewRefreshFromRecordArm` / `ArmedViewExit` / `TrackNavigatorScrollToRecordArmed` | v20.668. Record-armed track view helpers shared by embedded Reflex and standalone Navigator. Armed View is command-driven; `TrackNavigatorScrollToRecordArmed` selects and scrolls to the first record-armed track without entering the view. | `Reflex_ViewModes.lua` |
 | `GetInheritedSendColor` / `GetSourceSendDests` / `TrackNameStartsReturns` / `IsConformingReturnsFolderForSource` / `DetermineConformTarget` / `RoutingAddSendTrack` / `AddSendModePopup` | v20.533 moved to `core/Reflex_SendCreateCore.lua`. SEND/CTRL.route send-creation backend: conforming `Returns*` predicate, target selection, new return insertion, inside-folder closure transfer, inherited color, MIDI-off send setup, send envelope visibility, and send-mode popup. | CTRL.route add-send; SEND inside-folder add panels |
 | `SendsEnsureFxNameCache(track)` / `SendsFxCachedCount(track)` | v20.538 moved to `core/Reflex_SendFxCacheCore.lua`. Shared SEND-surface FX-name cache refresh/count helpers for expanded `SEND.folder`, normal `SEND.col`, and expanded `SEND.distant` render paths. Rebuilds cleaned FX-name arrays only when count changes. | `SendsDrawFolderChain`, `SendsDrawGroupColumns`, `SendsDrawDistantSection`; `DrawCompactTrackColumn` consumes `sends_fx_cache` |
 | `DrawSendAddCard(...)` / `DrawSendDimPlaceholder(...)` / `SendsDrawSpanningAddRow(...)` / `DrawSendsColumn(...)` / `SendsDrawSection(...)` / `SendsMeasureGrid(...)` / `SendsDrawGroups(...)` / `SendsDrawGroupColumns(...)` | v20.543 moved normal grouped `SEND.col` rows to `core/Reflex_SendGridCore.lua`; v20.544 moved the outer grouped SEND wrapper there too; v20.545 moved shared SEND measurements there; v20.547 moved the full SEND section wrapper there; v20.548 moved the side-by-side SEND column wrapper there; v20.549 folded the former add-card core into the grid core. Owns SEND activation refresh, side-column responsive column count, empty SEND add placeholder, scroll-to, top margin, fallback flat-group creation, column width/padding/title-height/control-height measurements, ungrouped label drawing, folder-chain delegation, inter-group spacing, row max-FX/SND-expanded height math, per-column SEND FX-name cache refresh, `DrawCompactTrackColumn` calls, conforming add-card blanks, dim placeholders, row cursor advancement, spanning add-row rendering/gating, and distant-section delegation. | Main SEND surfaces + side-by-side SEND column |
@@ -501,7 +505,7 @@ Fix (v20.441): SND header click in distant mode sets `sends_distant_collapse_req
 | Ctrl+click | Expand/collapse folder and all children |
 | Shift+click | Range select |
 
-`IsCtrl` helper: bit `0x1`. `tracks_last_click` stores label string (not index) — survives `BuildRenderList` rebuilds.
+`IsCtrl` helper: bit `0x1`. Range selection stores both the legacy `tracks_last_click` label and `tracks_range_anchor_guid`; resolve the GUID first so repeated Shift-clicks keep the original anchor across render-list rebuilds. Range selection shows only the rows inside the range plus required parent folders; a folder row inside the range must not automatically show all descendants.
 
 **`EnsurePinnedVisible`**: calls `SetFolderVisible` (shows folder + all descendants), only uncollapses when folder was actually hidden (`was_hidden` check). `IsAloneVisible` excludes pinned folders from visible count.
 
@@ -614,6 +618,12 @@ When pinned, external TCP selection changes do NOT push view history. Pinned mod
 ### View History Flow View Restoration (v20.428–v20.429)
 
 Snapshot captures `flow_active` (bool) and `flow_anchor_guid` (string, when active). Restore re-establishes `flow_view_active` and resolves `flow_view_anchor` from guid, then rebuilds `flow_view_chain` via `FlowViewBuildChain`. Always clears `flow_view_browsing` and `flow_view_expanded_set` on restore — these are transient browse-state, never history-meaningful. If anchor guid no longer resolves to a valid track, flow view collapses safely (clears chain + per-track caches).
+
+### View History Navigator And Armed View State
+
+`ViewHistorySnapshot()` captures NAV-local state that changes what the Navigator shows but is not represented by TCP visibility alone: pins, tree expansion/layer overrides, manual includes, hidden/promoted rules, custom set membership/mode, and TLT search text. Restore writes those maps back through their persistence helpers and rebuilds the render list.
+
+Armed View is also captured as history state: `armed_view_active`, the GUID set for `armed_view_tracks`, and the current `armed_view_saved_snap` reference. This prevents Back/Forward from restoring an armed-filtered TCP layout while leaving the command-driven Armed View flag or exit target stale.
 
 Equality (`ViewHistorySnapshotsEqual`) compares `flow_active` and `flow_anchor_guid` alongside `pinned`, `pinned_guid`, `sel_guid`. The `pinned_guid` comparison was previously omitted — two pinned states with different pinned tracks dedup'd as equal, suppressing legitimate pushes. Fixed alongside the flow snapshot work.
 
@@ -1119,7 +1129,13 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 - **Configurable internal key bindings** — externalize hardcoded modifier-bit helpers into user-editable mappings.
 - **Button import from REAPER toolbars** (parse `reaper-menu.ini`).
 
-### Completed since previous PK update (v20.438 → v20.667)
+### Completed since previous PK update (v20.438 → v20.669)
+
+- ✅ **NAV range selection parity + history reconciliation (v20.669; Navigator v20.669).** Ported Track Navigator's range-selection fixes into Reflex's shared Navigator cores: body Shift-range keeps a GUID-backed anchor across repeated Shift-clicks and shows only the ranged rows plus required parents, while colored-endcap Shift ranges select only TCP-visible tracks between anchor and target. View history now also captures/restores Navigator-local maps and Armed View state so Back/Forward does not lose pins/tree/search/custom-set context or the command-driven Armed View exit target.
+
+- ✅ **Navigator helper action fallback (v20.669; Navigator v20.669).** Reflex Navigator companion actions now pass `launch_if_missing=true` to `Reflex_NavigatorActionBridge.lua`, so direct action/mapping invocations can wake standalone `Navigator.lua` when no current Reflex/Navigator instance has registered the shared command key. Existing running Reflex instances still receive commands through the same `reflex_navigator_external_command` channel.
+
+- ✅ **Navigator Armed View command port (v20.668; Navigator v20.668).** Ported Track Navigator's record-armed view backend into Reflex's shared `Reflex_ViewModes.lua`, including per-project state restore, mutual exclusion with A/S/R views, and `TrackNavigatorScrollToRecordArmed()` selecting/scrolling the first armed track. Added Reflex Navigator companion actions for Armed View toggle and record-armed scroll using a Reflex-specific ExtState command bridge so external bindings do not collide with standalone Track Navigator.
 
 - ✅ **Remote default off + Windows arrow cleanup + embedded NAV phase update (v20.667; Navigator v20.667).** New installs now default `RMT` hidden (`remote_visible=false`) while preserving any existing saved preference. Reflex's right/down/up arrow controls now draw vector icons instead of `▶`/`▼`/`▲` text glyphs, avoiding Windows emoji fallback for right-pointing arrows. Embedded/standalone Reflex Navigator now matches Track Navigator 1.2.8's mirror phase: default unmirrored TLT rows keep the colored circles and indentation on the left; enabling `Mirror TLT buttons` moves them to the opposite side.
 

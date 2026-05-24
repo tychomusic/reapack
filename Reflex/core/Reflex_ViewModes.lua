@@ -263,8 +263,24 @@ ReflexInstallViewModes = function(deps)
         return tracks
     end
 
+    ArmedViewCollectTracks = function()
+        local tracks = {}
+        local nt = r.CountTracks(0)
+        for ti = 0, nt - 1 do
+            local track = r.GetTrack(0, ti)
+            if track and r.GetMediaTrackInfo_Value(track, "I_RECARM") == 1 then
+                tracks[track] = true
+            end
+        end
+        return tracks
+    end
+
     SelectedViewHasSelection = function()
         return r.CountSelectedTracks(0) > 0
+    end
+
+    ArmedViewHasTracks = function()
+        return ViewModeFirstTrackInSet(ArmedViewCollectTracks()) ~= nil
     end
 
     local view_mode_project_states = {}
@@ -367,6 +383,9 @@ ReflexInstallViewModes = function(deps)
             selected_active = selected_view_active or false,
             selected_tracks = ViewModeCaptureTrackSet(selected_view_tracks),
             selected_saved_snap = selected_view_saved_snap,
+            armed_active = armed_view_active or false,
+            armed_tracks = ViewModeCaptureTrackSet(armed_view_tracks),
+            armed_saved_snap = armed_view_saved_snap,
             active_active = active_view_active or false,
             active_tracks = ViewModeCaptureTrackSet(active_view_tracks),
             active_peaks = ViewModeCapturePeakTimes(),
@@ -385,6 +404,9 @@ ReflexInstallViewModes = function(deps)
         selected_view_active = false
         selected_view_tracks = {}
         selected_view_saved_snap = nil
+        armed_view_active = false
+        armed_view_tracks = {}
+        armed_view_saved_snap = nil
         active_view_active = false
         active_view_tracks = {}
         active_view_peak_times = {}
@@ -418,6 +440,14 @@ ReflexInstallViewModes = function(deps)
         if selected_view_active and not next(selected_view_tracks) then
             selected_view_active = false
             selected_view_saved_snap = nil
+        end
+
+        armed_view_active = state.armed_active or false
+        armed_view_tracks = ViewModeRestoreTrackSet(state.armed_tracks)
+        armed_view_saved_snap = state.armed_saved_snap
+        if armed_view_active and not next(armed_view_tracks) then
+            armed_view_active = false
+            armed_view_saved_snap = nil
         end
 
         active_view_active = state.active_active or false
@@ -463,6 +493,16 @@ ReflexInstallViewModes = function(deps)
             if active_view_saved_snap then
                 ViewHistoryRestore(active_view_saved_snap)
                 active_view_saved_snap = nil
+                restored = true
+            end
+        end
+        if armed_view_active then
+            exited = true
+            armed_view_active = false
+            armed_view_tracks = {}
+            if armed_view_saved_snap then
+                ViewHistoryRestore(armed_view_saved_snap)
+                armed_view_saved_snap = nil
                 restored = true
             end
         end
@@ -564,6 +604,9 @@ ReflexInstallViewModes = function(deps)
             if selected_view_active then
                 selected_view_active = false; selected_view_tracks = {}; selected_view_saved_snap = nil
             end
+            if armed_view_active then
+                armed_view_active = false; armed_view_tracks = {}; armed_view_saved_snap = nil
+            end
             -- Save current state (may be another mode's filtered view), then apply routing
             routing_view_saved_snap = ViewHistorySnapshot({ work_state = true })
             routing_view_active = true
@@ -645,6 +688,9 @@ ReflexInstallViewModes = function(deps)
             if active_view_active then
                 active_view_active = false; active_view_tracks = {}; active_view_saved_snap = nil
             end
+            if armed_view_active then
+                armed_view_active = false; armed_view_tracks = {}; armed_view_saved_snap = nil
+            end
             selected_view_saved_snap = ViewHistorySnapshot({ work_state = true })
             selected_view_active = true
             selected_view_tracks = tracks
@@ -675,6 +721,98 @@ ReflexInstallViewModes = function(deps)
         end
         markDirty()
         ViewModeRememberProjectState()
+    end
+
+    ArmedViewApply = function()
+        if not next(armed_view_tracks) then
+            armed_view_active = false
+            markDirty()
+            ViewModeRememberProjectState()
+            return false
+        end
+
+        r.Undo_BeginBlock()
+        r.PreventUIRefresh(1)
+        local nt = r.CountTracks(0)
+        for ti = 0, nt - 1 do
+            local t = r.GetTrack(0, ti)
+            local show = armed_view_tracks[t] and 1 or 0
+            r.SetMediaTrackInfo_Value(t, "B_SHOWINTCP", show)
+            r.SetMediaTrackInfo_Value(t, "B_SHOWINMIXER", show)
+        end
+        ViewModeExpandFoldersForTrackSet(armed_view_tracks)
+        r.PreventUIRefresh(-1)
+        r.TrackList_AdjustWindows(false)
+        r.UpdateArrange()
+        r.Undo_EndBlock("Track Navigator: Armed View", 0)
+        ViewModeDeferScroll(ViewModeFirstTrackInSet(armed_view_tracks))
+        markDirty()
+        ViewModeRememberProjectState()
+        return true
+    end
+
+    ArmedViewToggle = function()
+        ViewHistoryPush()
+        if armed_view_active then
+            armed_view_active = false
+            armed_view_tracks = {}
+            if armed_view_saved_snap then
+                ViewHistoryRestore(armed_view_saved_snap)
+                armed_view_saved_snap = nil
+            end
+            markDirty()
+        else
+            local tracks = ArmedViewCollectTracks()
+            if not next(tracks) then return false end
+            if routing_view_active then
+                routing_view_active = false; routing_view_source = nil; routing_view_sources = {}; routing_view_tracks = {}; routing_view_saved_snap = nil
+            end
+            if selected_view_active then
+                selected_view_active = false; selected_view_tracks = {}; selected_view_saved_snap = nil
+            end
+            if active_view_active then
+                active_view_active = false; active_view_tracks = {}; active_view_saved_snap = nil
+            end
+            armed_view_saved_snap = ViewHistorySnapshot({ work_state = true })
+            armed_view_active = true
+            armed_view_tracks = tracks
+            ArmedViewApply()
+        end
+        ViewModeRememberProjectState()
+        return true
+    end
+
+    ArmedViewRefreshFromRecordArm = function()
+        local tracks = ArmedViewCollectTracks()
+        if not next(tracks) then return false end
+        if not armed_view_active then
+            ArmedViewToggle()
+            return true
+        end
+        armed_view_tracks = tracks
+        ArmedViewApply()
+        return true
+    end
+
+    ArmedViewExit = function()
+        if not armed_view_active then return end
+        armed_view_active = false
+        armed_view_tracks = {}
+        if armed_view_saved_snap then
+            ViewHistoryRestore(armed_view_saved_snap)
+            armed_view_saved_snap = nil
+        end
+        markDirty()
+        ViewModeRememberProjectState()
+    end
+
+    TrackNavigatorScrollToRecordArmed = function()
+        local track = ViewModeFirstTrackInSet(ArmedViewCollectTracks())
+        if not track then return false end
+        if r.SetOnlyTrackSelected then r.SetOnlyTrackSelected(track) end
+        if r.UpdateArrange then r.UpdateArrange() end
+        ViewModeDeferScroll(track)
+        return true
     end
 
     -- Throttled peak scan: update active_view_peak_times for Active View.
@@ -854,6 +992,9 @@ ReflexInstallViewModes = function(deps)
             end
             if selected_view_active then
                 selected_view_active = false; selected_view_tracks = {}; selected_view_saved_snap = nil
+            end
+            if armed_view_active then
+                armed_view_active = false; armed_view_tracks = {}; armed_view_saved_snap = nil
             end
             -- Save current state (may be another mode's filtered view), then apply active
             active_view_saved_snap = ViewHistorySnapshot({ work_state = true })

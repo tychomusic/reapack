@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2.11
+Current public version: 1.2.12
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -108,7 +108,7 @@ Use this shorthand in discussion and bug reports.
 - The arrow glyph has built-in text/advance padding, so `CalcTextSize` does not equal visible triangle pixels. Size against rendered screenshots when tuning; the current code compensates the glyph font size while keeping layout and hit geometry on the 14px indicator slot.
 - The TLT title clips before the tree arrow with the same style as the old title clipping; pin state must not change the text limit.
 - The arrow hit target is the pill's full arrow-side cap plus a small inward allowance. It should be easy to click without stealing normal body clicks left of that region.
-- In expanded TLT rows, the colored endcap is its own locate/track-selection target from the colored circle's inner edge through the pill edge. Hover shows the hand cursor. Plain click selects the real REAPER track and scrolls TCP to it; Cmd-click on macOS / Ctrl-click on Windows toggles the track in the REAPER track selection; Shift-click selects a track-number range from the last endcap selection anchor; primary+Shift adds that range. Opt/Alt-click in the colored endcap must not select the REAPER track; it follows normal TLT modifier behavior and pins/unpins the TLT. If the clicked track is hidden or inside a hidden/collapsed parent chain, reveal the target and required parents first, push view history, and do not solo/show-only the TLT. This must work symmetrically in mirrored mode.
+- In expanded TLT rows, the colored endcap is its own locate/track-selection target from the colored circle's inner edge through the pill edge. Hover shows the hand cursor. Plain click selects the real REAPER track and scrolls TCP to it; Cmd-click on macOS / Ctrl-click on Windows toggles the track in the REAPER track selection; Shift-click selects the TCP-visible range from the last endcap selection anchor; primary+Shift adds that range. Opt/Alt-click in the colored endcap must not select the REAPER track; it follows normal TLT modifier behavior and pins/unpins the TLT. If the clicked track is hidden or inside a hidden/collapsed parent chain, reveal the target and required parents first, push view history, and do not solo/show-only the TLT. This must work symmetrically in mirrored mode.
 - TLT context menus include `Show children` for folder tracks. It adds the TLT's direct children as manual Track Navigator buttons, like selecting those child tracks and using `Show selected tracks`, while leaving the parent TLT visible. It does not change REAPER TCP/Mixer visibility or Navigator tree disclosure state. This is useful when `Enable TLT expand` is off and should remain non-conflicting when it is on.
 - Collapsed arrow: points right, rest color `#23262a`, hover color `#393a3d`; inactive TLT arrows use `#3d3d3d`. Expanded arrow: points down and uses `#515151`. Partial/pinned-path hover arrow: points right, active color `#393a3d`.
 - After changing TLT arrow layout, reload Track Navigator in REAPER and, if spacing is disputed, use screenshot-based pixel measurement before further tuning.
@@ -163,7 +163,7 @@ Use this shorthand in discussion and bug reports.
 - Opt-click on macOS / Alt-click on Windows: pin/unpin this TLT.
 - Pins are absolute visibility rules for the pinned button only, not its descendants. After project-state changes such as REAPER undo/redo, Track Navigator should reconcile pinned GUIDs back to visible without creating a separate Navigator history action.
 - Opt+Cmd-click on macOS / Alt+Ctrl-click on Windows: expand/collapse this TLT and children, if folder, without affecting visibility of other TLTs.
-- Shift-click: range behavior.
+- Shift-click: range behavior. TLT body range selection uses a GUID-backed anchor from the last plain or primary body click; repeated Shift-clicks keep that anchor so extending a range behaves like TCP selection. Range selection shows only the rows inside the range plus required parent folders; a folder row inside the range must not automatically show all of its descendants.
 
 Important macOS detail: standalone Track Navigator can report Cmd-click as raw Ctrl (`mods=0x1000`, `Key_LeftCtrl=1`). `TrackNavigatorModState()` treats that Ctrl path as primary/Cmd on macOS. Do not remove this behavior without retesting Cmd-click and Cmd+Shift-click in standalone Track Navigator.
 

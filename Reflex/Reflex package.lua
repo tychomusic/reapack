@@ -1,10 +1,10 @@
 -- @description Reflex
--- @version 20.667
+-- @version 20.669
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Hide Remote by default, draw Reflex arrows font-independently on Windows, and update embedded Navigator mirror phase.
+--   Fix Navigator range selection parity, add Armed View helper actions, and preserve Navigator state in history.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua
@@ -13,6 +13,9 @@
 --   [main] Reflex_WindowToggle.lua
 --   [main] Reflex_HistoryBack.lua
 --   [main] Reflex_HistoryForward.lua
+--   [main] Reflex_Navigator_ArmedViewToggle.lua
+--   [main] Reflex_Navigator_ScrollToRecordArmed.lua
 --   [nomain] Reflex_Theme_Default.lua
+--   [nomain] Reflex_NavigatorActionBridge.lua
 --   [nomain] core/*.lua
 --   [nomain] icons/*.png

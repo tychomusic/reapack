@@ -3,11 +3,11 @@
  * Description: Standalone Navigator section for Reflex.
  *              Top NAV visibility manager only.
  * Author:      S.Hansen / Tycho
- * Version:     20.667
+ * Version:     20.669
 --]]
 
 local r = reaper
-NAVIGATOR_VERSION = "20.667"
+NAVIGATOR_VERSION = "20.669"
 
 NavigatorDependencyError = function(detail)
     local msg = "Navigator requires ReaImGui 0.10 or newer."
@@ -389,6 +389,18 @@ NavDiagDrawReadout = function(w)
 end
 
 local PREF = "reflex"
+REFLEX_NAVIGATOR_INSTANCE_KEY = "reflex_navigator_instance_token"
+REFLEX_NAVIGATOR_COMMAND_KEY = "reflex_navigator_external_command"
+reflex_navigator_instance_token = "navigator:" .. tostring({}) .. ":" .. tostring(r.time_precise and r.time_precise() or os.clock())
+r.SetExtState(PREF, REFLEX_NAVIGATOR_INSTANCE_KEY, reflex_navigator_instance_token, false)
+if r.atexit then
+    r.atexit(function()
+        if r.GetExtState(PREF, REFLEX_NAVIGATOR_INSTANCE_KEY) == reflex_navigator_instance_token
+            and r.DeleteExtState then
+            r.DeleteExtState(PREF, REFLEX_NAVIGATOR_INSTANCE_KEY, false)
+        end
+    end)
+end
 
 LoadPref = function(key, default)
     local v = r.GetExtState(PREF, key)
@@ -849,6 +861,7 @@ songs_follow_active = false
 songs_follow_last = ""
 render_list = {}
 tracks_last_click = nil
+tracks_range_anchor_guid = nil
 songs_last_click = nil
 
 navigator_expanded = LoadPref("navigator_expanded", true)
@@ -885,6 +898,9 @@ routing_view_saved_snap = nil
 selected_view_active = false
 selected_view_tracks = {}
 selected_view_saved_snap = nil
+armed_view_active = false
+armed_view_tracks = {}
+armed_view_saved_snap = nil
 active_view_active = false
 active_view_tracks = {}
 active_view_peak_times = {}
@@ -1206,6 +1222,37 @@ NavigatorRequestTltSearchFocus = function()
     needs_rescan = true
 end
 
+ReflexNavigatorRunExternalCommand = function(command)
+    if command == "armed_enable" then
+        if not armed_view_active then ArmedViewToggle() end
+        return true
+    elseif command == "armed_rebuild" then
+        ArmedViewRefreshFromRecordArm()
+        return true
+    elseif command == "armed_exit" then
+        ArmedViewExit()
+        return true
+    elseif command == "armed_toggle" then
+        ArmedViewToggle()
+        return true
+    elseif command == "armed_scroll" then
+        return TrackNavigatorScrollToRecordArmed and TrackNavigatorScrollToRecordArmed() == true
+    end
+    return false
+end
+
+ReflexNavigatorPollExternalCommand = function()
+    local raw = r.GetExtState(PREF, REFLEX_NAVIGATOR_COMMAND_KEY)
+    if raw == "" then return false end
+    if r.DeleteExtState then
+        r.DeleteExtState(PREF, REFLEX_NAVIGATOR_COMMAND_KEY, false)
+    else
+        r.SetExtState(PREF, REFLEX_NAVIGATOR_COMMAND_KEY, "", false)
+    end
+    local command = tostring(raw):match("^([^|]+)") or tostring(raw)
+    return ReflexNavigatorRunExternalCommand(command)
+end
+
 NavigatorAnyPopupOpen = function()
     if not (r.ImGui_IsPopupOpen and r.ImGui_PopupFlags_AnyPopup) then return false end
     local ok_flags, flags = pcall(r.ImGui_PopupFlags_AnyPopup)
@@ -1217,6 +1264,7 @@ end
 NavigatorSpecialViewActive = function()
     return routing_view_active == true
         or selected_view_active == true
+        or armed_view_active == true
         or active_view_active == true
 end
 
@@ -1254,6 +1302,7 @@ NavigatorLoop = function()
     MaybeReloadNavIncluded()
     MaybeSyncViewModeProject()
     ActiveViewUpdatePeaks()
+    ReflexNavigatorPollExternalCommand()
     if view_history_restoring > 0 then view_history_restoring = view_history_restoring - 1 end
 
     local nt = r.CountTracks(0)

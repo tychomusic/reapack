@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2.11
+ * Version:     1.2.12
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2.11"
+TRACK_NAVIGATOR_VERSION = "1.2.12"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -729,6 +729,7 @@ songs_follow_active = false
 songs_follow_last = ""
 render_list = {}
 tracks_last_click = nil
+tracks_range_anchor_guid = nil
 songs_last_click = nil
 
 navigator_expanded = LoadPref("navigator_expanded", true)

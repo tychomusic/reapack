@@ -142,6 +142,38 @@ ReflexInstallNavActionCore = function(deps)
         return nil
     end
 
+    local function NavItemTrack(item)
+        if not item then return nil end
+        return item.track or (item.entry and item.entry.track) or nil
+    end
+
+    local function NavItemGuid(item)
+        local track = NavItemTrack(item)
+        if track and r.ValidatePtr(track, "MediaTrack*") then
+            return r.GetTrackGUID(track)
+        end
+        return nil
+    end
+
+    local function NavSetTracksRangeAnchor(item)
+        tracks_last_click = item and item.label or nil
+        tracks_range_anchor_guid = NavItemGuid(item)
+    end
+
+    local function NavResolveTracksRangeAnchor()
+        if tracks_range_anchor_guid then
+            for j, item in ipairs(render_list) do
+                if NavItemGuid(item) == tracks_range_anchor_guid then return j end
+            end
+        end
+        if tracks_last_click then
+            for j, item in ipairs(render_list) do
+                if item.label == tracks_last_click then return j end
+            end
+        end
+        return nil
+    end
+
     HideEverything = function()
         ViewHistoryPush()
         for _, entry in ipairs(top_folders) do
@@ -237,6 +269,16 @@ ReflexInstallNavActionCore = function(deps)
         }
         if item.is_folder then SetFolderVisible(entry, false)
         else SetTrackVis(item.track, false) end
+    end
+
+    local function NavShowRangeItem(item)
+        local track = NavItemTrack(item)
+        if not track or not r.ValidatePtr(track, "MediaTrack*") then return end
+        NavRevealParentChain(track)
+        SetTrackVis(track, true)
+        if item.kind == "sub_child" and item.sub_group then
+            item.sub_group.selected[item.label] = true
+        end
     end
 
     local function NavTrackSubtreeEnd(track, idx)
@@ -467,44 +509,16 @@ ReflexInstallNavActionCore = function(deps)
     end
 
     HandleTracksShift = function(ri)
-        if not tracks_last_click then HandleTracksSolo(ri); return end
-        -- Resolve stored label back to current render_list index
-        local anchor = nil
-        for j, item in ipairs(render_list) do
-            if item.label == tracks_last_click then anchor = j; break end
-        end
-        if not anchor then HandleTracksSolo(ri); return end
+        if not tracks_last_click and not tracks_range_anchor_guid then HandleTracksSolo(ri); return false end
+        local anchor = NavResolveTracksRangeAnchor()
+        if not anchor then HandleTracksSolo(ri); return false end
         local lo, hi = math.min(anchor, ri), math.max(anchor, ri)
         HideEverything()
-        local active_sgs, parent_sgs = {}, {}
-        local has_song_sections = false
         for j = lo, hi do
             local item = render_list[j]
-            if item.custom then
-                NavShowCustomItem(item, false)
-            elseif item.kind == "folder" then
-                local sg = NavItemSubGroup(item)
-                if sg and sg.is_song_sub then
-                    ShowSongsForCurrentSong(item.entry, opt_expand_children); SetFolderCollapsed(item.entry, false)
-                    for _, e in ipairs(songs_sub.entries) do songs_sub.selected[e.display_name] = true end
-                    songs_section_mode = false
-                elseif sg then parent_sgs[sg.parent_name] = sg; active_sgs[sg.parent_name] = sg
-                else
-                    NavRevealParentChain(item.entry.track)
-                    SetFolderVisible(item.entry, true); SetFolderCollapsed(item.entry, false)
-                    if opt_expand_children then ExpandChildFolders(item.entry.track, item.entry.idx) end
-                end
-            elseif item.kind == "sub_child" then
-                if item.sub_group.is_song_sub then
-                    songs_sub.selected[item.label] = true; has_song_sections = true
-                else
-                    item.sub_group.selected[item.label] = true; active_sgs[item.sub_group.parent_name] = item.sub_group
-                end
-            end
+            NavShowRangeItem(item)
         end
-        for _, sg in pairs(parent_sgs) do for _, e in ipairs(sg.entries) do sg.selected[e.display_name] = true end end
-        for _, sg in pairs(active_sgs) do ShowSubGroupSelected(sg) end
-        if has_song_sections then ShowSongSectionsSelected(opt_expand_children) end
+        return true
     end
 
     HandleTracksClick = function(ri, is_cmd, is_shift, is_alt, is_ctrl)
@@ -516,7 +530,8 @@ ReflexInstallNavActionCore = function(deps)
         local tcp_scroll_before = preserve_tcp_state and NavCaptureTcpScroll() or nil
         r.Undo_BeginBlock(); r.PreventUIRefresh(1)
         local do_scroll = true
-        if is_shift then HandleTracksShift(ri)
+        local used_range_anchor = false
+        if is_shift then used_range_anchor = HandleTracksShift(ri) == true
         elseif is_cmd then
             HandleTracksCmd(ri, is_alt)
             do_scroll = false
@@ -579,7 +594,10 @@ ReflexInstallNavActionCore = function(deps)
             NavRestoreTrackSelection(selected_before)
             NavRestoreTcpScroll(tcp_scroll_before)
         end
-        tracks_last_click = item.label
+        if (is_shift and not used_range_anchor)
+           or (not is_shift and (is_cmd or (not is_alt and not is_ctrl))) then
+            NavSetTracksRangeAnchor(item)
+        end
         if do_scroll then local st = item.track; r.defer(function() ScrollTrackToCenter(st) end) end
         r.Undo_EndBlock("Track Navigator: " .. item.label, 0)
     end
