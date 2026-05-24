@@ -8,7 +8,7 @@ This is the repo-level knowledge file for the Tycho ReaPack repository. It descr
 - ReaPack import URL: `https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml`
 - Current packages in this repo: Track Navigator, Reflex
 - Current Track Navigator public version: 1.2.12
-- Current Reflex public version: 20.669
+- Current Reflex public version: 20.670
 
 ## Package Knowledge Convention
 - Each package should have its own `PROJECT_KNOWLEDGE.md`.
@@ -40,14 +40,14 @@ reapack/
     PROJECT_KNOWLEDGE.md
 ```
 
-Reflex is now packaged from this repo for ReaPack release work. `/Applications/Reaper/Scripts/Tycho/Reflex` remains the source/reference workspace unless the user explicitly asks to edit it directly.
+Reflex is developed, locally tested, packaged, and released from this repo. Use `/Applications/Reaper/Scripts/Tycho/reapack/Reflex` as the live test location, matching the Track Navigator workflow. The older `/Applications/Reaper/Scripts/Tycho/Reflex` folder may contain user-local state or stale files, but it is not the source of truth unless the user explicitly asks to recover/migrate from it.
 
 ## Track Navigator And Reflex
 - Track Navigator is the standalone public ReaPack package for NAV.
 - Reflex is the public ReaPack package for the full inspector/visibility/routing/Remote workflow and has its own embedded Navigator.
 - Track Navigator contains `core/Reflex_*.lua` files because the NAV code descends from shared Reflex-era helpers. The names are currently part of package layout and `require` paths; do not rename casually.
 - When changing shared NAV behavior, note whether Reflex should receive the same change in a separate task.
-- Do not mix Track Navigator release work with Reflex source edits unless the user explicitly asks for a cross-package port.
+- Do not mix Track Navigator release work with Reflex edits unless the user explicitly asks for a cross-package port.
 
 ## Versioning
 - Packages use their own version schemes.
@@ -98,7 +98,7 @@ ReaPack import URL:
 https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml
 
 Reflex:
-Use /Applications/Reaper/Scripts/Tycho/Reflex as the source/reference workspace. Package and release work happens in /Applications/Reaper/Scripts/Tycho/reapack/Reflex unless I explicitly ask to edit the source workspace directly.
+Use /Applications/Reaper/Scripts/Tycho/reapack/Reflex as the live local test location and release source. Do not use /Applications/Reaper/Scripts/Tycho/Reflex as the source of truth unless I explicitly ask to recover or migrate files from it.
 ```
 
 ## Validation Baseline

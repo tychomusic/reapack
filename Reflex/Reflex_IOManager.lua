@@ -2,7 +2,7 @@
 --[[
  * Description: Standalone I/O Manager window for Reflex.
  * Author:      S.Hansen / Tycho
- * Version:     20.658
+ * Version:     20.670
 --]]
 
 local r = reaper
@@ -36,11 +36,19 @@ local ctx = r.ImGui_CreateContext("Reflex I/O Manager")
 local script_dir = debug.getinfo(1, 'S').source:match('@?(.*[/\\])') or ''
 package.path = script_dir .. 'core/?.lua;' .. script_dir .. '?.lua;' .. package.path
 
-local nt_ok, nav_theme = pcall(dofile, script_dir .. 'Reflex_Theme.lua')
-if not nt_ok or type(nav_theme) ~= "table" then
-    nt_ok, nav_theme = pcall(dofile, script_dir .. 'Reflex_Theme_Default.lua')
-end
-if not nt_ok or type(nav_theme) ~= "table" then nav_theme = {} end
+local nav_theme = {
+    fonts = {
+        body_size = 14,
+        family = "SF Pro",
+    },
+    colors = {
+        fx_instr_txt = 0x324bd0,
+        vol_slider_fill = 0x08a5f7,
+        vol_slider_mark = 0x3e454b,
+        vol_slider_mark_over = 0x82baf7,
+        vol_slider_mark_intersect = 0xb9b9b9,
+    },
+}
 
 rgb = function(hex) return (hex << 8) | 0xFF end
 

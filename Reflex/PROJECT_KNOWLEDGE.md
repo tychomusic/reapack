@@ -4,7 +4,7 @@
 
 Reflex is a standalone ReaImGui script for REAPER providing track visibility/collapse management, a track inspector with FX chain display, A/B compare system, volume/pan controls, envelope management, inline routing panel, FX plugin browser, routing view, sends view, flow view, send topology view, view history, noise floor detection, and a configurable macro pad (Remote) with pages. It is a companion to the Realist live performance system for Tycho.
 
-**Current version: v20.669** (~10,700-line main script; I/O Manager split into shared core modules)
+**Current version: v20.670** (~10,700-line main script; I/O Manager split into shared core modules)
 
 **Dependencies:** REAPER's built-in Lua 5.4, ReaImGui 0.10+. SWS still exists in some Reflex-only legacy paths (`BR_GetMediaTrackSendInfo_Track` in routing panels/send topology and `BR_GetMediaTrackSendInfo_Envelope` for send envelope matching), but standalone Navigator's `NAV.R` no longer requires SWS as of v20.662 / Navigator v20.662; it uses native `GetTrackSendInfo_Value(..., "P_DESTTRACK"/"P_SRCTRACK")` only. Prefer native REAPER/Lua APIs over SWS wherever they can provide the same behavior.
 
@@ -17,13 +17,15 @@ Reflex is a standalone ReaImGui script for REAPER providing track visibility/col
 Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cross-package rules.
 
 - Working repo: `/Applications/Reaper/Scripts/Tycho/reapack`
+- Live/local test path: `/Applications/Reaper/Scripts/Tycho/reapack/Reflex`
 - Package path: `Reflex/`
 - Package metadata: `Reflex/Reflex package.lua`
 - Main script: `Reflex/Reflex.lua`
-- Public version: `20.669`
+- Public version: `20.670`
 - Author metadata: `S.Hansen / Tycho`
 - Release package excludes generated/user-local state files such as `remote_buttons.txt`, `remote_pages.txt`, and `fx_browser_action.txt`.
-- ReaPack installs `Reflex_Theme_Default.lua`; user customization belongs in optional `Reflex_Theme.lua`, which is not provided by the package.
+- Reflex no longer loads external theme files. The former tested `Reflex_Theme.lua` values are embedded in `Reflex.lua`, `Navigator.lua`, and `Reflex_IOManager.lua`; future user-facing UI customization belongs in an Options GUI.
+- The older `/Applications/Reaper/Scripts/Tycho/Reflex` folder is no longer the source of truth for development. It may contain user-local state (`Reflex_Theme.lua`, `remote_buttons.txt`, `remote_pages.txt`, `fx_browser_action.txt`) or stale files; only use it when intentionally migrating or recovering local state.
 
 ---
 
@@ -107,8 +109,6 @@ RMT.btn         Macro button
 Scripts/Tycho/Reflex/
   Reflex.lua               Main script
   Navigator.lua            Standalone Navigator action/window (NAV section only)
-  Reflex_Theme_Default.lua  Packaged default color/font overrides (v1.9)
-  Reflex_Theme.lua          Optional user color/font overrides, not installed by ReaPack
   Reflex_IOManager.lua      Standalone I/O Manager action/window
   Reflex_WindowToggle.lua   FX window toggle (v1.3) — bind as REAPER action
   Reflex_HistoryBack.lua    View history back (sets ExtState, bind as REAPER action)
@@ -368,7 +368,7 @@ Every button must use one. **Forbidden:** raw `InvisibleButton + AddRectFilled +
 - `C.fx_drag_copy` (blue `0x58A6FF`) — copy-operation source rows and destination dashed outline
 - `C.fx_sel_outline` (white `0xFFFFFF`) — multi-selected FX rows when no drag is active
 
-All three are user-overridable via `Reflex_Theme.lua` `colors` section.
+These colors are currently script-owned constants. Future user-facing overrides should be exposed through the Options GUI rather than an external theme file.
 
 `CardBegin`/`CardEnd` handle rounded-rect containers with optional stroke, height estimation from previous frame, and cursor inset/restore.
 
@@ -719,6 +719,7 @@ Draw hover strokes AFTER `DrawCompactTrackColumn` via `AddRect` — strokes befo
 - `S(2)` at low scales rounds to 1px — use `S(3)` minimum for visible gaps.
 - `CircleTessellationMaxError`, `DragDouble`, `ColorEdit4` — nil-check before use.
 - Docker frame consumes ~2px of WindowPadding. `gap_px = S(UI.edge_pad) - 2`.
+- Right-side dock gaps are theme-sensitive. Full `Reflex.lua` keeps the historical chrome extension for left dock and Reapertips, but when docked right under other REAPER themes it must not extend child/card width by `S(UI.edge_pad) - 3`; keep the right edge at normal `WindowPadding` and move the scroll indicator to the same inset.
 - **Tooltip categorization (two categories, different gating):**
   - *Functional* tooltips — the tooltip IS the label, for a symbol/dot/thumbnail whose content varies per session and is not memorizable. **Always-on**, ignore `opt_tooltips`. Sites: `ShowRoutingTooltip` (routing pill persistent list; in `Reflex_RouteTooltipCore.lua` as of v20.530), TLT mini-circle track names, FX icon picker filenames.
   - *Descriptive* tooltips — describe memorizable behavior on a fixed symbol (single-letter buttons "R"/"A"/"X", modifier-key hints via `ShowModKeyTip`, misc action descriptions). **Gated** on `opt_tooltips` at the call site via `and opt_tooltips` in the hover condition.
@@ -1116,7 +1117,7 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
   4. **Optional user-controlled focus return.** If capture policy cannot provide arbitrary REAPER shortcut passthrough, consider a preference such as "Return keyboard focus to REAPER after Navigator click". It must be one-shot after completed `NAV` mouse actions, gated off while popups/text inputs/active items exist, and default only after runtime testing proves it does not harm the multi-script workflow.
   5. **Fallback mirrors stay narrow.** Manual mirroring can cover essential keys only (for example Space, Up/Down, Undo/Redo) and cannot replace arbitrary user REAPER shortcuts. Avoid fake all-key forwarding, system-level hooks, or custom REAPER actions bound to common chords.
 
-  QA matrix: Windows display scale 100/125/150%; macOS Retina/non-Retina if available; `NAV.pill` text clipping and `NAV.dot` wrapping; A/S/R icon and `Tycho-Logo-dots.png` sizing; path separator handling for `core/?.lua`, theme load, and icon load; ReaImGui 0.10+ function availability; JS_ReaScript present/absent fallback; right-click focus/popup behavior; and post-action keyboard behavior after `NAV.pill`, `NAV.dot`, `NAV.arr`, A/S/R, song search, and global/TLT context menu actions.
+  QA matrix: Windows display scale 100/125/150%; macOS Retina/non-Retina if available; `NAV.pill` text clipping and `NAV.dot` wrapping; A/S/R icon and `Tycho-Logo-dots.png` sizing; path separator handling for `core/?.lua` and icon load; ReaImGui 0.10+ function availability; JS_ReaScript present/absent fallback; right-click focus/popup behavior; and post-action keyboard behavior after `NAV.pill`, `NAV.dot`, `NAV.arr`, A/S/R, song search, and global/TLT context menu actions.
 - **MIDI input submenu scope.** v20.623 exposes `MIDI >` sources once each (`Virtual MIDI Keyboard` is not expanded into channel rows), plus `Source channel >` for the `I_RECINPUT` source-channel bits. The TCP screenshot also shows `Map input to channel >`; this has not been implemented yet because the current pass only used the `I_RECINPUT` field. If requested, first confirm the ReaScript-accessible state/API for TCP input-channel mapping rather than guessing.
 
 ### Architectural
@@ -1129,7 +1130,9 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 - **Configurable internal key bindings** — externalize hardcoded modifier-bit helpers into user-editable mappings.
 - **Button import from REAPER toolbars** (parse `reaper-menu.ini`).
 
-### Completed since previous PK update (v20.438 → v20.669)
+### Completed since previous PK update (v20.438 → v20.670)
+
+- ✅ **Embedded theme + right-dock gap cleanup (v20.670; Navigator v20.670).** Folded the tested `Reflex_Theme.lua` values into `Reflex.lua`, standalone `Navigator.lua`, and `Reflex_IOManager.lua`; removed `Reflex_Theme_Default.lua` from the ReaPack package so future user-facing UI customization can move into Options instead of external files. Full Reflex now keeps normal right `WindowPadding` when docked right under non-Reapertips REAPER themes, while retaining the historical chrome compensation for left dock and Reapertips.
 
 - ✅ **NAV range selection parity + history reconciliation (v20.669; Navigator v20.669).** Ported Track Navigator's range-selection fixes into Reflex's shared Navigator cores: body Shift-range keeps a GUID-backed anchor across repeated Shift-clicks and shows only the ranged rows plus required parents, while colored-endcap Shift ranges select only TCP-visible tracks between anchor and target. View history now also captures/restores Navigator-local maps and Armed View state so Back/Forward does not lose pins/tree/search/custom-set context or the command-driven Armed View exit target.
 

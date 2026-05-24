@@ -1,10 +1,10 @@
 -- @description Reflex
--- @version 20.669
+-- @version 20.670
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Fix Navigator range selection parity, add Armed View helper actions, and preserve Navigator state in history.
+--   Embed Reflex theme defaults, remove the external theme file, and fix right-dock gap compensation.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua
@@ -15,7 +15,6 @@
 --   [main] Reflex_HistoryForward.lua
 --   [main] Reflex_Navigator_ArmedViewToggle.lua
 --   [main] Reflex_Navigator_ScrollToRecordArmed.lua
---   [nomain] Reflex_Theme_Default.lua
 --   [nomain] Reflex_NavigatorActionBridge.lua
 --   [nomain] core/*.lua
 --   [nomain] icons/*.png

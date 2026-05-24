@@ -40,11 +40,11 @@ The `Reflex_*.lua` core names are intentional historical/shared-core names. Do n
 
 ## Reflex Relationship
 - Reflex has its own embedded Navigator. Track Navigator is the standalone public package derived from the same NAV concepts.
-- Use `/Applications/Reaper/Scripts/Tycho/Reflex` as read-only reference for shared behavior, helper patterns, and existing NAV expectations.
+- Use `/Applications/Reaper/Scripts/Tycho/reapack/Reflex` as the Reflex reference for shared behavior, helper patterns, and existing NAV expectations.
 - Do not edit Reflex during Track Navigator work unless the user explicitly asks for a Reflex port.
 - When a Track Navigator change affects shared NAV semantics, note whether Reflex should receive the same change in a separate Reflex task.
-- When porting to Reflex before Reflex is moved into this repo, switch roots, read Reflex `AGENTS.md` and `PROJECT_KNOWLEDGE.md`, and follow Reflex rules such as its version bump and file-scope function constraints.
-- When Reflex eventually lives inside this ReaPack repo, keep Reflex package knowledge in `Reflex/PROJECT_KNOWLEDGE.md` and continue treating Track Navigator and Reflex as separate release surfaces.
+- When porting to Reflex, stay in this ReaPack repo, read `Reflex/PROJECT_KNOWLEDGE.md`, and follow Reflex rules such as its version bump and file-scope function constraints.
+- Keep Track Navigator and Reflex as separate release surfaces even though they are developed from one repo and share NAV behavior.
 
 ## UI Shorthand
 - `NAV.pill`: top-level track pill/button.

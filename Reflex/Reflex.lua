@@ -3,7 +3,7 @@
  * Description: Folder visibility and collapse manager for REAPER sessions.
  *              Companion to Realist. Realist-styled UI.
  * Author:      S.Hansen / Tycho
- * Version:     20.669
+ * Version:     20.670
  *
  * Click:       solo (if others visible) or toggle collapse (if alone)
  * CMD+click:   add/remove from visible set
@@ -20,7 +20,7 @@ local r = reaper
 
 -- Single source of truth for Reflex version. Update this when bumping
 -- the header comment; used by settings panel title.
-REFLEX_VERSION = "20.669"
+REFLEX_VERSION = "20.670"
 
 ReflexDependencyError = function(detail)
     local msg = "Reflex requires ReaImGui 0.10 or newer."
@@ -80,17 +80,42 @@ ReflexSetImGuiConfigBool("NavEscapeClearFocusWindow", false)
 ReflexSetImGuiConfigFlag("NavEnableKeyboard", false)
 
 -- =========================================================================
--- THEME LOADING
+-- EMBEDDED THEME
 -- =========================================================================
 local script_dir = debug.getinfo(1, 'S').source:match('@?(.*[/\\])') or ''
 package.path = script_dir .. 'core/?.lua;' .. script_dir .. '?.lua;' .. package.path
 
--- Load optional user theme first, then packaged defaults.
-local nt_ok, nav_theme = pcall(dofile, script_dir .. 'Reflex_Theme.lua')
-if not nt_ok or type(nav_theme) ~= "table" then
-    nt_ok, nav_theme = pcall(dofile, script_dir .. 'Reflex_Theme_Default.lua')
-end
-if not nt_ok or type(nav_theme) ~= "table" then nav_theme = {} end
+local nav_theme = {
+    fonts = {
+        body_size = 14,
+        family = "SF Pro",
+    },
+    colors = {
+        fx_instr_txt = 0x324bd0,
+        vol_slider_fill = 0x08a5f7,
+        vol_slider_mark = 0x3e454b,
+        vol_slider_mark_over = 0x82baf7,
+        vol_slider_mark_intersect = 0xb9b9b9,
+    },
+    track_colors = {},
+    remote_colors = {
+        0x3B82F6,
+        0x3FB950,
+        0xD29922,
+        0xF85149,
+        0xBF40BF,
+        0x58A6FF,
+    },
+    button_brightness = {
+        visible = 0.65,
+        visible_hover = 0.80,
+        visible_active = 0.55,
+        hidden = 0.25,
+        hidden_hover = 0.35,
+        hidden_active = 0.20,
+    },
+    songs_page = {},
+}
 
 -- Theme helpers
 rgb = function(hex) return (hex << 8) | 0xFF end
@@ -124,6 +149,55 @@ ReflexIsMacOS = function()
     return os:find("OSX", 1, true) ~= nil
         or os:find("macOS", 1, true) ~= nil
         or os:find("Mac", 1, true) ~= nil
+end
+
+ReflexReaperThemeName = function()
+    if not r.GetLastColorThemeFile then return nil end
+    local ok, path = pcall(r.GetLastColorThemeFile)
+    if not ok or type(path) ~= "string" or path == "" then return nil end
+    local name = path:match("([^/\\]+)$") or path
+    name = name:gsub("%.ReaperThemeZip$", ""):gsub("%.ReaperTheme$", "")
+    return name
+end
+
+ReflexIsReapertipsTheme = function()
+    local name = ReflexReaperThemeName()
+    if not name then return false end
+    return name:lower():find("reapertips", 1, true) ~= nil
+end
+
+ReflexDockPosition = function(dock_id)
+    if type(dock_id) ~= "number" or dock_id >= 0 or not r.DockGetPosition then return nil end
+    local ok, dock_pos = pcall(r.DockGetPosition, ~dock_id)
+    if ok and type(dock_pos) == "number" then return dock_pos end
+    return nil
+end
+
+ReflexVisualSideDockPosition = function(wx, ww, dock_pos)
+    if dock_pos == 1 or dock_pos == 3 then return dock_pos end
+    local win_cx = wx + ww * 0.5
+    if r.GetMainHwnd and r.JS_Window_GetRect then
+        local ok_hwnd, hwnd = pcall(r.GetMainHwnd)
+        if ok_hwnd and hwnd then
+            local ok_rect, ok, left, _, right = pcall(r.JS_Window_GetRect, hwnd)
+            if ok_rect and ok and type(left) == "number" and type(right) == "number" and right > left then
+                return win_cx < ((left + right) * 0.5) and 1 or 3
+            end
+        end
+    end
+    if not (r.ImGui_GetMainViewport and r.ImGui_Viewport_GetWorkPos and r.ImGui_Viewport_GetWorkSize) then
+        return nil
+    end
+    local ok_vp, viewport = pcall(r.ImGui_GetMainViewport, ctx)
+    if not ok_vp or not viewport then return nil end
+    local ok_pos, work_x = pcall(r.ImGui_Viewport_GetWorkPos, viewport)
+    local ok_size, work_w = pcall(r.ImGui_Viewport_GetWorkSize, viewport)
+    if not ok_pos or not ok_size or type(work_x) ~= "number" or type(work_w) ~= "number" or work_w <= 0 then
+        return nil
+    end
+    local center_delta = win_cx - (work_x + work_w * 0.5)
+    if math.abs(center_delta) <= math.max(1, ww * 0.25) then return nil end
+    return center_delta < 0 and 1 or 3
 end
 
 ReflexModFlag = function(mods, fallback, ...)
@@ -272,7 +346,7 @@ opt_conform_sends         = LoadPref("conform_sends", false)  -- global: auto-gr
 local body_size = (nav_theme.fonts and nav_theme.fonts.body_size) or 14
 -- v20.444: explicit family lookup. Default "SF Pro" (macOS system font, neo-grotesque,
 -- replaces Helvetica Neue). ReaImGui falls back to system sans-serif if the named
--- family isn't installed. Override via Reflex_Theme.lua fonts.family.
+-- family isn't installed.
 local body_family = (nav_theme.fonts and nav_theme.fonts.family) or 'SF Pro'
 local scaled_fonts = {}
 local scaled_fonts_italic = {}
@@ -324,7 +398,7 @@ require("Reflex_FontCore")({
 })
 
 -- =========================================================================
--- THEME (Reflex-owned; overridable via Reflex_Theme.lua colors section)
+-- THEME (Reflex-owned; future user-facing customization should live in Options)
 -- =========================================================================
 local C = {
     bg          = rgb(0x171B22),  -- Reflex window/panel bg (charcoal) / card fill
@@ -394,7 +468,7 @@ local C = {
     route_bg        = rgb(0x2A2F37),
     source_stroke   = rgb(0xC3982E),  -- source track card outline
     send_stroke     = rgb(0xFFFFFF),  -- send/return module + folder card outline
-    -- Mute/Solo button state colors (themeable)
+    -- Mute/Solo button state colors
     record_arm      = rgb(0xFF4A4A),
     mute_hov        = rgb(0xD9453F),
     mute_act        = rgb(0xB83A35),
@@ -430,7 +504,7 @@ local C = {
     fx_clip_carry   = rgb(0x3FB950),  -- green: clipboard "carrying" state (source rows, dest outline, indicator, chip)
 }
 
--- Apply user color overrides from Reflex_Theme.lua colors section
+-- Apply embedded color overrides captured from the former Reflex_Theme.lua.
 local theme_colors = nav_theme.colors or {}
 for key, hex in pairs(theme_colors) do
     if type(hex) == "number" then
@@ -1119,7 +1193,7 @@ require("Reflex_StyleCore")({
     colors = C,
 })
 
--- Button brightness from nav_theme
+-- Button brightness from embedded theme constants.
 local BB = nav_theme.button_brightness or {}
 local B_VIS     = BB.visible       or 0.65
 local B_VIS_HOV = BB.visible_hover or 0.80
@@ -1128,10 +1202,10 @@ local B_HID     = BB.hidden        or 0.25
 local B_HID_HOV = BB.hidden_hover  or 0.35
 local B_HID_ACT = BB.hidden_active or 0.20
 
--- Track color overrides from nav_theme
+-- Track color overrides from embedded theme constants.
 local track_color_overrides = nav_theme.track_colors or {}
 
--- Remote button color palette from nav_theme + user additions
+-- Remote button color palette from embedded theme constants.
 local remote_palette_raw = nav_theme.remote_colors or {
     0x3B82F6, 0x3FB950, 0xD29922, 0xF85149, 0xBF40BF, 0x58A6FF,
 }
@@ -1813,6 +1887,9 @@ end
 -- Inspector state
 navigator_expanded = LoadPref("navigator_expanded", true)
 nav_visible = LoadPref("nav_visible", true)
+local reflex_window_docked = false
+local reflex_current_dock_id = 0
+local reflex_last_side_dock_pos = nil
 -- nav_mirror: when true, expanded TLT pill contents flow [circle | (arrow) | text | pin]
 -- (left-to-right) instead of the default [pin | text | (arrow) | circle]. For users
 -- docking Reflex on the right side of the screen. Only affects expanded TLT rows;
@@ -9394,8 +9471,30 @@ Loop = function()
         nav_screen_rect.x = wx; nav_screen_rect.y = wy
         nav_screen_rect.w = ww; nav_screen_rect.h = wh
 
-        -- Right margin: REAPER window clips right edge
-        local sb_inset = -(S(UI.edge_pad) - 3)
+        reflex_window_docked = r.ImGui_IsWindowDocked and r.ImGui_IsWindowDocked(ctx) or false
+        if r.ImGui_GetWindowDockID then
+            local ok_dock, dock_id = pcall(r.ImGui_GetWindowDockID, ctx)
+            if ok_dock and type(dock_id) == "number" then
+                reflex_current_dock_id = dock_id
+            end
+        else
+            reflex_current_dock_id = reflex_window_docked and -1 or 0
+        end
+        local reflex_dock_pos = ReflexDockPosition(reflex_current_dock_id)
+        local reflex_detected_dock_pos = reflex_window_docked
+            and ReflexVisualSideDockPosition(wx, ww, reflex_dock_pos) or nil
+        local reflex_visual_dock_pos = reflex_detected_dock_pos
+            or (reflex_window_docked and reflex_last_side_dock_pos or nil)
+        if reflex_visual_dock_pos == 1 or reflex_visual_dock_pos == 3 then
+            reflex_last_side_dock_pos = reflex_visual_dock_pos
+        end
+        local reflex_right_dock_normal_gap = reflex_visual_dock_pos == 3 and not ReflexIsReapertipsTheme()
+        local reflex_right_edge_extend = reflex_right_dock_normal_gap and 0 or (S(UI.edge_pad) - 3)
+        local reflex_scroll_indicator_x = wx + ww - (reflex_right_dock_normal_gap and S(UI.edge_pad) or S(3))
+
+        -- Right margin: left-dock/Reapertips keeps Reflex's historical edge
+        -- compensation; right-dock non-Reapertips uses the normal window gap.
+        local sb_inset = -reflex_right_edge_extend
         -- Single source of truth for ALL card gaps. REAPER's docker frame
         -- consumes ~2px of WindowPadding at the edges, so card-to-card gaps
         -- must subtract the same amount to match the visible edge gap.
@@ -9590,7 +9689,7 @@ Loop = function()
         do
             local reflex_ui_scale = ui_scale
             ui_scale = nav_ui_scale
-            local nav_sb_inset = -(S(UI.edge_pad) - 3)
+            local nav_sb_inset = -reflex_right_edge_extend
             bw = r.ImGui_GetContentRegionAvail(ctx) - nav_sb_inset
             local nav_fp = PushFont(GetScaledFont())
             NavDrawSection({
@@ -9612,9 +9711,10 @@ Loop = function()
         -- ── SCROLLABLE CONTENT (inspector, context menu) ──
         local scroll_h = rem_h > 0 and -(rem_h + divider_h + vh_row_h) or -vh_row_h
         local content_parent_w = r.ImGui_GetContentRegionAvail(ctx)
-        -- Child extends to 2px from window right edge; NO further right
-        -- subtraction inside the child — the child boundary IS the margin.
-        local child_w = content_parent_w + S(UI.edge_pad) - 3
+        -- The child boundary is the card margin. On normal right-side docks,
+        -- keep the right gap equal to WindowPadding instead of extending into
+        -- the docker chrome compensation used by Reflex's left-dock baseline.
+        local child_w = content_parent_w + reflex_right_edge_extend
         local pre_bw = child_w  -- total card region width
 
         -- Pre-compute sends_side at loop level for independent column scrolling
@@ -9758,7 +9858,7 @@ Loop = function()
                 if sends_scroll_y ~= sends_scroll_prev_y then sends_scroll_fade = 1.8 end
                 sends_scroll_prev_y = sends_scroll_y
                 if sends_scroll_fade > 0 then sends_scroll_fade = sends_scroll_fade - dt * 2.5 end
-                DrawScrollIndicator(main_dl, sy1, sy2, sends_scroll_y, sends_scroll_max, sends_scroll_child_h, sends_scroll_fade, wx + ww - S(3))
+                DrawScrollIndicator(main_dl, sy1, sy2, sends_scroll_y, sends_scroll_max, sends_scroll_child_h, sends_scroll_fade, reflex_scroll_indicator_x)
             end
 
             -- Cursor Y is correctly positioned after second EndChild
@@ -9815,7 +9915,7 @@ Loop = function()
                 if nav_scroll_y ~= insp_scroll_prev_y then insp_scroll_fade = 1.8 end
                 insp_scroll_prev_y = nav_scroll_y
                 if insp_scroll_fade > 0 then insp_scroll_fade = insp_scroll_fade - dt * 2.5 end
-                DrawScrollIndicator(main_dl, iy1, iy2, nav_scroll_y, nav_scroll_max, nav_child_h, insp_scroll_fade, wx + ww - S(3))
+                DrawScrollIndicator(main_dl, iy1, iy2, nav_scroll_y, nav_scroll_max, nav_child_h, insp_scroll_fade, reflex_scroll_indicator_x)
             end
         end
 

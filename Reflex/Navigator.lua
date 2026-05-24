@@ -3,11 +3,11 @@
  * Description: Standalone Navigator section for Reflex.
  *              Top NAV visibility manager only.
  * Author:      S.Hansen / Tycho
- * Version:     20.669
+ * Version:     20.670
 --]]
 
 local r = reaper
-NAVIGATOR_VERSION = "20.669"
+NAVIGATOR_VERSION = "20.670"
 
 NavigatorDependencyError = function(detail)
     local msg = "Navigator requires ReaImGui 0.10 or newer."
@@ -66,11 +66,37 @@ NavigatorSetImGuiConfigFlag("NavEnableKeyboard", false)
 local script_dir = debug.getinfo(1, 'S').source:match('@?(.*[/\\])') or ''
 package.path = script_dir .. 'core/?.lua;' .. script_dir .. '?.lua;' .. package.path
 
-local nt_ok, nav_theme = pcall(dofile, script_dir .. 'Reflex_Theme.lua')
-if not nt_ok or type(nav_theme) ~= "table" then
-    nt_ok, nav_theme = pcall(dofile, script_dir .. 'Reflex_Theme_Default.lua')
-end
-if not nt_ok or type(nav_theme) ~= "table" then nav_theme = {} end
+local nav_theme = {
+    fonts = {
+        body_size = 14,
+        family = "SF Pro",
+    },
+    colors = {
+        fx_instr_txt = 0x324bd0,
+        vol_slider_fill = 0x08a5f7,
+        vol_slider_mark = 0x3e454b,
+        vol_slider_mark_over = 0x82baf7,
+        vol_slider_mark_intersect = 0xb9b9b9,
+    },
+    track_colors = {},
+    remote_colors = {
+        0x3B82F6,
+        0x3FB950,
+        0xD29922,
+        0xF85149,
+        0xBF40BF,
+        0x58A6FF,
+    },
+    button_brightness = {
+        visible = 0.65,
+        visible_hover = 0.80,
+        visible_active = 0.55,
+        hidden = 0.25,
+        hidden_hover = 0.35,
+        hidden_active = 0.20,
+    },
+    songs_page = {},
+}
 
 local C
 
@@ -97,6 +123,21 @@ NavigatorIsMacOS = function()
     return os:find("OSX", 1, true) ~= nil
         or os:find("macOS", 1, true) ~= nil
         or os:find("Mac", 1, true) ~= nil
+end
+
+NavigatorReaperThemeName = function()
+    if not r.GetLastColorThemeFile then return nil end
+    local ok, path = pcall(r.GetLastColorThemeFile)
+    if not ok or type(path) ~= "string" or path == "" then return nil end
+    local name = path:match("([^/\\]+)$") or path
+    name = name:gsub("%.ReaperThemeZip$", ""):gsub("%.ReaperTheme$", "")
+    return name
+end
+
+NavigatorIsReapertipsTheme = function()
+    local name = NavigatorReaperThemeName()
+    if not name then return false end
+    return name:lower():find("reapertips", 1, true) ~= nil
 end
 
 NavigatorModFlag = function(mods, fallback, ...)
@@ -1362,10 +1403,13 @@ NavigatorLoop = function()
     local nav_is_mac = NavigatorIsMacOS()
     local nav_standard_edge_gap = S(UI.edge_pad)
     local nav_chrome_gap_delta = nav_standard_edge_gap - 3
+    local nav_use_reapertips_dock_compensation = nav_is_mac and NavigatorIsReapertipsTheme()
     local nav_pre_begin_dock_pos = NavigatorDockPosition(nav_current_dock_id)
     local nav_pre_begin_side_dock_pos = (nav_pre_begin_dock_pos == 1 or nav_pre_begin_dock_pos == 3)
         and nav_pre_begin_dock_pos or nav_last_side_dock_pos
-    local nav_window_pad_x = (nav_window_docked and nav_is_mac and nav_pre_begin_side_dock_pos == 3)
+    local nav_window_pad_x = (nav_window_docked
+        and nav_use_reapertips_dock_compensation
+        and nav_pre_begin_side_dock_pos == 3)
         and 3 or nav_standard_edge_gap
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_WindowBg(), main_bg)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Border(), C.border)
@@ -1532,7 +1576,7 @@ NavigatorLoop = function()
         local bw, win_h = r.ImGui_GetContentRegionAvail(ctx)
         local dock_pos = NavigatorDockPosition(nav_current_dock_id)
         local visual_dock_pos = nil
-        if nav_window_docked and nav_is_mac then
+        if nav_window_docked and nav_use_reapertips_dock_compensation then
             visual_dock_pos = NavigatorVisualSideDockPosition(wx, ww, dock_pos)
         end
         nav_last_side_dock_pos = (visual_dock_pos == 1 or visual_dock_pos == 3) and visual_dock_pos or nil
