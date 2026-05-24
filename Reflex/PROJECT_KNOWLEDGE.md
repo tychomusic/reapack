@@ -4,7 +4,7 @@
 
 Reflex is a standalone ReaImGui script for REAPER providing track visibility/collapse management, a track inspector with FX chain display, A/B compare system, volume/pan controls, envelope management, inline routing panel, FX plugin browser, routing view, sends view, flow view, send topology view, view history, noise floor detection, and a configurable macro pad (Remote) with pages. It is a companion to the Realist live performance system for Tycho.
 
-**Current version: v20.671** (~10,700-line main script; I/O Manager split into shared core modules)
+**Current version: v20.672** (~10,700-line main script; I/O Manager split into shared core modules)
 
 **Dependencies:** REAPER's built-in Lua 5.4, ReaImGui 0.10+. SWS still exists in some Reflex-only legacy paths (`BR_GetMediaTrackSendInfo_Track` in routing panels/send topology and `BR_GetMediaTrackSendInfo_Envelope` for send envelope matching), but standalone Navigator's `NAV.R` no longer requires SWS as of v20.662 / Navigator v20.662; it uses native `GetTrackSendInfo_Value(..., "P_DESTTRACK"/"P_SRCTRACK")` only. Prefer native REAPER/Lua APIs over SWS wherever they can provide the same behavior.
 
@@ -21,11 +21,14 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - Package path: `Reflex/`
 - Package metadata: `Reflex/Reflex package.lua`
 - Main script: `Reflex/Reflex.lua`
-- Public version: `20.671`
+- Public version: `20.672`
 - Author metadata: `S.Hansen / Tycho`
 - Release package excludes generated/user-local state files such as `remote_buttons.txt`, `remote_pages.txt`, and `fx_browser_action.txt`.
+- The user's normal Reflex toolbar/action should run `/Applications/Reaper/Scripts/Tycho/reapack/Reflex/Reflex.lua`.
+- `Reflex/Navigator.lua` is a NAV-only Reflex harness for isolating embedded Navigator behavior during development. It is not the public spin-off Track Navigator script; when the user says "Track Navigator", use `/Applications/Reaper/Scripts/Tycho/reapack/Track Navigator/Track Navigator.lua`.
 - Reflex no longer loads external theme files. The former tested `Reflex_Theme.lua` values are embedded in `Reflex.lua`, `Navigator.lua`, and `Reflex_IOManager.lua`; future user-facing UI customization belongs in an Options GUI.
-- The older `/Applications/Reaper/Scripts/Tycho/Reflex` folder is no longer the source of truth for development. It may contain user-local state (`Reflex_Theme.lua`, `remote_buttons.txt`, `remote_pages.txt`, `fx_browser_action.txt`) or stale files; only use it when intentionally migrating or recovering local state.
+- Reflex user-local state files (`remote_buttons.txt`, `remote_pages.txt`, `fx_browser_action.txt`) now live in `/Applications/Reaper/Scripts/Tycho/reapack/Reflex` for local testing and are locally ignored via `.git/info/exclude`.
+- The older `/Applications/Reaper/Scripts/Tycho/Reflex` folder is no longer the source of truth for development. It was archived on 2026-05-24 under `/Applications/Reaper/Scripts/Tycho cleanup archive 2026-05-24/Reflex.stale-20.669` along with `Reflex.bak`; use that archive only when intentionally recovering a specific old/local file.
 
 ---
 
@@ -1130,7 +1133,9 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 - **Configurable internal key bindings** — externalize hardcoded modifier-bit helpers into user-editable mappings.
 - **Button import from REAPER toolbars** (parse `reaper-menu.ini`).
 
-### Completed since previous PK update (v20.438 → v20.671)
+### Completed since previous PK update (v20.438 → v20.672)
+
+- ✅ **Navigator/Inspector split and Reflex NAV visual parity (v20.672).** Added a draggable 21px NAV/Inspector divider with a hover-only rounded handle, so users can choose where the NAV TLT scroll area ends. Reflex now gates side-dock chrome gap compensation to ReaperTips themes only, matching standalone Track Navigator behavior. Reflex arrow drawing was brought back to consistent disclosure glyphs at the original Reflex control scale, while embedded NAV arrows use the same shared renderer glyph path as standalone Track Navigator.
 
 - ✅ **Embedded NAV renderer catch-up (v20.671; Navigator v20.671).** Ported the standalone Track Navigator renderer fixes into Reflex's shared `core/Reflex_NavViewCore.lua` while preserving Reflex's Windows-safe vector disclosure arrows and embedded menu behavior. Reflex NAV now uses the sticky TLT search header above the scroll child, smart row clipping for partially visible TLT pills, newer endcap modifier handling, and history pushes for tree-collapse/disclosure mutations.
 - ✅ **Embedded theme + right-dock gap cleanup (v20.670; Navigator v20.670).** Folded the tested `Reflex_Theme.lua` values into `Reflex.lua`, standalone `Navigator.lua`, and `Reflex_IOManager.lua`; removed `Reflex_Theme_Default.lua` from the ReaPack package so future user-facing UI customization can move into Options instead of external files. Full Reflex now keeps normal right `WindowPadding` when docked right under non-Reapertips REAPER themes, while retaining the historical chrome compensation for left dock and Reapertips.

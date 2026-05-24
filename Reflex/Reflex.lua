@@ -3,7 +3,7 @@
  * Description: Folder visibility and collapse manager for REAPER sessions.
  *              Companion to Realist. Realist-styled UI.
  * Author:      S.Hansen / Tycho
- * Version:     20.671
+ * Version:     20.672
  *
  * Click:       solo (if others visible) or toggle collapse (if alone)
  * CMD+click:   add/remove from visible set
@@ -20,7 +20,7 @@ local r = reaper
 
 -- Single source of truth for Reflex version. Update this when bumping
 -- the header comment; used by settings panel title.
-REFLEX_VERSION = "20.671"
+REFLEX_VERSION = "20.672"
 
 ReflexDependencyError = function(detail)
     local msg = "Reflex requires ReaImGui 0.10 or newer."
@@ -531,35 +531,36 @@ DrawIcon = function(dl, cx, cy, size, icon, col)
     end
 end
 
+ArrowFontSize = function(font, target_w, glyph)
+    target_w = math.max(1, target_w or 1)
+    if not font then return target_w end
+    r.ImGui_PushFont(ctx, font, target_w)
+    local gw = r.ImGui_CalcTextSize(ctx, glyph)
+    r.ImGui_PopFont(ctx)
+    if not gw or gw <= 0 then return target_w end
+    return math.max(1, target_w * (target_w / gw))
+end
+
 DrawArrowIcon = function(dl, cx, cy, size, direction, col)
     size = math.max(1, size or S(10))
-    local half_w = size * 0.28
-    local half_h = size * 0.34
-    if direction == "right" then
-        r.ImGui_DrawList_AddTriangleFilled(dl,
-            cx + half_w, cy,
-            cx - half_w, cy - half_h,
-            cx - half_w, cy + half_h,
-            col)
-    elseif direction == "left" then
-        r.ImGui_DrawList_AddTriangleFilled(dl,
-            cx - half_w, cy,
-            cx + half_w, cy - half_h,
-            cx + half_w, cy + half_h,
-            col)
-    elseif direction == "up" then
-        r.ImGui_DrawList_AddTriangleFilled(dl,
-            cx, cy - half_h,
-            cx - half_w, cy + half_h,
-            cx + half_w, cy + half_h,
-            col)
-    else
-        r.ImGui_DrawList_AddTriangleFilled(dl,
-            cx, cy + half_h,
-            cx - half_w, cy - half_h,
-            cx + half_w, cy - half_h,
-            col)
-    end
+    local glyphs = {
+        right = "\xE2\x96\xB6",
+        down = "\xE2\x96\xBC",
+        up = "\xE2\x96\xB2",
+        left = "\xE2\x97\x80",
+    }
+    local glyph = glyphs[direction or "right"] or glyphs.right
+    local font = GetScaledFont and GetScaledFont()
+    local font_size = ArrowFontSize(font, size, glyph)
+    if font then r.ImGui_PushFont(ctx, font, font_size) end
+    local gw = r.ImGui_CalcTextSize(ctx, glyph)
+    local th = r.ImGui_GetTextLineHeight(ctx)
+    local dx = -S(1.375)
+    if direction == "down" then dx = -S(2) end
+    local tx = Round(cx - gw * 0.5 + dx)
+    local ty = Round(cy - th * 0.5 - S(1.375))
+    r.ImGui_DrawList_AddText(dl, tx, ty, col, glyph)
+    if font then r.ImGui_PopFont(ctx) end
 end
 
 ArrowDirFromContent = function(content)
@@ -651,7 +652,7 @@ end
 -- ── Nav button primitives ────────────────────────────────────────────────
 -- Four canonical shapes: NavSquare, NavCircle, NavPill, NavRect.
 -- All accept (id, x, y, ..., content, opts?) and return hov, clicked, active.
--- content: "+"/"-"/"×"/"x"/arrows → font-independent icons, any other string → centered text,
+-- content: "+"/"-"/"×"/"x" → drawlist icons, arrows → disclosure glyphs, any other string → centered text,
 --          nil → no content (caller draws its own).
 -- opts (all optional):
 --   bg, hov, active                colors — default to style table (C.fx_ctrl_bg/hover/active for square/circle/rect)
@@ -1126,14 +1127,14 @@ CardBegin = function(bw, card_opts)
     local sx = r.ImGui_GetCursorPosX(ctx)
     local sy = r.ImGui_GetCursorPosY(ctx)
     local scx, scy = r.ImGui_GetCursorScreenPos(ctx)
-    scx = math.floor(scx); scy = math.floor(scy)
+    scx = math.floor(scx)
     card_idx = card_idx + 1
     local ci = card_idx
     local est_h = card_heights_prev[ci] or S(300)
     local dl = r.ImGui_GetWindowDrawList(ctx)
     local cr = S(UI.card_r)
     local x2 = math.floor(scx + bw)
-    local y2 = math.floor(scy + est_h)
+    local y2 = scy + est_h
     if r.ImGui_StyleVar_CircleTessellationMaxError then
         r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), 0.1)
     end
@@ -1738,6 +1739,7 @@ UI = {
     card_gap       = 12, -- gap between independent cards (send rows)
     flow_gap       = 3,  -- gap between connected flow cards (tight, shows bg as separator)
     edge_pad       = 12, -- window border padding (main window + content margin)
+    nav_inspector_gap_px = 21, -- literal Retina px; keep as half-logical, do not round through S()
     send_pad_top   = 10, -- send/folder column top padding (independent of card_pad_top)
     send_pad_bot   = 17, -- send column bottom padding
     send_folder_pad_bot = 12, -- send folder card bottom padding
@@ -1924,6 +1926,8 @@ local remote_expanded = true  -- internal only, always expanded when visible
 local remote_visible = LoadPref("remote_visible", false)
 local remote_height = LoadPref("remote_height", 120)
 local remote_dragging = false
+local nav_inspector_split_h = LoadPref("nav_inspector_split_h", nil)
+local nav_inspector_dragging = false
 local settings_open = false
 local settings_win_pos_set = false   -- true after first open this session (position chosen)
 local settings_win_x = LoadPref("settings_win_x", nil)
@@ -7868,7 +7872,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
 
     -- Column background (card styling when enabled)
     local col_r = opt_card_boxes and S(UI.card_r) or corner_r
-    local rcx, rcy, rcx2, rcy2 = math.floor(cx), math.floor(cy), math.floor(cx + col_w), math.floor(cy + col_h)
+    local rcx, rcy, rcx2, rcy2 = math.floor(cx), cy, math.floor(cx + col_w), cy + col_h
     r.ImGui_DrawList_AddRectFilled(dl, rcx, rcy, rcx2, rcy2, C.bg, col_r)
     -- White outline when corresponding send is hovered in routing panel
     if send_idx and route_hovered_send_idx == send_idx then
@@ -9481,19 +9485,22 @@ Loop = function()
             reflex_current_dock_id = reflex_window_docked and -1 or 0
         end
         local reflex_dock_pos = ReflexDockPosition(reflex_current_dock_id)
-        local reflex_detected_dock_pos = reflex_window_docked
+        local reflex_use_reapertips_dock_compensation = ReflexIsMacOS() and ReflexIsReapertipsTheme()
+        local reflex_detected_dock_pos = (reflex_window_docked and reflex_use_reapertips_dock_compensation)
             and ReflexVisualSideDockPosition(wx, ww, reflex_dock_pos) or nil
         local reflex_visual_dock_pos = reflex_detected_dock_pos
             or (reflex_window_docked and reflex_last_side_dock_pos or nil)
         if reflex_visual_dock_pos == 1 or reflex_visual_dock_pos == 3 then
             reflex_last_side_dock_pos = reflex_visual_dock_pos
         end
-        local reflex_right_dock_normal_gap = reflex_visual_dock_pos == 3 and not ReflexIsReapertipsTheme()
-        local reflex_right_edge_extend = reflex_right_dock_normal_gap and 0 or (S(UI.edge_pad) - 3)
-        local reflex_scroll_indicator_x = wx + ww - (reflex_right_dock_normal_gap and S(UI.edge_pad) or S(3))
+        local reflex_use_dock_gap_offset = reflex_window_docked
+            and reflex_use_reapertips_dock_compensation
+            and (reflex_visual_dock_pos == 1 or reflex_visual_dock_pos == 3)
+        local reflex_right_edge_extend = reflex_use_dock_gap_offset and (S(UI.edge_pad) - 3) or 0
+        local reflex_scroll_indicator_x = wx + ww - (reflex_use_dock_gap_offset and S(3) or S(UI.edge_pad))
 
-        -- Right margin: left-dock/Reapertips keeps Reflex's historical edge
-        -- compensation; right-dock non-Reapertips uses the normal window gap.
+        -- ReaperTips needs the same side-dock chrome compensation as Navigator.
+        -- Other themes keep the normal window gap on both sides.
         local sb_inset = -reflex_right_edge_extend
         -- Single source of truth for ALL card gaps. REAPER's docker frame
         -- consumes ~2px of WindowPadding at the edges, so card-to-card gaps
@@ -9685,6 +9692,13 @@ Loop = function()
         else
             rem_h = 0
         end
+        local nav_content_gap_px = UI.nav_inspector_gap_px or 21
+        -- BeginChild snaps the parent boundary to even Retina pixels. Keep that
+        -- parent gap even, then place the card surface on a 1px half-logical
+        -- child offset so odd Retina gaps remain possible.
+        local nav_content_gap = math.max(0, nav_content_gap_px - 1) * 0.5 * nav_ui_scale
+        local content_child_top_pad = nav_visible and 0 or S(UI.edge_pad)
+        local content_surface_top_nudge = nav_visible and (0.5 * nav_ui_scale) or 0
         local bw
         do
             local reflex_ui_scale = ui_scale
@@ -9703,6 +9717,8 @@ Loop = function()
                 arrow_w = S(28),
                 bh = S(BASE_H),
                 base_pad_y = BASE_PAD_Y,
+                content_gap = nav_content_gap,
+                nav_split_h = nav_inspector_split_h,
             })
             PopFont(nav_fp)
             ui_scale = reflex_ui_scale
@@ -9716,6 +9732,46 @@ Loop = function()
         -- the docker chrome compensation used by Reflex's left-dock baseline.
         local child_w = content_parent_w + reflex_right_edge_extend
         local pre_bw = child_w  -- total card region width
+        if nav_visible then
+            local gap_hit_h = math.max(nav_content_gap + content_surface_top_nudge, 0.5 * nav_content_gap_px * nav_ui_scale)
+            if gap_hit_h > 0 then
+                local gap_cursor_x = r.ImGui_GetCursorPosX(ctx)
+                local gap_cursor_y = r.ImGui_GetCursorPosY(ctx)
+                local gap_screen_x, content_screen_y = r.ImGui_GetCursorScreenPos(ctx)
+                local hit_y = gap_cursor_y - gap_hit_h
+                local hit_screen_y = content_screen_y - gap_hit_h
+                local handle_h = 3.5 * nav_ui_scale
+                local handle_y = hit_screen_y + (gap_hit_h - handle_h) * 0.5
+                local handle_inset = S(UI.card_r)
+                local handle_x = gap_screen_x + handle_inset
+                local handle_w = math.max(1, child_w - handle_inset * 2)
+                r.ImGui_SetCursorPosY(ctx, hit_y)
+                r.ImGui_InvisibleButton(ctx, "##nav_inspector_divider", child_w, gap_hit_h)
+                local divider_hovered = r.ImGui_IsItemHovered(ctx)
+                local divider_active = r.ImGui_IsItemActive(ctx)
+                if divider_hovered or divider_active then
+                    r.ImGui_SetMouseCursor(ctx, r.ImGui_MouseCursor_ResizeNS())
+                    local dl = r.ImGui_GetWindowDrawList(ctx)
+                    r.ImGui_DrawList_AddRectFilled(dl, handle_x, handle_y,
+                        handle_x + handle_w, handle_y + handle_h, rgb(0x8B8B8C), handle_h * 0.5)
+                end
+                if divider_active then
+                    local _, dy = r.ImGui_GetMouseDelta(ctx)
+                    if dy ~= 0 then
+                        local current_split_h = nav_inspector_split_h
+                            or math.max(S(60), last_nav_h - nav_content_gap)
+                        local min_split_h = S(72)
+                        local max_split_h = math.max(min_split_h, win_h - vh_row_h - rem_h - divider_h - gap_hit_h - S(60))
+                        nav_inspector_split_h = math.max(min_split_h, math.min(max_split_h, current_split_h + dy))
+                        SavePref("nav_inspector_split_h", nav_inspector_split_h)
+                    end
+                    nav_inspector_dragging = true
+                elseif nav_inspector_dragging then
+                    nav_inspector_dragging = false
+                end
+                r.ImGui_SetCursorPos(ctx, gap_cursor_x, gap_cursor_y)
+            end
+        end
 
         -- Pre-compute sends_side at loop level for independent column scrolling
         local loop_sends_side = false
@@ -9759,7 +9815,7 @@ Loop = function()
             local sends_child_w = child_w - insp_child_w - loop_side_gap  -- remainder (= loop_sends_bw)
 
             -- Inspector scroll child (left column)
-            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, S(UI.edge_pad))
+            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, content_child_top_pad)
             local insp_child_open = r.ImGui_BeginChild(ctx, "##content", insp_child_w, scroll_h, 0, r.ImGui_WindowFlags_NoScrollbar())
             r.ImGui_PopStyleVar(ctx, 1)
 
@@ -9770,6 +9826,9 @@ Loop = function()
                 nav_scroll_target = nil
             end
             FxDragApplyScroll("##content")
+            if content_surface_top_nudge > 0 then
+                r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + content_surface_top_nudge)
+            end
 
             bw = loop_insp_bw
             card_idx = 0
@@ -9814,7 +9873,7 @@ Loop = function()
 
             -- Sends scroll child (right column)
             r.ImGui_SetCursorPos(ctx, child_start_x + insp_child_w + loop_side_gap, child_start_y)
-            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, S(UI.edge_pad))
+            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, content_child_top_pad)
             local sends_child_open = r.ImGui_BeginChild(ctx, "##sends_content", sends_child_w, scroll_h, 0, r.ImGui_WindowFlags_NoScrollbar())
             r.ImGui_PopStyleVar(ctx, 1)
 
@@ -9830,6 +9889,9 @@ Loop = function()
                 sends_expand_scroll_cy = nil
             end
             FxDragApplyScroll("##sends_content")
+            if content_surface_top_nudge > 0 then
+                r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + content_surface_top_nudge)
+            end
 
             if insp_track and r.ValidatePtr(insp_track, "MediaTrack*") then
                 DrawSendsColumn(loop_sends_bw)
@@ -9864,7 +9926,7 @@ Loop = function()
             -- Cursor Y is correctly positioned after second EndChild
         else
             -- ── SINGLE-COLUMN LAYOUT ──
-            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, S(UI.edge_pad))
+            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, content_child_top_pad)
             local content_open = r.ImGui_BeginChild(ctx, "##content", child_w, scroll_h, 0, r.ImGui_WindowFlags_NoScrollbar())
             r.ImGui_PopStyleVar(ctx, 1)
 
@@ -9880,6 +9942,9 @@ Loop = function()
                 sends_expand_scroll_cy = nil
             end
             FxDragApplyScroll("##content")
+            if content_surface_top_nudge > 0 then
+                r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + content_surface_top_nudge)
+            end
 
             bw = r.ImGui_GetContentRegionAvail(ctx)  -- full width (right margin is outside child)
             card_idx = 0

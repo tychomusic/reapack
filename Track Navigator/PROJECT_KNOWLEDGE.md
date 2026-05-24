@@ -14,6 +14,9 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - Theme template: `Track Navigator/Track Navigator_Theme_Default.lua`
 - Public import URL: `https://raw.githubusercontent.com/tychomusic/reapack/main/index.xml`
 - Author metadata: `S.Hansen / Tycho`
+- The user's normal Track Navigator toolbar/action should run `/Applications/Reaper/Scripts/Tycho/reapack/Track Navigator/Track Navigator.lua`.
+- Do not use `/Applications/Reaper/Scripts/Tycho ReaPack/Track Navigator`; that stray stale copy was archived on 2026-05-24 under `/Applications/Reaper/Scripts/Tycho cleanup archive 2026-05-24/Tycho ReaPack.stale-track-navigator-1.4`.
+- `Reflex/Navigator.lua` belongs to the Reflex package as a NAV-only Reflex harness. It is not the public spin-off Track Navigator script.
 
 ## Versioning
 - Public Track Navigator versions use patch numbers for tiny fixes, such as `1.2.1` or `1.2.2`. Reserve whole minor bumps such as `1.3` for more meaningful user-facing releases.

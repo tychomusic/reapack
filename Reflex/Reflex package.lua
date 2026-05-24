@@ -1,10 +1,10 @@
 -- @description Reflex
--- @version 20.671
+-- @version 20.672
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Bring embedded Reflex Navigator rendering in line with standalone Track Navigator: sticky search, smart TLT clipping, and history-aware tree changes.
+--   Add draggable Navigator/Inspector split, fix embedded Navigator arrow rendering, and restore normal non-ReaperTips dock gaps.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua

@@ -8,8 +8,8 @@ ReflexInstallSendGridCore = function(deps)
     local C = deps.colors
 
 DrawSendAddCard = function(dl, x, y, w, h, target, target_folder, button_id, popup_id)
-    local rcx, rcy = math.floor(x), math.floor(y)
-    local rcx2, rcy2 = math.floor(x + w), math.floor(y + h)
+    local rcx, rcy = math.floor(x), y
+    local rcx2, rcy2 = math.floor(x + w), y + h
     local card_r = opt_card_boxes and S(UI.card_r) or S(UI.corner_r)
     r.ImGui_DrawList_AddRectFilled(dl, rcx, rcy, rcx2, rcy2, C.placeholder_bg, card_r)
 
@@ -45,8 +45,8 @@ DrawSendAddCard = function(dl, x, y, w, h, target, target_folder, button_id, pop
 end
 
 DrawSendDimPlaceholder = function(dl, x, y, w, h)
-    local rcx, rcy = math.floor(x), math.floor(y)
-    local rcx2, rcy2 = math.floor(x + w), math.floor(y + h)
+    local rcx, rcy = math.floor(x), y
+    local rcx2, rcy2 = math.floor(x + w), y + h
     local card_r = opt_card_boxes and S(UI.card_r) or S(UI.corner_r)
     local dim_bg = (C.placeholder_bg & 0xFFFFFF00) | math.floor((C.placeholder_bg & 0xFF) * 0.45)
     r.ImGui_DrawList_AddRectFilled(dl, rcx, rcy, rcx2, rcy2, dim_bg, card_r)

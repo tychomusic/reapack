@@ -28,6 +28,12 @@ ReaPack repository for Tycho REAPER scripts. This is a multi-package repo: each 
 - Do not add comments or headers crediting agents, Claude, or other assistants.
 - Preserve author metadata as `S.Hansen / Tycho` unless the user requests otherwise.
 
+## Pixel And Retina UI Work
+- For disputed 1-2px UI spacing/alignment, stop before tuning constants and use screenshot-based measurement. Do not iterate from verbal estimates or inferred geometry alone.
+- Treat odd Retina-pixel targets as half-logical coordinates. Do not run them through `S()` or floor/round the Y coordinate afterward.
+- If a parent/child ImGui boundary snaps away the odd pixel, put the final 1px half-logical offset at the rendered surface immediately before drawing the card/row, not in `WindowPadding`.
+- After one failed pixel attempt, switch to measuring the rendered screenshot and identify both edges being measured before another edit.
+
 ## ReaPack Releases
 - Public ReaPack index: `index.xml`
 - Import URL:
