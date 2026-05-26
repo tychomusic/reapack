@@ -3,7 +3,7 @@
  * Description: Folder visibility and collapse manager for REAPER sessions.
  *              Companion to Realist. Realist-styled UI.
  * Author:      S.Hansen / Tycho
- * Version:     20.672
+ * Version:     20.673
  *
  * Click:       solo (if others visible) or toggle collapse (if alone)
  * CMD+click:   add/remove from visible set
@@ -20,7 +20,7 @@ local r = reaper
 
 -- Single source of truth for Reflex version. Update this when bumping
 -- the header comment; used by settings panel title.
-REFLEX_VERSION = "20.672"
+REFLEX_VERSION = "20.673"
 
 ReflexDependencyError = function(detail)
     local msg = "Reflex requires ReaImGui 0.10 or newer."
@@ -320,6 +320,21 @@ if nav_ui_scale == nil then
     nav_ui_scale = ui_scale
     SavePref("navigator_scale_v1", nav_ui_scale)
 end
+local REFLEX_BODY_SCALE_MULT = 0.9
+local reflex_body_scale_compensation_enabled = true
+ReflexRawUiScale = function()
+    return ui_scale or 1.0
+end
+ReflexEffectiveUiScale = function()
+    local scale = ReflexRawUiScale()
+    if reflex_body_scale_compensation_enabled then scale = scale * REFLEX_BODY_SCALE_MULT end
+    return scale
+end
+ReflexSetBodyScaleCompensation = function(enabled)
+    local previous = reflex_body_scale_compensation_enabled
+    reflex_body_scale_compensation_enabled = enabled ~= false
+    return previous
+end
 opt_instr_first           = LoadPref("instr_first", false)  -- global: no local slot
 -- v20.449: Per-track FX count cache for instruments-first cross-surface
 -- detection. Loop's MonitorTrackFxCounts compares live count against this map;
@@ -394,7 +409,7 @@ require("Reflex_FontCore")({
     scaled_fonts_italic = scaled_fonts_italic,
     scaled_fonts_regular = scaled_fonts_regular,
     font_sizes = scaled_font_sizes,
-    get_ui_scale = function() return ui_scale end,
+    get_ui_scale = function() return ReflexEffectiveUiScale() end,
 })
 
 -- =========================================================================
@@ -466,8 +481,9 @@ local C = {
     route_recv_dim  = rgb(0x4A1A18),
     route_dim       = rgb(0x484F58),
     route_bg        = rgb(0x2A2F37),
-    source_stroke   = rgb(0xC3982E),  -- source track card outline
+    source_stroke   = rgb(0xD29922),  -- source track card outline; aliased to C.amber after overrides
     send_stroke     = rgb(0xFFFFFF),  -- send/return module + folder card outline
+    flow_stroke     = rgb(0xC4C4C4),  -- selected flow-card outline
     -- Mute/Solo button state colors
     record_arm      = rgb(0xFF4A4A),
     mute_hov        = rgb(0xD9453F),
@@ -511,6 +527,7 @@ for key, hex in pairs(theme_colors) do
         C[key] = rgb(hex)
     end
 end
+C.source_stroke = C.amber
 
 -- Icon primitives: draw +/-/× via DrawList rects/lines centered at (cx, cy).
 -- Font-independent and scale-perfect. Always use these, never CalcTextSize("+")
@@ -669,7 +686,7 @@ local NAV_DEFAULT = {
     pill   = {bg = 0, hov = 0, active = 0, fg = 0, fg_hov = 0, fg_active = 0},
     rect   = {bg = 0, hov = 0, active = 0, fg = 0, fg_hov = 0, fg_active = 0, rounding = 3},
 }
-NAV_CIRCLE_SEGMENTS = 48
+NAV_CIRCLE_SEGMENTS = 96
 
 NavInitDefaults = function()
     local function set(t, bg, hov, act)
@@ -1094,6 +1111,116 @@ DrawInspectArrow = function(dl, cx, cy, color)
     r.ImGui_DrawList_AddImage(dl, img, x, y, x + w, y + h, 0, 0, 1, 1, color)
 end
 
+footer_settings_img = nil
+footer_settings_img_loaded = false
+footer_label_images = {}
+footer_label_images_loaded = {}
+
+GetFooterSettingsImg = function()
+    if footer_settings_img_loaded then return footer_settings_img end
+    footer_settings_img_loaded = true
+    local path = script_dir .. "icons/Nav.Settings.png"
+    local f = io.open(path, "rb")
+    if f then
+        f:close()
+        local ok, img = pcall(r.ImGui_CreateImage, path)
+        if ok and img then
+            r.ImGui_Attach(ctx, img)
+            footer_settings_img = img
+        end
+    end
+    return footer_settings_img
+end
+
+GetFooterLabelImg = function(which)
+    if footer_label_images_loaded[which] then return footer_label_images[which] end
+    footer_label_images_loaded[which] = true
+    local files = {
+        F = "Nav.Flow.F.png",
+        S = "Nav.Select.S.png",
+    }
+    local filename = files[which]
+    if not filename then return nil end
+    local path = script_dir .. "icons/" .. filename
+    local f = io.open(path, "rb")
+    if f then
+        f:close()
+        local ok, img = pcall(r.ImGui_CreateImage, path)
+        if ok and img then
+            r.ImGui_Attach(ctx, img)
+            footer_label_images[which] = img
+        end
+    end
+    return footer_label_images[which]
+end
+
+DrawFooterImageInBox = function(dl, img, cx, cy, box, col)
+    if not img then return false end
+    local iw, ih = r.ImGui_Image_GetSize(img)
+    if not iw or not ih or iw < 1 or ih < 1 then return false end
+    -- Footer PNGs are authored at 2x. `box` is the logical on-screen draw box,
+    -- not the source pixel size.
+    local w, h
+    if iw >= ih then
+        w = box
+        h = box * (ih / iw)
+    else
+        h = box
+        w = box * (iw / ih)
+    end
+    local x = cx - w / 2
+    local y = cy - h / 2
+    r.ImGui_DrawList_AddImage(dl, img, x, y, x + w, y + h, 0, 0, 1, 1, col)
+    return true
+end
+
+DrawFooterLabel = function(dl, cx, cy, label, col, box)
+    if DrawFooterImageInBox(dl, GetFooterLabelImg(label), cx, cy, box, col) then return end
+    local font = GetSteppedFont(-1)
+    if font then r.ImGui_PushFont(ctx, font) end
+    local tw = r.ImGui_CalcTextSize(ctx, label)
+    local th = r.ImGui_GetTextLineHeight(ctx)
+    r.ImGui_DrawList_AddText(dl, cx - tw / 2, cy - th / 2, col, label)
+    if font then r.ImGui_PopFont(ctx) end
+end
+
+DrawFooterSettingsIcon = function(dl, cx, cy, col, box)
+    local gear_box = 31 * 0.5 * ReflexRawUiScale()
+    if DrawFooterImageInBox(dl, GetFooterSettingsImg(), cx, cy, gear_box, col) then return end
+    DrawFooterLabel(dl, cx, cy, "\xE2\x9A\x99", col, gear_box)
+end
+
+ReflexFooterRetinaPx = function(px)
+    return math.max(0.5, px * 0.5 * ReflexRawUiScale())
+end
+
+ReflexFooterEdgeGap = function()
+    -- Literal Retina target: 14 px from the visible window edge.
+    return 7
+end
+
+ReflexFooterButtonDiameter = function()
+    return ReflexRawS(34)
+end
+
+ReflexFooterButtonHitWidth = function(diameter)
+    return math.floor((diameter or ReflexFooterButtonDiameter()) / 2) * 2
+end
+
+ReflexFooterButtonGap = function()
+    -- Match Navigator A/S/R circle spacing.
+    return ReflexRawS(4)
+end
+
+ReflexFooterRowHeight = function(diameter)
+    return ReflexFooterButtonHitWidth(diameter) + ReflexRawS(3.75)
+end
+
+ReflexFooterTotalHeight = function(diameter)
+    diameter = diameter or ReflexFooterButtonDiameter()
+    return math.floor(ReflexFooterRowHeight(diameter) / 2) + diameter / 2 + ReflexFooterEdgeGap()
+end
+
 -- Inspect arrow button: places InvisibleButton, draws arrow, returns clicked.
 -- ax/ay: screen-space position for hit area. hit_w/hit_h: button dims.
 -- Arrow is visually centered within the hit area unless arrow_cy is provided.
@@ -1136,11 +1263,11 @@ CardBegin = function(bw, card_opts)
     local x2 = math.floor(scx + bw)
     local y2 = scy + est_h
     if r.ImGui_StyleVar_CircleTessellationMaxError then
-        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), 0.1)
+        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), CARD_STROKE_TESSELLATION_MAX_ERROR)
     end
     local stroke_col = card_opts and card_opts.stroke
     if stroke_col then
-        local sw = math.max(1, Round(S(STROKE_W)))
+        local sw = (card_opts and card_opts.stroke_w) or math.max(1, Round(S(STROKE_W)))
         r.ImGui_DrawList_AddRectFilled(dl, scx, scy, x2, y2, stroke_col, cr)
         local fill = (card_opts and card_opts.bg) or C.bg
         r.ImGui_DrawList_AddRectFilled(dl, scx + sw, scy + sw, x2 - sw, y2 - sw, fill, math.max(0, cr - sw))
@@ -1155,15 +1282,37 @@ CardBegin = function(bw, card_opts)
     return bw - px * 2, { scx = scx, scy = scy, bw = bw, sx = sx, ci = ci }
 end
 
-CardEnd = function(card)
+CardEnd = function(card, opts)
     if not card then return end
-    local py_bot = S(UI.card_pad_bot)
+    local py_bot = S(UI.card_pad_bot) + ((opts and opts.pad_bot_adjust) or 0)
     r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + py_bot)
     local _, ecy = r.ImGui_GetCursorScreenPos(ctx)
-    ecy = math.floor(ecy)
     local actual_h = ecy - card.scy
     card_heights_cur[card.ci] = actual_h
     r.ImGui_SetCursorPosX(ctx, card.sx)
+end
+
+InspCardBottomPadAdjust = function(has_fx_rows)
+    -- Raw logical draw-list adjustments from Retina screenshot deltas:
+    -- collapsed/empty cards need no offset, visible FX rows need -4 Retina px.
+    return has_fx_rows and -2.0 or 0
+end
+
+DrawTrackPinIndicator = function(dl, cx, cy, hovered, pinned)
+    -- These are Retina screenshot-pixel targets. Keep them as raw half-logical
+    -- draw coordinates so odd-pixel diameters do not get rounded through S().
+    local outer_r = 21 * 0.25
+    local segments = NAV_CIRCLE_SEGMENTS or 96
+    if pinned then
+        r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, outer_r, C.amber, segments)
+        return outer_r
+    end
+
+    local outer_col = hovered and C.fx_ctrl_hover or C.fx_ctrl_bg
+    local inner_r = 13 * 0.25
+    r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, outer_r, outer_col, segments)
+    r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, inner_r, C.bg, segments)
+    return outer_r
 end
 
 -- Draw a thin scroll position indicator (non-interactive, supports fade alpha).
@@ -1253,7 +1402,11 @@ local BASE_PAD_Y = 3 + 1
 local BASE_INSP_H = 36
 local BASE_CAP_H = 20
 
-S = function(v) return math.floor(v * ui_scale * 0.8 + 0.5) end
+ReflexScaleValue = function(v, scale)
+    return math.floor(v * (scale or 1.0) * 0.8 + 0.5)
+end
+ReflexRawS = function(v) return ReflexScaleValue(v, ReflexRawUiScale()) end
+S = function(v) return ReflexScaleValue(v, ReflexEffectiveUiScale()) end
 -- Round-half-up. Use for centering math (text in boxes, icons in cells)
 -- where floor() would systematically bias left/up on fractional differences.
 Round = function(v) return math.floor(v + 0.5) end
@@ -1756,6 +1909,9 @@ UI = {
 -- Layout constants (formerly tunable via Design Mode, now fixed values)
 INSP_MAX_W   = 295   -- inspector column cap in two-column layout (logical px, raw)
 STROKE_W     = 1.5   -- card/send stroke width (logical px, S()-scaled at use sites)
+SOURCE_STROKE_W = 1.5 -- pinned/source card stroke: 3 Retina px, raw draw-list px
+FLOW_STROKE_W = 1.5   -- selected flow-card stroke: 3 Retina px, raw draw-list px
+CARD_STROKE_TESSELLATION_MAX_ERROR = 0.005 -- tighter arcs for visible stroked card corners
 WIN_MIN_W    = 280   -- main window minimum width constraint
 WIN_MAX_W    = 480   -- main window maximum width constraint
 TWO_COL_MULT = 1.75  -- minimum-viable-width multiplier for two-column layout threshold
@@ -1874,6 +2030,11 @@ require("Reflex_NavInclusionCore")({
         if NavTrackInHiddenSubtree and NavTrackInHiddenSubtree(track) then return false end
         if NavTrackInLiveSpecialArea and NavTrackInLiveSpecialArea(track) then return false end
         return true
+    end,
+    tree_expand_enabled = function() return opt_nav_tlt_expand ~= false end,
+    expand_parent_chain = function(track)
+        if NavTreeExpandParentChain then return NavTreeExpandParentChain(track) end
+        return false
     end,
     mark_dirty = function() needs_rescan = true; needs_song_rescan = true end,
 })
@@ -3403,9 +3564,9 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
     local is_instr = fx.is_instrument
     local instr_hover_overlay = 0xFFFFFF18  -- white overlay for hover on instrument buttons
     local instr_wet_col = is_instr and rgb(0x7EB5F7) or C.fx_drywet_txt
-    local instr_env_dim = is_instr and 0xFFFFFF60 or 0x606870FF
+    local instr_env_dim = C.fx_ctrl_bg
     local instr_env_hov = is_instr and 0xFFFFFFAA or C.text_dim
-    local instr_arrow_dim = is_instr and 0xFFFFFF50 or 0x606870FF
+    local instr_arrow_dim = C.fx_ctrl_bg
     local instr_arrow_hov = is_instr and 0xFFFFFF90 or C.text_dim
 
     local start_x = r.ImGui_GetCursorPosX(ctx)
@@ -4127,8 +4288,8 @@ InspDrawHeader = function(track, bw, is_flow)
     elseif not is_flow then
         show_pin = (track == insp_track)
     end
-    local pin_d = S(12)
-    local pin_hit = S(20)
+    local pin_d = 21 * 0.5
+    local pin_hit = 20
     local pin_area = show_pin and (pin_hit + S(2)) or 0
 
     r.ImGui_SetCursorPos(ctx, hdr.trk_sx + text_pad, title_y)
@@ -4295,13 +4456,15 @@ InspDrawHeader = function(track, bw, is_flow)
         -- Pin circle (upper right corner)
         if show_pin then
             local pin_r = pin_d / 2
+            local pin_edge_gap = 20 * 0.5
+            local pin_offset = pin_edge_gap + pin_r
             local pin_cx, pin_cy
             if opt_card_boxes then
-                pin_cx = hdr.trk_cx + bw + S(UI.card_pad) - S(12.5) - pin_r
-                pin_cy = hdr.trk_cy - S(UI.card_pad_top) + S(12.5) + pin_r
+                pin_cx = hdr.trk_cx + bw + S(UI.card_pad) - pin_offset
+                pin_cy = hdr.trk_cy - S(UI.card_pad_top) + pin_offset
             else
-                pin_cx = hdr.trk_cx + bw - pin_hit / 2 - S(2)
-                pin_cy = hdr.trk_cy + title_h / 2
+                pin_cx = hdr.trk_cx + bw - pin_offset
+                pin_cy = hdr.trk_cy + pin_offset
             end
             -- Hit area
             r.ImGui_SetCursorScreenPos(ctx, pin_cx - pin_hit / 2, pin_cy - pin_hit / 2)
@@ -4323,6 +4486,7 @@ InspDrawHeader = function(track, bw, is_flow)
                 local pin_sel = r.CountSelectedTracks(0) > 0 and r.GetSelectedTrack(0, 0) or nil
                 insp_pin_last_sel_guid = pin_sel and r.ValidatePtr(pin_sel, "MediaTrack*") and r.GetTrackGUID(pin_sel) or nil
                 insp_pin_sel_env = {}
+                if ReflexSaveInspectorProjectState and nav_project_key then ReflexSaveInspectorProjectState(nav_project_key) end
                 ViewHistoryPush()
             end
             local pin_hov = r.ImGui_IsItemHovered(ctx)
@@ -4331,13 +4495,7 @@ InspDrawHeader = function(track, bw, is_flow)
             if pin_tip_font then r.ImGui_PushFont(ctx, pin_tip_font) end
             Tip(insp_pinned and "Unpin" or "Pin")
             if pin_tip_font then r.ImGui_PopFont(ctx) end
-            -- Draw circle
-            if insp_pinned then
-                r.ImGui_DrawList_AddCircleFilled(dl, pin_cx, pin_cy, pin_r, C.amber)
-            else
-                local pin_col = pin_hov and C.text_dim or C.text_muted
-                r.ImGui_DrawList_AddCircle(dl, pin_cx, pin_cy, pin_r, pin_col, 0, S(1.5))
-            end
+            DrawTrackPinIndicator(dl, pin_cx, pin_cy, pin_hov, insp_pinned)
             -- Capture pin geometry so the mute fade overlay can redraw it on top.
             -- Pin state is independent of mute state, so the indicator must not fade.
             hdr.pin_drawn = true
@@ -4554,12 +4712,12 @@ InspDrawHeader = function(track, bw, is_flow)
         local active_envs = InspGetAllTrackEnvelopeDetails(track)
         local trk_env_exp = insp_env_expanded["track_env"] == true
 
-        -- Expand arrow: transparent bg, 40% when collapsed
+        -- Expand arrow: transparent bg, inactive rest matches M/S rest BG.
         local arr_txt, arr_htxt
         if trk_env_exp then
             arr_txt = C.text
         else
-            arr_txt = (C.text_dim & 0xFFFFFF00) | math.floor((C.text_dim & 0xFF) * 0.4)
+            arr_txt = C.fx_ctrl_bg
             arr_htxt = C.text_dim
         end
         r.ImGui_SetCursorPos(ctx, trk_arr_x, right_row_y)
@@ -4579,7 +4737,7 @@ InspDrawHeader = function(track, bw, is_flow)
             end
         end
 
-        -- ENV button: transparent bg, 40% when no envs visible
+        -- ENV button: transparent bg, inactive rest matches M/S rest BG.
         r.ImGui_SetCursorPos(ctx, trk_env_x, right_row_y)
         local any_env_vis = false
         for _, ed in ipairs(active_envs) do if ed.visible then any_env_vis = true; break end end
@@ -4587,7 +4745,7 @@ InspDrawHeader = function(track, bw, is_flow)
         if any_env_vis then
             env_txt = 0xFFFFFFFF
         else
-            env_txt = (C.text_dim & 0xFFFFFF00) | math.floor((C.text_dim & 0xFF) * 0.4)
+            env_txt = C.fx_ctrl_bg
             env_htxt = C.text_dim
         end
         local _, trk_env_clk = NavRect("##tenv", trk_ew, row2_btn_h, trk_env_label,
@@ -5418,7 +5576,7 @@ InspDrawFXArea = function(track, hdr, is_fx_collapsed, ibh)
         if card_top_y and card_left_x and card_w and body_bottom_y > card_top_y then
             local px    = opt_card_boxes and S(UI.card_pad)     or 0
             local pyt   = opt_card_boxes and S(UI.card_pad_top) or 0
-            local pyb   = opt_card_boxes and S(UI.card_pad_bot) or 0
+            local pyb   = opt_card_boxes and (S(UI.card_pad_bot) + InspCardBottomPadAdjust(has_fx_content)) or 0
             local body = {
                 x = card_left_x - px,
                 y = card_top_y - pyt,
@@ -5484,7 +5642,7 @@ InspDrawFXArea = function(track, hdr, is_fx_collapsed, ibh)
         if opt_card_boxes then
             local cp  = S(UI.card_pad)
             local cpt = S(UI.card_pad_top)
-            local cpb = S(UI.card_pad_bot)
+            local cpb = S(UI.card_pad_bot) + InspCardBottomPadAdjust(has_fx_content)
             ox1, oy1 = trk_cx - cp, trk_cy - cpt
             ox2, oy2 = trk_cx + bw + cp, end_cy + cpb
             ord = S(UI.card_r)
@@ -5516,12 +5674,7 @@ InspDrawFXArea = function(track, hdr, is_fx_collapsed, ibh)
         -- Redraw pin indicator on top so it stays undimmed (pin state is
         -- independent of mute state).
         if hdr.pin_drawn then
-            if insp_pinned then
-                r.ImGui_DrawList_AddCircleFilled(dl, hdr.pin_cx, hdr.pin_cy, hdr.pin_r, C.amber)
-            else
-                local pcol = hdr.pin_hov and C.text_dim or C.text_muted
-                r.ImGui_DrawList_AddCircle(dl, hdr.pin_cx, hdr.pin_cy, hdr.pin_r, pcol, 0, S(1.5))
-            end
+            DrawTrackPinIndicator(dl, hdr.pin_cx, hdr.pin_cy, hdr.pin_hov, insp_pinned)
         end
     end
 
@@ -5539,6 +5692,7 @@ InspDrawFXArea = function(track, hdr, is_fx_collapsed, ibh)
         end
     end
 
+    return has_fx_content
 end
 
 -- Toggle visibility of a send/receive/hardware-output envelope.
@@ -5663,13 +5817,14 @@ InspDrawTrackBlock = function(track, bw, bh, block_idx, is_flow)
         DrawRoutePanel(track, bw, hdr)
     end
 
-    InspDrawFXArea(track, hdr, is_fx_collapsed, ibh)
+    local has_fx_rows = InspDrawFXArea(track, hdr, is_fx_collapsed, ibh) == true
+    local pad_bot_adjust = InspCardBottomPadAdjust(has_fx_rows)
 
     local _, card_end_cy = r.ImGui_GetCursorScreenPos(ctx)
     if r.ImGui_IsMouseClicked(ctx, 1) and not nav_rclick_consumed then
         local cp = opt_card_boxes and S(UI.card_pad) or 0
         local cpt = opt_card_boxes and S(UI.card_pad_top) or 0
-        local cpb = opt_card_boxes and S(UI.card_pad_bot) or 0
+        local cpb = opt_card_boxes and (S(UI.card_pad_bot) + pad_bot_adjust) or 0
         local cx1 = hdr.trk_cx - cp
         local cy1 = hdr.trk_cy - cpt
         local cx2 = hdr.trk_cx + bw + cp
@@ -5683,6 +5838,7 @@ InspDrawTrackBlock = function(track, bw, bh, block_idx, is_flow)
     InspTrackContextMenu(track, hdr.track_name or "", "##trknamectx")
 
     r.ImGui_PopID(ctx)
+    return { pad_bot_adjust = pad_bot_adjust }
 end
 
 -- Secondary "Selected track" card shown below pinned track when REAPER's selected
@@ -5731,8 +5887,8 @@ InspDrawSelectedTrackCard = function(sel_track, bw, bh)
     -- Normal card for selected track
     local sel_scx, sel_scy = r.ImGui_GetCursorScreenPos(ctx)
     local sel_bw, sel_card = CardBegin(bw, {})
-    InspDrawTrackBlock(sel_track, sel_bw or bw, bh, 1, false)
-    CardEnd(sel_card)
+    local sel_card_layout = InspDrawTrackBlock(sel_track, sel_bw or bw, bh, 1, false)
+    CardEnd(sel_card, sel_card_layout)
     insp_pin_sel_env = insp_env_expanded  -- persist env state
 
     -- Double-click blank area or title: unpin and make this the source.
@@ -5911,8 +6067,10 @@ InspDrawInspector = function(bw, bh)
                 local clip_hovers_this = FxClipIsHoveredTrack(chain_track)
                 if is_focus and insp_pinned and not clip_hovers_this then
                     card_opts.stroke = C.source_stroke
+                    card_opts.stroke_w = SOURCE_STROKE_W
                 elseif is_selected and not clip_hovers_this then
-                    card_opts.stroke = C.send_stroke
+                    card_opts.stroke = C.flow_stroke
+                    card_opts.stroke_w = FLOW_STROKE_W
                 elseif not is_focus then
                     local flow_hov = r.ImGui_IsMouseHoveringRect(ctx, flow_scx, flow_scy, flow_scx + bw, flow_scy + flow_est_h)
                     card_opts.bg = flow_hov and C.bg or 0x202227FF
@@ -5920,8 +6078,8 @@ InspDrawInspector = function(bw, bh)
 
                 local flow_card_bw, flow_card = CardBegin(bw, card_opts)
                 local flow_use_bw = flow_card_bw or bw
-                InspDrawTrackBlock(chain_track, flow_use_bw, bh, i, true)
-                CardEnd(flow_card)
+                local flow_card_layout = InspDrawTrackBlock(chain_track, flow_use_bw, bh, i, true)
+                CardEnd(flow_card, flow_card_layout)
                 flow_env_expanded[chain_track] = insp_env_expanded
 
                 -- Card background click: any blank space = browse/focus
@@ -6002,12 +6160,13 @@ InspDrawInspector = function(bw, bh)
         -- Pin stroke yields to clipboard paste target outline (v20.411)
         if insp_pinned and not FxClipIsHoveredTrack(insp_track) then
             card_opts.stroke = C.source_stroke
+            card_opts.stroke_w = SOURCE_STROKE_W
         end
         local card_bw, card_state = CardBegin(bw, card_opts)
         local use_bw = card_bw or bw
-        InspDrawTrackBlock(insp_track, use_bw, bh, 0, false)
+        local card_layout = InspDrawTrackBlock(insp_track, use_bw, bh, 0, false)
 
-        CardEnd(card_state)
+        CardEnd(card_state, card_layout)
 
         -- Sends section (above secondary track when not side-by-side)
         if opt_show_sends and not sends_side then
@@ -6194,6 +6353,49 @@ InspDrawCompareControls = function(bw, cmp_h_override)
     if float_click then InspCmpFloatAll() end
 
     r.ImGui_SetCursorPos(ctx, sx, sy + cmp_h)
+end
+
+ReflexInspectorFlatContentMinWidth = function()
+    local row_h = S(UI.btn_h)
+    local gap = S(UI.pad_sm)
+    local group_gap = S(UI.group_gap)
+    local ms_w = row_h
+    local pan_val_w = math.max(row_h, r.ImGui_CalcTextSize(ctx, "100R") + S(16))
+    local rec_total = ms_w + gap + RecordMonitorButtonWidth(row_h) + gap * 2
+    local left_end = rec_total + ms_w + gap + ms_w + gap + pan_val_w + group_gap
+
+    local trk_env_label = "ENV"
+    local trk_ew = math.max(row_h, r.ImGui_CalcTextSize(ctx, trk_env_label) + S(12))
+    local env_dot_r = S(5)
+    local env_dot_gap = S(4)
+    local env_dots_w = env_dot_r * 2 + env_dot_gap + env_dot_r * 2
+    local right_total = env_dots_w + gap + trk_ew + gap + row_h
+    return left_end + right_total
+end
+
+ReflexFooterContentMinWidth = function()
+    local d = ReflexFooterButtonDiameter()
+    local hit_w = ReflexFooterButtonHitWidth(d)
+    local gap = ReflexFooterButtonGap()
+    local edge = ReflexFooterEdgeGap()
+    local step = hit_w + gap
+    local history_w = d + step
+    local right_group_w = d + step * 2
+    local cmp_w = InspGetCompareControlsWidth(d)
+    local middle_w = cmp_w > 0 and (gap * 4 + cmp_w) or 0
+    return edge * 2 + history_w + middle_w + right_group_w
+end
+
+ReflexWindowMinWidth = function()
+    local fp = PushFont(GetScaledFont and GetScaledFont())
+    local inspector_w = ReflexInspectorFlatContentMinWidth() + S(UI.edge_pad) * 2
+    PopFont(fp)
+    local saved_scale_comp = ReflexSetBodyScaleCompensation(false)
+    local footer_fp = PushFont(GetScaledFont and GetScaledFont())
+    local footer_w = ReflexFooterContentMinWidth()
+    PopFont(footer_fp)
+    ReflexSetBodyScaleCompensation(saved_scale_comp)
+    return math.max(WIN_MIN_W, inspector_w, footer_w)
 end
 
 -- =========================================================================
@@ -7538,19 +7740,25 @@ FlowDrawMinimalCard = function(track, bw, block_idx)
     local cx, cy = r.ImGui_GetCursorScreenPos(ctx)
     local dl = r.ImGui_GetWindowDrawList(ctx)
 
-    -- Stroke logic: selected track gets white outline even when collapsed
+    -- Stroke logic: selected track gets a gray outline even when collapsed.
     local is_selected = (track == insp_track)
-    local stroke = is_selected and C.send_stroke or nil
+    local stroke = is_selected and C.flow_stroke or nil
 
     -- Card bg
     local col_r = opt_card_boxes and S(UI.card_r) or S(UI.corner_r)
     local rcx, rcy = math.floor(cx), math.floor(cy)
     local rcx2, rcy2 = math.floor(cx + bw), math.floor(cy + card_h)
     if stroke then
-        local sw = math.max(1, Round(S(STROKE_W)))
+        if r.ImGui_StyleVar_CircleTessellationMaxError then
+            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), CARD_STROKE_TESSELLATION_MAX_ERROR)
+        end
+        local sw = FLOW_STROKE_W
         local stroke_rgba = (stroke & 0xFFFFFF00) | 0xFF
         r.ImGui_DrawList_AddRectFilled(dl, rcx, rcy, rcx2, rcy2, stroke_rgba, col_r)
         r.ImGui_DrawList_AddRectFilled(dl, rcx + sw, rcy + sw, rcx2 - sw, rcy2 - sw, C.bg, math.max(0, col_r - sw))
+        if r.ImGui_StyleVar_CircleTessellationMaxError then
+            r.ImGui_PopStyleVar(ctx)
+        end
     else
         local hov = r.ImGui_IsMouseHoveringRect(ctx, rcx, rcy, rcx2, rcy2)
         local bg = hov and C.bg or 0x202227FF
@@ -8605,7 +8813,7 @@ FxBrowserRender = function()
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ItemSpacing(), S(4), S(4))
     local fx_smooth_tess_count = 0
     if r.ImGui_StyleVar_CircleTessellationMaxError then
-        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), 0.1)
+        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), 0.03)
         fx_smooth_tess_count = 1
     end
 
@@ -9095,8 +9303,128 @@ end
 
 local last_track_count = 0
 local last_project_state = 0
+local project_state_rescan_pending = false
 local last_rescan_time = 0
 local RESCAN_THROTTLE = 0.5  -- seconds between structure rescans
+local nav_project_key = nil
+local nav_project_search_cache = {}
+local inspector_project_state_cache = {}
+
+ReflexNavigatorCurrentProjectKey = function()
+    local proj = r.EnumProjects and r.EnumProjects(-1, "") or nil
+    local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+    return tostring(proj or "0") .. "|" .. tostring(master or "")
+end
+
+ReflexCopyShallowMap = function(src)
+    local dst = {}
+    for k, v in pairs(src or {}) do dst[k] = v end
+    return dst
+end
+
+ReflexFindTrackByGuid = function(guid)
+    if not guid or guid == "" then return nil end
+    local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+    if master and r.ValidatePtr(master, "MediaTrack*") and r.GetTrackGUID(master) == guid then
+        return master
+    end
+    local nt = r.CountTracks(0)
+    for i = 0, nt - 1 do
+        local track = r.GetTrack(0, i)
+        if track and r.GetTrackGUID(track) == guid then return track end
+    end
+    return nil
+end
+
+ReflexCaptureInspectorProjectState = function()
+    local state = {
+        pinned = false,
+        env_expanded = ReflexCopyShallowMap(insp_env_expanded),
+        pin_suppress_selected = insp_pin_suppress_selected == true,
+        pin_last_sel_guid = insp_pin_last_sel_guid,
+        pin_sel_env = ReflexCopyShallowMap(insp_pin_sel_env),
+        card_heights = ReflexCopyShallowMap(card_heights_prev),
+    }
+    if insp_track and r.ValidatePtr(insp_track, "MediaTrack*") then
+        state.track_guid = r.GetTrackGUID(insp_track)
+        state.pinned = insp_pinned == true
+    end
+    return state
+end
+
+ReflexSaveInspectorProjectState = function(project_key)
+    if not project_key or project_key == "" then return end
+    inspector_project_state_cache[project_key] = ReflexCaptureInspectorProjectState()
+end
+
+ReflexRestoreInspectorProjectState = function(project_key)
+    local state = project_key and inspector_project_state_cache[project_key] or nil
+    local track = state and ReflexFindTrackByGuid(state.track_guid) or nil
+
+    InspCleanupDragState()
+    insp_track = track
+    insp_pinned = track ~= nil and state and state.pinned == true or false
+    insp_env_expanded = state and ReflexCopyShallowMap(state.env_expanded) or {}
+    insp_pin_suppress_selected = state and state.pin_suppress_selected == true or false
+    insp_pin_last_sel_guid = state and state.pin_last_sel_guid or nil
+    insp_pin_sel_env = state and ReflexCopyShallowMap(state.pin_sel_env) or {}
+    insp_pin_sel_frames = 0
+    card_heights_prev = state and ReflexCopyShallowMap(state.card_heights) or {}
+    card_heights_cur = {}
+    card_idx = 0
+    insp_vol_editing = false; insp_pan_editing = false
+    insp_rename_type = nil
+    insp_vol_edit_focus = false; insp_pan_edit_focus = false
+    insp_vol_edit_frames = 0; insp_pan_edit_frames = 0
+    if insp_track then
+        InspScanTrack(insp_track)
+        insp_meter_clip[insp_track] = nil
+        insp_meter_peak[insp_track] = nil
+    end
+    if SendsViewCheckRefresh then SendsViewCheckRefresh() end
+end
+
+ReflexSetNavigatorSearchForProject = function(query)
+    query = query or ""
+    nav_tlt_search_text = query
+    nav_tlt_search_effective_query = query
+    nav_tlt_search_hide_clear = query == ""
+    nav_tlt_search_recent_clear_frames = 0
+    nav_tlt_search_focus_requested_frames = 0
+    if NavSetTltSearchEffectiveQuery then NavSetTltSearchEffectiveQuery(query, true) end
+end
+
+ReflexSyncNavigatorProjectTab = function()
+    local cur = ReflexNavigatorCurrentProjectKey()
+    if cur == "" then return false end
+    if not nav_project_key then
+        nav_project_key = cur
+        nav_project_search_cache[cur] = nav_tlt_search_text or ""
+        ReflexSaveInspectorProjectState(cur)
+        return false
+    end
+    if cur == nav_project_key then
+        ReflexSaveInspectorProjectState(cur)
+        return false
+    end
+
+    -- Inspector state for the old tab is cached while that tab is active;
+    -- its MediaTrack* may already be invalid by the time this branch runs.
+    nav_project_search_cache[nav_project_key] = nav_tlt_search_text or ""
+    nav_project_key = cur
+    ReflexSetNavigatorSearchForProject(nav_project_search_cache[cur] or "")
+    ReflexRestoreInspectorProjectState(cur)
+    top_folders = {}
+    render_list = {}
+    song_entries = {}
+    archive_entry = nil
+    songs_entry_ref = nil
+    for _, sg in ipairs(sub_groups) do sg.entry_ref = nil; sg.entries = {} end
+    needs_rescan = true
+    needs_song_rescan = true
+    project_state_rescan_pending = false
+    return true
+end
 
 ReflexAnyPopupOpen = function()
     return r.ImGui_IsPopupOpen(ctx, "",
@@ -9148,6 +9476,7 @@ Loop = function()
     MaybeReloadNavExcluded()  -- v20.501: excluded TLTs are per-project GUID state
     MaybeReloadNavIncluded()
     MaybeSyncViewModeProject()
+    local project_tab_changed = ReflexSyncNavigatorProjectTab()
 
     -- v20.445/v20.448: Hand keyboard focus to REAPER's main window so arrow
     -- keys (transport, item nav) work without first clicking either window.
@@ -9190,21 +9519,29 @@ Loop = function()
         needs_rescan = true; needs_song_rescan = true
     elseif nt ~= last_track_count then
         needs_rescan = true; needs_song_rescan = true
+    elseif project_tab_changed then
+        needs_rescan = true; needs_song_rescan = true
     elseif proj_state ~= last_project_state then
+        project_state_rescan_pending = true
+    end
+    if project_state_rescan_pending then
         local now = r.time_precise()
         if now - last_rescan_time >= RESCAN_THROTTLE then
             needs_rescan = true; needs_song_rescan = true
         end
     end
     last_track_count = nt
-    last_project_state = proj_state
 
     if needs_rescan and nt > 0 then
         ScanTopFolders(); ScanSubGroups(); BuildRenderList()
         last_rescan_time = r.time_precise()
+        last_project_state = proj_state
+        project_state_rescan_pending = false
         -- Refresh routing view if active (tracks may have been added/removed/rearranged)
         -- (Routing/Active views are inert snapshots — no re-apply on rescan)
         if flow_view_active then FlowViewRefresh() end
+    elseif not project_state_rescan_pending then
+        last_project_state = proj_state
     end
 
     -- Force tracks page if no SONGS folder exists
@@ -9390,7 +9727,7 @@ Loop = function()
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowBorderSize(), 0)
     local smooth_tess_count = 0
     if r.ImGui_StyleVar_CircleTessellationMaxError then
-        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), 0.1)
+        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), 0.03)
         smooth_tess_count = 1
     end
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ScrollbarBg(), 0x3E3E3FFF)
@@ -9400,11 +9737,12 @@ Loop = function()
     dock_color_count = dock_color_count + 4
     PushPopupStyle()
 
+    local reflex_min_w = ReflexWindowMinWidth()
     if not window_initialized then
-        r.ImGui_SetNextWindowSize(ctx, S(BASE_W) + S(28), 500)
+        r.ImGui_SetNextWindowSize(ctx, math.max(S(BASE_W) + S(28), reflex_min_w), 500)
         window_initialized = true
     end
-    r.ImGui_SetNextWindowSizeConstraints(ctx, WIN_MIN_W, 200, WIN_MAX_W, 99999)
+    r.ImGui_SetNextWindowSizeConstraints(ctx, reflex_min_w, 200, math.max(WIN_MAX_W, reflex_min_w), 99999)
 
     local wflags = r.ImGui_WindowFlags_NoCollapse() | r.ImGui_WindowFlags_NoScrollbar() | r.ImGui_WindowFlags_NoScrollWithMouse()
     -- v20.448: prevent the window from grabbing OS-level focus when it first
@@ -9643,40 +9981,8 @@ Loop = function()
 
         -- ── LAYOUT: content + divider + remote ──
         local divider_h = S(6)
-        -- Footer height: estimate row count to reserve correct vertical space.
-        -- Mirrors the A/B stage decision in the FOOTER BAR section below.
-        -- Max 2 rows in all stages.
-        local vh_text_h = r.ImGui_GetTextLineHeight(ctx)
-        local vh_bar_h = Round(vh_text_h * 2.1)
-        local vh_row_gap = S(UI.pad_sm)
-        local vh_ig_gap = S(UI.pad_sm) * 2     -- inter-group gap (2× base)
-        local vh_est_avail = r.ImGui_GetContentRegionAvail(ctx) - sb_inset
-        local vh_gear_w = vh_bar_h             -- square gear
-        local vh_pills_w = 4 * vh_bar_h + 3 * S(UI.pad_sm)
-                         + (active_view_active and (S(3.75) + vh_bar_h) or 0)
-        local vh_cmp_w = InspGetCompareControlsWidth(vh_bar_h)
-        local vh_history_w = vh_bar_h + S(UI.pad_sm) + vh_bar_h
-        local vh_single_needed
-        local vh_b3_ok
-        if vh_cmp_w <= 0 then
-            vh_single_needed = vh_gear_w + vh_ig_gap + vh_pills_w + vh_ig_gap + vh_history_w
-            vh_b3_ok = true  -- only used in B-path
-        else
-            vh_single_needed = vh_gear_w + vh_ig_gap + vh_pills_w + vh_ig_gap
-                             + vh_cmp_w + vh_ig_gap + vh_history_w
-            -- B3 feasibility: bottom (gear+views) AND top (compare+history) both fit
-            vh_b3_ok = (vh_gear_w + vh_ig_gap + vh_pills_w <= vh_est_avail)
-                   and (vh_cmp_w + vh_ig_gap + vh_history_w <= vh_est_avail)
-        end
-        local vh_num_rows
-        if vh_single_needed <= vh_est_avail then
-            vh_num_rows = 1
-        elseif vh_cmp_w > 0 and not vh_b3_ok then
-            vh_num_rows = 3  -- B4
-        else
-            vh_num_rows = 2
-        end
-        local vh_row_h = vh_num_rows * vh_bar_h + (vh_num_rows - 1) * vh_row_gap + S(UI.edge_pad)
+        local vh_bar_h = ReflexFooterButtonDiameter()
+        local vh_row_h = ReflexFooterTotalHeight(vh_bar_h)
         local remote_inline = remote_visible and not remote_popped_out
         local win_pad = S(UI.edge_pad)
         local _, win_h = r.ImGui_GetContentRegionAvail(ctx)
@@ -9702,6 +10008,7 @@ Loop = function()
         local bw
         do
             local reflex_ui_scale = ui_scale
+            local saved_scale_comp = ReflexSetBodyScaleCompensation(false)
             ui_scale = nav_ui_scale
             local nav_sb_inset = -reflex_right_edge_extend
             bw = r.ImGui_GetContentRegionAvail(ctx) - nav_sb_inset
@@ -9722,6 +10029,7 @@ Loop = function()
             })
             PopFont(nav_fp)
             ui_scale = reflex_ui_scale
+            ReflexSetBodyScaleCompensation(saved_scale_comp)
         end
 
         -- ── SCROLLABLE CONTENT (inspector, context menu) ──
@@ -9984,381 +10292,203 @@ Loop = function()
             end
         end
 
-        -- ── FOOTER BAR (gear, pills, compare, back/forward) ──
-        -- Layout adapts based on available width:
-        --   Single row: [gear] [pills centered] [compare | back | fwd]
-        --   Two rows:   Row1 pills, Row2 [gear] [compare | back | fwd]
-        --   Three rows: Row1 pills, Row2 [compare | back | fwd], Row3 [gear]
-        -- Compare+back+fwd never split across rows; individual pills never split.
-        local footer_screen_y = select(2, r.ImGui_GetCursorScreenPos(ctx))
+        -- ── FOOTER BAR (history left, settings/F/S right) ──
         do
-            local vh_gap = S(UI.pad_sm)
-            local vh_left_x = r.ImGui_GetCursorPosX(ctx)
-            local vh_avail = r.ImGui_GetContentRegionAvail(ctx) - sb_inset
+            local saved_scale_comp = ReflexSetBodyScaleCompensation(false)
+            local footer_fp = PushFont(GetScaledFont())
+            local footer_d = ReflexFooterButtonDiameter()
+            local footer_hit_w = ReflexFooterButtonHitWidth(footer_d)
+            local footer_gap = ReflexFooterButtonGap()
+            local footer_edge = ReflexFooterEdgeGap()
+            local footer_row_h = ReflexFooterRowHeight(footer_d)
+            local footer_dot_r = math.floor(footer_d / 2)
+            local footer_y = r.ImGui_GetCursorPosY(ctx)
+            local footer_cy = footer_y + math.floor(footer_row_h / 2)
+            local footer_left_x = footer_edge
+            local footer_right_x = ww - footer_edge - sb_inset
+            local dl_footer = r.ImGui_GetWindowDrawList(ctx)
 
-            -- All buttons scale to pill height for visual consistency
-            local text_h = r.ImGui_GetTextLineHeight(ctx)
-            local flow_pill_h = Round(text_h * 2.1)
-            local bar_h = flow_pill_h
-            local btn_sz = flow_pill_h   -- gear/arrow/compare-element height
-            local vh_btn_w = btn_sz
+            local COL_FOOTER_REST_BG = rgb(0x171B21)
+            local COL_FOOTER_TEXT_REST = rgb(0x919394)
+            local FOOTER_INACTIVE_BG = (COL_FOOTER_REST_BG & 0xFFFFFF00) | 0x66
+            local FOOTER_INACTIVE_FG = (COL_FOOTER_TEXT_REST & 0xFFFFFF00) | 0x66
+            local FOOTER_TEXT_ACTIVE = 0xFFFFFFFF
 
-            -- All footer buttons (F/S circles, gear, arrows) share btn_sz as width and height.
-            -- A and R moved to NAV section header in v20.488.
-            local pill_gap = vh_gap
-            local flow_pw, sends_pw = btn_sz, btn_sz
-            local total_pills_w = flow_pw + pill_gap + sends_pw
-
-            -- Group widths (each group is atomic — no internal splitting allowed)
-            local gear_w = btn_sz  -- square
-            local cmp_w = InspGetCompareControlsWidth(btn_sz)
-            local history_w = vh_btn_w + vh_gap + vh_btn_w  -- back + fwd (vh_gap = intra-group)
-
-            -- Inter-group gap: double the base. Used between all groups on any row.
-            local ig_gap = vh_gap * 2
-
-            -- Stage model depends on compare presence. Max 2 rows except B4 (3 rows).
-            -- Rules:
-            --   * gear is always flush-left whenever present on a row.
-            --   * history is always flush-right.
-            --   * When exactly 2 groups share a row, opposite-edge alignment.
-            --   * Single-group rows center the group.
-            --
-            -- Compare absent ("A" stages):
-            --   A1 (1 row):  [gear←][views-ctr][history→]
-            --   A2 (2 rows): top [history→], bottom [gear←] [views→]
-            --   A3 (2 rows): top [gear←] [history→], bottom [views-ctr]
-            --
-            -- Compare present ("B" stages):
-            --   B1 (1 row):  [gear←][views-ctr-A][compare-ctr-B][history→]
-            --   B2 (2 rows): top [compare→], bottom [gear←] [views-ctr] [history→]
-            --   B3 (2 rows): top [compare←] [history→], bottom [gear←] [views→]
-            --   B4 (3 rows): top [gear←] [history→], mid [compare-ctr], bot [views-ctr]
-            local stage
-            if cmp_w <= 0 then
-                if gear_w + ig_gap + total_pills_w + ig_gap + history_w <= vh_avail then
-                    stage = "A1"
-                elseif gear_w + ig_gap + total_pills_w <= vh_avail then
-                    stage = "A2"
-                else
-                    stage = "A3"
-                end
-            else
-                if gear_w + ig_gap + total_pills_w + ig_gap + cmp_w + ig_gap + history_w <= vh_avail then
-                    stage = "B1"
-                elseif (gear_w + ig_gap + total_pills_w + ig_gap + history_w <= vh_avail)
-                       and (cmp_w <= vh_avail) then
-                    stage = "B2"
-                elseif (gear_w + ig_gap + total_pills_w <= vh_avail)
-                       and (cmp_w + ig_gap + history_w <= vh_avail) then
-                    stage = "B3"
-                else
-                    stage = "B4"  -- 3 rows: gear/history, compare alone, views alone
-                end
-            end
-            local num_rows
-            if stage == "A1" or stage == "B1" then num_rows = 1
-            elseif stage == "B4" then num_rows = 3
-            else num_rows = 2 end
-
-            -- Row Y coordinates (top of each row)
-            local row_gap = vh_gap
-            local vh_y = r.ImGui_GetCursorPosY(ctx)
-            local row_y = { vh_y }
-            for ri = 2, num_rows do row_y[ri] = row_y[ri - 1] + bar_h + row_gap end
-
-            -- Pill colors helper (unified rest; hover tints toward active; active color overridable)
-            local function pill_colors(is_active, active_color)
-                if is_active then
-                    local ac = active_color or C.cmp_b
-                    return ac, ac, ac, 0xFFFFFFFF, 0xFFFFFFFF
-                else
-                    local ac = active_color or C.btn_hover  -- hover tint when inactive
-                    return C.btn_bg, ac, ac, C.text_dim, 0xFFFFFFFF
-                end
+            local function history_unavailable_bg()
+                return (C.btn_bg & 0xFFFFFF00) | 0x30
             end
 
-            -- ── PILLS ROW ──
-            -- Views row + position depends on stage (see stage comments above for layout).
-            local pill_row_y
-            if stage == "A1" or stage == "B1" then pill_row_y = row_y[1]
-            elseif stage == "A2" or stage == "B2" or stage == "B3" then pill_row_y = row_y[2]
-            elseif stage == "B4" then pill_row_y = row_y[3]
-            else pill_row_y = row_y[2] end  -- A3: views alone on row 2
-            local pill_y = pill_row_y + Round((bar_h - flow_pill_h) / 2)
-            local pills_start_x
-            if stage == "A1" then
-                -- [gear←][views-ctr][history→]: center between gear-right and history-left
-                local left  = vh_left_x + gear_w + ig_gap
-                local right = vh_left_x + vh_avail - history_w - ig_gap
-                pills_start_x = left + Round((right - left - total_pills_w) / 2)
-            elseif stage == "B1" then
-                -- [gear←][views-ctr-A][compare-ctr-B][history→]
-                -- Views and compare each center in their half of the space between gear and history.
-                local region_left  = vh_left_x + gear_w + ig_gap
-                local region_right = vh_left_x + vh_avail - history_w - ig_gap
-                local half_w_region = (region_right - region_left) / 2
-                pills_start_x = region_left + Round((half_w_region - total_pills_w) / 2)
-            elseif stage == "A2" then
-                -- [gear←] [views→]: opposite-edge alignment (views flush right)
-                pills_start_x = vh_left_x + vh_avail - total_pills_w
-            elseif stage == "B2" then
-                -- [gear←] [views-ctr] [history→]: views centered between gear and history
-                local left  = vh_left_x + gear_w + ig_gap
-                local right = vh_left_x + vh_avail - history_w - ig_gap
-                pills_start_x = left + Round((right - left - total_pills_w) / 2)
-            elseif stage == "B3" then
-                -- [gear←] [views→]: opposite-edge alignment
-                pills_start_x = vh_left_x + vh_avail - total_pills_w
-            else
-                -- A3 or B4: views alone on bottom, centered full-width
-                pills_start_x = vh_left_x + Round((vh_avail - total_pills_w) / 2)
+            local function history_unavailable_fg()
+                return (C.text_dim & 0xFFFFFF00) | 0x50
             end
 
-            -- Per-view-button active colors
-            local COL_F = 0x4B85DDFF
-            local COL_R = 0x9C92E0FF
-            local COL_S = 0xDAA400FF
-            local COL_A = 0x5FAEDBFF
-
-            -- Flow (F)
-            local has_flow_routes = insp_track and r.ValidatePtr(insp_track, "MediaTrack*")
-            do
-                local pbg, phov, pact, pfg, pfg_hov = pill_colors(flow_view_active, COL_F)
-                if not has_flow_routes and not flow_view_active then
-                    pfg = (pfg & 0xFFFFFF00) | 0x40
-                end
-                r.ImGui_SetCursorPos(ctx, pills_start_x, pill_y)
-                local _, clk = NavRect("##flow_footer", flow_pw, flow_pill_h, "F", {
-                    bg = pbg, hov = phov, active = pact, fg = pfg, fg_hov = pfg_hov,
-                    rounding = flow_pill_h / 2,
+            local function footer_circle(id, cx, cy, opts)
+                r.ImGui_SetCursorPos(ctx, cx - footer_dot_r, cy - footer_row_h * 0.5)
+                local hov, clk, held = NavCircle(id, footer_d, nil, {
+                    bg = opts.bg,
+                    hov = opts.hov,
+                    active = opts.active,
+                    fg = opts.fg,
+                    fg_hov = opts.fg_hov,
+                    fg_active = opts.fg_active,
+                    hit_w = footer_hit_w,
+                    hit_h = footer_row_h,
+                    no_press = opts.no_press,
+                    segments = NAV_CIRCLE_SEGMENTS,
                 })
-                Tip("Flow View")
-                if clk and (has_flow_routes or flow_view_active) then FlowViewToggle() end
+                return hov, clk, held, r.ImGui_GetItemRectMin(ctx)
             end
 
+            local function footer_history_button(id, glyph, enabled, tooltip, action_fn, cx, cy, glyph_x_nudge)
+                local opts
+                if enabled then
+                    opts = {
+                        bg = FOOTER_INACTIVE_BG,
+                        hov = COL_FOOTER_REST_BG,
+                        active = COL_FOOTER_REST_BG,
+                        fg = COL_FOOTER_TEXT_REST,
+                        fg_hov = COL_FOOTER_TEXT_REST,
+                        fg_active = COL_FOOTER_TEXT_REST,
+                        no_press = true,
+                    }
+                else
+                    local fbg = history_unavailable_bg()
+                    local ffg = history_unavailable_fg()
+                    opts = {
+                        bg = fbg,
+                        hov = fbg,
+                        active = fbg,
+                        fg = ffg,
+                        fg_hov = ffg,
+                        fg_active = ffg,
+                        no_press = true,
+                    }
+                end
+                local hov, clk, _, x, y = footer_circle(id, cx, cy, opts)
+                local fg = enabled and COL_FOOTER_TEXT_REST or history_unavailable_fg()
+                local tw, th = r.ImGui_CalcTextSize(ctx, glyph)
+                local tx = x + Round((footer_hit_w - tw) / 2) + (glyph_x_nudge or 0)
+                local ty = y + Round((footer_row_h - th) / 2)
+                r.ImGui_DrawList_AddText(dl_footer, tx, ty, fg, glyph)
+                if hov and enabled then Tip(tooltip) end
+                if enabled and clk and action_fn then action_fn() end
+            end
 
-            -- Sends (S)
-            do
-                local pbg, phov, pact, pfg, pfg_hov = pill_colors(opt_show_sends, COL_S)
-                r.ImGui_SetCursorPos(ctx, pills_start_x + flow_pw + pill_gap, pill_y)
-                local _, clk = NavRect("##sends_footer", sends_pw, flow_pill_h, "S", {
-                    bg = pbg, hov = phov, active = pact, fg = pfg, fg_hov = pfg_hov,
-                    rounding = flow_pill_h / 2,
+            local function footer_mode_button(id, label, active, enabled, tooltip, action_fn, cx, cy, draw_icon)
+                local active_bg = COL_FOOTER_REST_BG
+                local bg = enabled and (active and active_bg or FOOTER_INACTIVE_BG) or FOOTER_INACTIVE_BG
+                local hov_bg = enabled and active_bg or FOOTER_INACTIVE_BG
+                local act_bg = enabled and active_bg or FOOTER_INACTIVE_BG
+                local hov, clk, held, x, y = footer_circle(id, cx, cy, {
+                    bg = bg,
+                    hov = hov_bg,
+                    active = act_bg,
+                    fg = FOOTER_INACTIVE_FG,
+                    fg_hov = COL_FOOTER_TEXT_REST,
+                    fg_active = FOOTER_TEXT_ACTIVE,
                 })
-                Tip("Show Sends")
-                if clk then opt_show_sends = not opt_show_sends; SavePref("show_sends", opt_show_sends) end
+                local visual_active = active == true
+                if enabled and clk then visual_active = not visual_active end
+                local fg
+                if not enabled then
+                    fg = FOOTER_INACTIVE_FG
+                elseif visual_active then
+                    fg = FOOTER_TEXT_ACTIVE
+                elseif hov or held then
+                    fg = COL_FOOTER_TEXT_REST
+                else
+                    fg = FOOTER_INACTIVE_FG
+                end
+                local icon_cx = x + footer_hit_w * 0.5
+                local icon_cy = y + footer_row_h * 0.5
+                if draw_icon then
+                    draw_icon(dl_footer, icon_cx, icon_cy, fg, footer_d)
+                else
+                    DrawFooterLabel(dl_footer, icon_cx, icon_cy, label, fg, footer_d)
+                end
+                if hov then Tip(tooltip) end
+                if enabled and clk and action_fn then action_fn() end
             end
 
-            -- A and R moved to NAV section in v20.489; toast for Active relocated there too.
+            local can_back = ViewHistoryCanBack and ViewHistoryCanBack() or false
+            local can_fwd = ViewHistoryCanForward and ViewHistoryCanForward() or (view_history_idx < view_history_count)
+            local footer_step = footer_hit_w + footer_gap
+            local footer_render_r = footer_d / 2
+            local back_cx = footer_left_x + footer_render_r
+            local fwd_cx = back_cx + footer_step
+            footer_history_button("##vhback", "\xE2\x97\x80", can_back,
+                "Previous view", ViewHistoryBack, back_cx, footer_cy, -ReflexFooterRetinaPx(2))
+            footer_history_button("##vhfwd", "\xE2\x96\xB6", can_fwd,
+                "Next view", ViewHistoryForward, fwd_cx, footer_cy)
 
-            -- ── GEAR + COMPARE + HISTORY POSITIONING ──
-            -- Row assignments per stage:
-            --   A1: all on row 1
-            --   A2: gear on row 2 (bottom with views), history on row 1 (alone on top)
-            --   A3: gear+history on row 1 (top), views on row 2 (alone)
-            --   B1: all on row 1
-            --   B2: compare on row 1 (alone top), gear+views+history on row 2
-            --   B3: compare+history on row 1 (top), gear+views on row 2
-            --   B4 (3 rows): gear+history on row 1, compare on row 2, views on row 3
-            local gear_row_y, cmp_row_y, history_row_y
-            if stage == "A1" then
-                gear_row_y = row_y[1]; history_row_y = row_y[1]; cmp_row_y = row_y[1]
-            elseif stage == "A2" then
-                gear_row_y = row_y[2]; history_row_y = row_y[1]; cmp_row_y = row_y[1]
-            elseif stage == "A3" then
-                gear_row_y = row_y[1]; history_row_y = row_y[1]; cmp_row_y = row_y[1]
-            elseif stage == "B1" then
-                gear_row_y = row_y[1]; history_row_y = row_y[1]; cmp_row_y = row_y[1]
-            elseif stage == "B2" then
-                gear_row_y = row_y[2]; history_row_y = row_y[2]; cmp_row_y = row_y[1]
-            elseif stage == "B3" then
-                gear_row_y = row_y[2]; history_row_y = row_y[1]; cmp_row_y = row_y[1]
-            else  -- B4 (3 rows)
-                gear_row_y = row_y[1]; history_row_y = row_y[1]; cmp_row_y = row_y[2]
-            end
+            local sends_cx = footer_right_x - footer_render_r
+            local flow_cx = sends_cx - footer_step
+            local settings_cx = flow_cx - footer_step
+            local right_group_x = settings_cx - footer_render_r
+            local next_left_x = fwd_cx + footer_render_r
 
-            -- Gear X position: flush to window left edge in all stages.
-            local gear_x = vh_left_x
-            -- Gear button (manual render: circle + glyph with visual-center nudge)
-            local gear_y = gear_row_y + Round((bar_h - btn_sz) / 2)
-            r.ImGui_SetCursorPos(ctx, gear_x, gear_y)
-            do
-                local gear_font = GetSteppedFont(8)  -- ~2x base body size
-                if gear_font then r.ImGui_PushFont(ctx, gear_font) end
-                r.ImGui_InvisibleButton(ctx, "##vhgear", gear_w, btn_sz)
-                local ghov = r.ImGui_IsItemHovered(ctx)
-                local gactive = r.ImGui_IsItemActive(ctx)
-                local gear_clk = r.ImGui_IsItemClicked(ctx, 0)
-                local gix, giy = r.ImGui_GetItemRectMin(ctx)
-                local dl_g = r.ImGui_GetWindowDrawList(ctx)
-                -- Bg color: unified scheme with :active when settings_open
-                local gbg
-                if settings_open then gbg = C.cmp_b
-                elseif gactive then gbg = C.btn_active
-                elseif ghov then gbg = C.btn_hover
-                else gbg = C.btn_bg end
-                -- Fg color
-                local gfg = settings_open and 0xFFFFFFFF or (ghov and C.text or C.text_dim)
-                -- Circle bg
-                r.ImGui_DrawList_AddCircleFilled(dl_g,
-                    gix + gear_w / 2, giy + btn_sz / 2, math.min(gear_w, btn_sz) / 2, gbg, 0)
-                -- Gear glyph: ImGui's CalcTextSize returns em-box bounds, but the
-                -- visible ⚙ sits in the lower-right of its em-box (font-dependent).
-                -- Nudge in absolute pixels to align visual center with circle center.
-                local glyph = "\xE2\x9A\x99"
-                local gtw, gth = r.ImGui_CalcTextSize(ctx, glyph)
-                local gtx = Round(gix + (gear_w - gtw) / 2)
-                local gty = Round(giy + (btn_sz - gth) / 2) - 2
-                r.ImGui_DrawList_AddText(dl_g, gtx, gty, gfg, glyph)
-                if gear_font then r.ImGui_PopFont(ctx) end
-                Tip("Settings")
-                if gear_clk then settings_open = not settings_open end
-            end
-
-            -- FX clipboard chip (v20.407). Rendered immediately right of gear
-            -- when clipboard has content. Format: "[N] ×" — compact pill with
-            -- green outline matching carry color. Clicking × (or anywhere on
-            -- the pill, actually — the whole pill clears) drops the clipboard.
-            -- Positioned in screen space so it doesn't displace other footer
-            -- elements (they were laid out assuming gear_w only).
             if FxClipHasContent() then
                 local clip_n = FxClipCount()
                 local clip_col = C.fx_clip_carry or rgb(0x3FB950)
-                local dl_clip = r.ImGui_GetWindowDrawList(ctx)
-                -- Compute pill dimensions
                 local clip_label = tostring(clip_n) .. "  ×"
                 local clip_tw = r.ImGui_CalcTextSize(ctx, clip_label)
                 local clip_pad_x = S(10)
-                local clip_h = btn_sz
+                local clip_h = footer_d
                 local clip_w = clip_tw + clip_pad_x * 2
-                -- Position: right of gear with a small gap
-                local clip_gap = S(6)
-                local clip_x = vh_left_x + gear_w + clip_gap
-                local clip_y = gear_y  -- same vertical as gear
-                r.ImGui_SetCursorPos(ctx, clip_x, clip_y)
-                local clk = false
-                local chov = false
-                do
-                    local cid = "##fxclipchip"
-                    r.ImGui_InvisibleButton(ctx, cid, clip_w, clip_h)
-                    chov = r.ImGui_IsItemHovered(ctx)
-                    clk = r.ImGui_IsItemClicked(ctx, 0)
+                local clip_x = next_left_x + S(6)
+                local clip_y = footer_cy - clip_h / 2
+                if clip_x + clip_w <= right_group_x - footer_gap * 2 then
+                    r.ImGui_SetCursorPos(ctx, clip_x, clip_y)
+                    r.ImGui_InvisibleButton(ctx, "##fxclipchip", clip_w, clip_h)
+                    local chov = r.ImGui_IsItemHovered(ctx)
+                    local clk = r.ImGui_IsItemClicked(ctx, 0)
                     local cix, ciy = r.ImGui_GetItemRectMin(ctx)
-                    -- Pill body: transparent fill, green stroke; green bg on hover
-                    local body_r = math.max(3, S(clip_h / 2))
+                    local body_r = math.max(3, clip_h / 2)
                     if chov then
-                        -- 30% alpha fill on hover
                         local fill = (clip_col & 0xFFFFFF00) | 0x4D
-                        r.ImGui_DrawList_AddRectFilled(dl_clip, cix, ciy, cix + clip_w, ciy + clip_h, fill, body_r)
+                        r.ImGui_DrawList_AddRectFilled(dl_footer, cix, ciy, cix + clip_w, ciy + clip_h, fill, body_r)
                     end
-                    r.ImGui_DrawList_AddRect(dl_clip, cix, ciy, cix + clip_w, ciy + clip_h,
+                    r.ImGui_DrawList_AddRect(dl_footer, cix, ciy, cix + clip_w, ciy + clip_h,
                         clip_col, body_r, 0, math.max(1, S(1)))
-                    -- Text: count + ×, centered
                     local _, cth = r.ImGui_CalcTextSize(ctx, clip_label)
                     local ctx_x = cix + clip_pad_x
                     local ctx_y = ciy + Round((clip_h - cth) / 2)
-                    -- Color: green at rest, white on hover for clearer "clickable" cue
                     local txt_col = chov and (C.text or rgb(0xE6EDF3)) or clip_col
-                    r.ImGui_DrawList_AddText(dl_clip, ctx_x, ctx_y, txt_col, clip_label)
-                end
-                -- Tooltip gated on actual chip hover (v20.408). Previously fired
-                -- unconditionally, making tooltip track cursor across whole window.
-                if chov then TipDirect("FX in clipboard\nClick or press Esc to clear") end
-                if clk then
-                    FxClipClear()
-                    FxClipRebuildGuidSet()
-                end
-            end
-
-            local can_back = ViewHistoryCanBack()
-            local can_fwd = view_history_idx < view_history_count
-
-            -- History: always flush to window right edge.
-            local history_right_x = vh_left_x + vh_avail
-            local fw_x = history_right_x - vh_btn_w
-            local bk_x = fw_x - vh_gap - vh_btn_w
-            local history_vy = history_row_y + Round((bar_h - btn_sz) / 2)
-
-            -- Compare position per stage:
-            --   B1: centered in right half of the gear→history region (paired with views-left-half)
-            --   B2: alone on top row → flush right
-            --   B3: opposite-edge alignment with history → flush left on top row
-            --   B4: alone on middle row → centered in full available width
-            local cmp_sx
-            if cmp_w > 0 then
-                if stage == "B1" then
-                    local region_left  = vh_left_x + gear_w + ig_gap
-                    local region_right = vh_left_x + vh_avail - history_w - ig_gap
-                    local half_w_region = (region_right - region_left) / 2
-                    local half2_left = region_left + half_w_region
-                    cmp_sx = half2_left + Round((half_w_region - cmp_w) / 2)
-                elseif stage == "B2" then
-                    cmp_sx = vh_left_x + vh_avail - cmp_w
-                elseif stage == "B3" then
-                    cmp_sx = vh_left_x
-                else  -- B4 (alone on middle row)
-                    cmp_sx = vh_left_x + Round((vh_avail - cmp_w) / 2)
+                    r.ImGui_DrawList_AddText(dl_footer, ctx_x, ctx_y, txt_col, clip_label)
+                    if chov then TipDirect("FX in clipboard\nClick or press Esc to clear") end
+                    if clk then
+                        FxClipClear()
+                        FxClipRebuildGuidSet()
+                    end
+                    next_left_x = clip_x + clip_w
                 end
             end
-            local cmp_vy = cmp_row_y + Round((bar_h - btn_sz) / 2)
 
-            -- Compare controls (manual position per stage)
-            if insp_cmp_has_any then
-                r.ImGui_SetCursorPos(ctx, cmp_sx, cmp_vy)
-                -- InspDrawCompareControls right-aligns within its bw starting from cursor X;
-                -- give it a bw equal to cmp_w so it renders starting exactly at cmp_sx.
-                InspDrawCompareControls(cmp_w, btn_sz)
+            local cmp_w = InspGetCompareControlsWidth(footer_d)
+            local cmp_x = next_left_x + footer_gap * 2
+            if insp_cmp_has_any and cmp_w > 0 and cmp_x + cmp_w <= right_group_x - footer_gap * 2 then
+                r.ImGui_SetCursorPos(ctx, cmp_x, footer_cy - footer_d / 2)
+                InspDrawCompareControls(cmp_w, footer_d)
             end
 
-            -- Faded bg for disabled arrows — circle and arrow both read inert.
-            local function faded_bg(col)
-                return (col & 0xFFFFFF00) | 0x30  -- ~19% alpha
-            end
-            local function faded_fg(col)
-                return (col & 0xFFFFFF00) | 0x50  -- ~31% alpha
-            end
+            local has_flow_routes = insp_track and r.ValidatePtr(insp_track, "MediaTrack*")
 
-            -- Back arrow (circle, unified scheme; disabled = fully inert)
-            r.ImGui_SetCursorPos(ctx, bk_x, history_vy)
-            do
-                local bk_opts = { rounding = btn_sz / 2 }
-                if can_back then
-                    local bbg, bhov, bact, bfg, bfg_hov = pill_colors(false)
-                    bk_opts.bg = bbg; bk_opts.hov = bhov; bk_opts.active = bact
-                    bk_opts.fg = bfg; bk_opts.fg_hov = bfg_hov
-                else
-                    local fbg = faded_bg(C.btn_bg)
-                    local fg_f = faded_fg(C.text_dim)
-                    bk_opts.bg = fbg; bk_opts.hov = fbg; bk_opts.active = fbg
-                    bk_opts.fg = fg_f; bk_opts.fg_hov = fg_f
-                end
-                local _, bk_clk = NavRect("##vhback", vh_btn_w, btn_sz, "\xE2\x97\x80", bk_opts)
-                if can_back then Tip("Previous view") end
-                if bk_clk and can_back then ViewHistoryBack() end
-            end
+            footer_mode_button("##vhsettings", "Settings", settings_open, true, "Settings",
+                function() settings_open = not settings_open end,
+                settings_cx, footer_cy, DrawFooterSettingsIcon)
+            footer_mode_button("##flow_footer", "F", flow_view_active, has_flow_routes or flow_view_active, "Flow View",
+                function() FlowViewToggle() end,
+                flow_cx, footer_cy)
+            footer_mode_button("##sends_footer", "S", opt_show_sends, true, "Show Sends",
+                function()
+                    opt_show_sends = not opt_show_sends
+                    SavePref("show_sends", opt_show_sends)
+                end,
+                sends_cx, footer_cy)
 
-            -- Forward arrow (circle, unified scheme; disabled = fully inert)
-            r.ImGui_SetCursorPos(ctx, fw_x, history_vy)
-            do
-                local fw_opts = { rounding = btn_sz / 2 }
-                if can_fwd then
-                    local fbg, fhov, fact, ffg, ffg_hov = pill_colors(false)
-                    fw_opts.bg = fbg; fw_opts.hov = fhov; fw_opts.active = fact
-                    fw_opts.fg = ffg; fw_opts.fg_hov = ffg_hov
-                else
-                    local fbg_f = faded_bg(C.btn_bg)
-                    local fg_f = faded_fg(C.text_dim)
-                    fw_opts.bg = fbg_f; fw_opts.hov = fbg_f; fw_opts.active = fbg_f
-                    fw_opts.fg = fg_f; fw_opts.fg_hov = fg_f
-                end
-                local _, fw_clk = NavRect("##vhfwd", vh_btn_w, btn_sz, "\xE2\x96\xB6", fw_opts)
-                if can_fwd then Tip("Next view") end
-                if fw_clk and can_fwd then ViewHistoryForward() end
-            end
-
-            -- Advance cursor past footer + bottom edge gap
-            r.ImGui_SetCursorPosY(ctx, row_y[num_rows] + bar_h + S(UI.edge_pad))
+            r.ImGui_SetCursorPosY(ctx, footer_y + ReflexFooterTotalHeight(footer_d))
+            PopFont(footer_fp)
+            ReflexSetBodyScaleCompensation(saved_scale_comp)
         end
 
         -- ── SETTINGS PANEL (free-floating window) ──
@@ -10370,6 +10500,7 @@ Loop = function()
             -- All S() calls, font step lookups, and positioning inside this block use 1.0.
             -- Reflex Size +/- buttons read/write real_ui_scale (the global) directly.
             local real_ui_scale = ui_scale
+            local saved_scale_comp = ReflexSetBodyScaleCompensation(false)
             ui_scale = 1.0
 
             -- Push a scale-1.0 bold font immediately so ALL text inside the settings block
@@ -10735,6 +10866,7 @@ Loop = function()
 
             -- Restore real ui_scale (was locked to 1.0 for settings render)
             ui_scale = real_ui_scale
+            ReflexSetBodyScaleCompensation(saved_scale_comp)
         end
 
         -- ── DIVIDER + REMOTE (fixed bottom panel) ──
@@ -10883,7 +11015,7 @@ Loop = function()
         r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ButtonTextAlign(), 0, 0.5)
         local remote_smooth_tess_count = 0
         if r.ImGui_StyleVar_CircleTessellationMaxError then
-            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), 0.1)
+            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_CircleTessellationMaxError(), 0.03)
             remote_smooth_tess_count = 1
         end
         PushPopupStyle()

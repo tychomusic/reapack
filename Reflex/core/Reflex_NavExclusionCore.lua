@@ -10,6 +10,12 @@ ReflexInstallNavExclusionCore = function(deps)
     local markDirty = deps.mark_dirty or function() end
     local _exclude_last_proj = nil
 
+    local function NavCurrentProjectKey()
+        local proj = r.EnumProjects and r.EnumProjects(-1, "") or nil
+        local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+        return tostring(proj or "0") .. "|" .. tostring(master or "")
+    end
+
     -- Excluded top-level NAV roots: hide the root button and promote any
     -- direct children. A current leaf may later become a folder, so this is
     -- intentionally root-level behavior, not "hide this current button shape."
@@ -67,7 +73,7 @@ ReflexInstallNavExclusionCore = function(deps)
         if hv ~= "" then
             for guid in hv:gmatch("([^|]+)") do nav_hidden[guid] = true end
         end
-        _exclude_last_proj = r.EnumProjects(-1)
+        _exclude_last_proj = NavCurrentProjectKey()
     end
 
     SaveNavExcluded = function()
@@ -83,7 +89,7 @@ ReflexInstallNavExclusionCore = function(deps)
     end
 
     MaybeReloadNavExcluded = function()
-        local cur = r.EnumProjects(-1)
+        local cur = NavCurrentProjectKey()
         if cur ~= _exclude_last_proj then LoadNavExcluded() end
     end
 

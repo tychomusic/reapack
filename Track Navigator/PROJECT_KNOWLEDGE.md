@@ -1,6 +1,6 @@
 # Track Navigator Project Knowledge
 
-Current public version: 1.2.12
+Current public version: 1.2.13
 
 Track Navigator is the standalone public ReaPack package for the NAV track visibility manager. It is related to Reflex's embedded Navigator, but this ReaPack package is its own working surface and release target.
 
@@ -35,7 +35,7 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - `core/Reflex_ViewModes.lua` owns Routing, Selected, Armed, and Active view modes.
 - `core/Reflex_ViewHistory.lua` owns view history state.
 - `core/Reflex_NavTreeCore.lua` owns GUID-keyed Navigator tree disclosure persistence.
-- `core/Reflex_PinCore.lua`, `Reflex_NavExclusionCore.lua`, and `Reflex_NavInclusionCore.lua` own pin/hidden/manual visibility and custom-set persistence.
+- `core/Reflex_PinCore.lua`, `Reflex_NavExclusionCore.lua`, and `Reflex_NavInclusionCore.lua` own pin/hidden/manual visibility and Quick Set persistence.
 - `core/Reflex_FontCore.lua`, `Reflex_StyleCore.lua`, and `Reflex_ColorCore.lua` own UI tokens, drawing helpers, fonts, and colors.
 - `icons/` contains package assets and must stay listed in `@provides`.
 
@@ -55,6 +55,7 @@ The `Reflex_*.lua` core names are intentional historical/shared-core names. Do n
 - `NAV.arr`: expand/collapse arrow region.
 - `NAV.menu`: global right-click/options menu.
 - `NAV.help`: Help / Manual popup from NAV.menu.
+- `NAV.Q`: Quick Set View button.
 - `NAV.A`: Active Tracks View button.
 - `NAV.S`: Selected Tracks View button.
 - `NAV.R`: Routing View button.
@@ -74,11 +75,12 @@ Use this shorthand in discussion and bug reports.
 - Opt/Alt-click on the arrow applies the opposite of the clicked TLT's current disclosure state to the current sibling generation only: root TLT siblings at the top level, or expandable siblings at the same depth under the same visible parent. It must include the clicked TLT, must not recursively open every descendant in a large project, and manual deeper expansions should be remembered across these layer toggles.
 - Pinned descendant visibility outranks collapse. If a pinned child is inside a collapsed branch, render the minimal ancestor path needed to explain it. These path ancestors are still normal clickable TLT rows. Partial path rows rest with the quiet inherited-pin circle and reveal the active right-arrow disclosure on hover.
 - Plain-clicking a nested tree child must solo visibility within its visible root/parent context. Do not treat "only one top-level TLT is visible" as meaning a nested child is already alone; sibling visibility inside that root must also be checked.
-- `Collapse all` in `NAV.menu` and TLT context menus clears explicit expansion and layer override state only. It must not clear pins or custom visibility rules.
-- Custom visibility is structural, not disclosure state: `Hide in Track Navigator` removes the TLT/subtree; `Hide in Track Navigator - show children` grafts direct children upward; `Show selected tracks` creates promoted aliases that should resolve into their natural context as ancestors become visible.
+- `Collapse all` in `NAV.menu` and TLT context menus clears explicit expansion and layer override state only. It must not clear pins or visibility override rules.
+- Navigator visibility overrides are structural, not disclosure state: `Hide in Track Navigator` removes the TLT/subtree; `Hide in Track Navigator - show children` grafts direct children upward; `Show selected tracks` creates promoted aliases that should resolve into their natural context as ancestors become visible. Manually shown rows keep normal Opt/Alt pin behavior and right-click pin actions. Manually shown descendants must not pierce an explicitly collapsed visible parent; collapse hides the full subtree except for pinned descendant paths.
+- In tree mode, `Show selected tracks` expands the selected tracks' Navigator parent chains so the result is immediately visible. It does not expand the selected folder itself, only the ancestors needed to reveal the selected row.
 - Promoted deep rows should appear under the nearest visible ancestor rather than at true full depth when intermediate ancestors are hidden. Avoid duplicates: a promoted alias should disappear once the same track is represented by the structural tree.
 - `Indent TLTs` in `NAV.menu` controls child-row indentation and defaults on. When off, hierarchy and disclosure state remain structural but all TLT buttons draw flush with the top-level row x-position. Default unmirrored TLTs indent from the left and put colored circles on the left. `Flip indent` keeps the left edge fixed and indents from the right edge instead; it must shorten the pill without changing the internal mirror phase. Tree arrows live opposite the colored dot in both mirrored and non-mirrored layouts.
-- `Enable TLT expand` in `NAV.menu` gates the disclosure prototype. When off, the Track Navigator list returns to legacy flat top-level/custom visibility behavior with no tree arrows or expandable child rows.
+- `Enable TLT expand` in `NAV.menu` gates the disclosure prototype. When off, the Track Navigator list returns to legacy flat top-level/visibility overrides behavior with no tree arrows or expandable child rows.
 
 ## TLT Search
 - `Show search` in `NAV.menu` controls the search row. When off, when Navigator is collapsed, or when the expanded TLT lane is narrower than 125 Retina pixels, the search row must not draw and must not leave its 12 px search gaps behind.
@@ -89,34 +91,38 @@ Use this shorthand in discussion and bug reports.
 - Cmd+F while Track Navigator is focused opens/focuses the TLT search row. The `Track Navigator - Focus Search` helper action sends the same command; if Track Navigator is not running, it launches the standalone script and focuses search on startup.
 - Search text filters into a flat result list of matching tracks. Matching result rows can still expose Navigator-only disclosure arrows when `Enable TLT expand` is on; search does not add pinned descendant paths for non-matching pinned tracks.
 - Search results target the real REAPER tracks for normal click, Cmd/Ctrl-click, shift range, and Opt/Alt pin behavior. Descendant search rows must use actual visible-in-TCP-with-visible-parents state, not top-level-only visibility checks.
-- Esc clears active search text/state before the standalone wrapper can use Esc to quit. The right-side `X` clear affordance lives in the search pill's right cap; X and Esc both clear search and release text focus without changing custom visibility, pins, or tree disclosure.
+- Enter while the search field is focused shows only the current search matches in TCP/Mixer. Cmd+Enter on macOS / Ctrl+Enter on Windows should also work, but some focused text fields report it as plain Enter. Add-to-current-view bulk search is intentionally not implemented yet.
+- Esc clears active search text/state before the standalone wrapper can use Esc to quit. The right-side `X` clear affordance lives in the search pill's right cap; X and Esc both clear search and release text focus without changing visibility overrides, pins, or tree disclosure.
+- TLT search text is cached in memory per active project tab. The tab identity key includes the current project pointer plus the current master-track pointer because untouched/default-template tabs can fail to distinguish cleanly through `EnumProjects(-1)` alone.
 
-## TLT Custom Set
-- The custom set is a per-project GUID-keyed membership list (`nav_custom_set`) separate from pins, hidden/promoted state, and manually shown tracks.
-- TLT context menus expose `Add to custom set` / `Remove from custom set`. `NAV.menu` exposes `Add selected to custom set`, `Clear custom set`, a removable `Custom set` section, and `Show custom set`.
-- Opt+Shift-click on macOS / Alt+Shift-click on Windows on a `NAV.pill` / `NAV.dot` toggles that track's custom-set membership without changing TCP/Mixer visibility. The same chord on `NAV.arr` toggles `Show custom set`.
-- `Show custom set` is a Navigator render mode: it shows only custom-set members as a flat search-style TLT list. It must not pin tracks and must not directly change REAPER TCP/Mixer visibility.
-- Clearing the custom set must also turn off `Show custom set` so the Navigator never remains filtered to an empty set. Removing the final custom-set member should also exit the mode, and a saved empty custom set should normalize the mode off on startup.
-- Custom-set rows target their real tracks and should keep normal TLT interaction semantics: click solo/show, Cmd/Ctrl add/remove, Shift range, Opt/Alt pin.
-- Normal search text filters the custom set while `Show custom set` is active. `/pin` remains an explicit operator for pinned tracks and is not the custom-set mechanism.
-- `Reset custom visibility` should not clear the custom set; use the `Custom set` section clear button for that.
+## TLT Quick Set
+- The Quick Set is a per-project GUID-keyed membership list (`nav_custom_set`) separate from pins, hidden/promoted state, and manually shown tracks.
+- TLT context menus expose `Add to Quick Set` / `Remove from Quick Set`. `NAV.menu` exposes `Add selected to Quick Set`, `Clear Quick Set`, a removable `Quick Set` section, and `Show Quick Set`.
+- `NAV.Q` appears before `NAV.A/S/R` only while the Quick Set has members. It uses the Quick Set color `#1485e0` (`rgb(0x1485E0)`), toggles `Show Quick Set` on normal click, and Opt/Alt-click clears the Quick Set.
+- Opt+Shift-click on macOS / Alt+Shift-click on Windows on a `NAV.pill` / `NAV.dot` toggles that track's Quick Set membership without changing TCP/Mixer visibility. The same chord on `NAV.arr` toggles `Show Quick Set`.
+- `Show Quick Set` is a Navigator render mode: it shows only Quick Set members as a flat search-style TLT list. It must not pin tracks and must not directly change REAPER TCP/Mixer visibility.
+- Clearing the Quick Set must also turn off `Show Quick Set` so the Navigator never remains filtered to an empty set. Removing the final Quick Set member should also exit the mode, and a saved empty Quick Set should normalize the mode off on startup.
+- Quick Set rows target their real tracks and should keep normal TLT interaction semantics: click solo/show, Cmd/Ctrl add/remove, Shift range, Opt/Alt pin.
+- Normal search text filters the Quick Set while `Show Quick Set` is active. `/pin` remains an explicit operator for pinned tracks and is not the Quick Set mechanism.
+- `Reset Navigator visibility` should not clear the Quick Set; use the `Quick Set` section clear button for that.
+- `Show all tracks` / Cmd+Shift show-all clears NAV-only filters (`Show Quick Set`, normal search, and `/pin`) while leaving Quick Set membership, pins, and visibility overrides maps intact.
 
 ## TLT Tree Arrow Layout
 - TLT disclosure arrows use the same `▶` / `▼` NAV arrow glyphs as `NAV.arr`; do not replace them with a custom triangle.
 - Tree arrows and pin indicators target `14x14` Retina pixels. Treat these as literal screen-pixel measurements converted with `NavRetinaPx`, not as `S()` design-unit values.
 - The pin indicator is always centered inside the colored track circle, including expanded, mirrored, indented, and minimized TLT states. It uses the resolved TLT body color so it reads as a cut-out: opaque `C.bg` when active/hovered and `#2e3033` when faded/inactive. It never reserves side-lane text space or draws as a separate amber side dot.
-- Custom-set membership draws `icons/Nav.CustomSet.Asterisk.png` tinted `#1485e0` in the tree-arrow control lane at 16 Retina pixels. If no tree arrow is present, it uses the would-be arrow slot. If a tree arrow is present, the asterisk moves inward with a fixed 15 Retina-pixel gap from the arrow slot and must not move when the arrow glyph changes direction or becomes the partial-path circle.
-- Partial pinned-descendant paths rest as a quiet `15x15` Retina-pixel circle in `#3e3e3e`. Hovering the TLT reveals the normal right-arrow partial indicator using the active arrow styling.
+- Quick Set membership draws a filled 15 Retina-pixel circle in `#1485e0` (`rgb(0x1485E0)`) in the tree-arrow control lane while not in Quick Set view. If no tree arrow is present, it uses the would-be arrow slot. If a tree arrow is present, the circle moves inward with a fixed 15 Retina-pixel gap from the arrow slot and must not move when the arrow glyph changes direction.
+- Partial pinned-descendant paths draw the normal collapsed tree arrow and show a hue-preserving darkened/saturated version of the track-color circle inside that circle. Do not replace the tree arrow with a partial-path circle.
 - The arrow right edge sits 25 Retina pixels from the TLT pill's right edge.
 - The arrow glyph has built-in text/advance padding, so `CalcTextSize` does not equal visible triangle pixels. Size against rendered screenshots when tuning; the current code compensates the glyph font size while keeping layout and hit geometry on the 14px indicator slot.
 - The TLT title clips before the tree arrow with the same style as the old title clipping; pin state must not change the text limit.
 - The arrow hit target is the pill's full arrow-side cap plus a small inward allowance. It should be easy to click without stealing normal body clicks left of that region.
 - In expanded TLT rows, the colored endcap is its own locate/track-selection target from the colored circle's inner edge through the pill edge. Hover shows the hand cursor. Plain click selects the real REAPER track and scrolls TCP to it; Cmd-click on macOS / Ctrl-click on Windows toggles the track in the REAPER track selection; Shift-click selects the TCP-visible range from the last endcap selection anchor; primary+Shift adds that range. Opt/Alt-click in the colored endcap must not select the REAPER track; it follows normal TLT modifier behavior and pins/unpins the TLT. If the clicked track is hidden or inside a hidden/collapsed parent chain, reveal the target and required parents first, push view history, and do not solo/show-only the TLT. This must work symmetrically in mirrored mode.
-- TLT context menus include `Show children` for folder tracks. It adds the TLT's direct children as manual Track Navigator buttons, like selecting those child tracks and using `Show selected tracks`, while leaving the parent TLT visible. It does not change REAPER TCP/Mixer visibility or Navigator tree disclosure state. This is useful when `Enable TLT expand` is off and should remain non-conflicting when it is on.
-- Collapsed arrow: points right, rest color `#23262a`, hover color `#393a3d`; inactive TLT arrows use `#3d3d3d`. Expanded arrow: points down and uses `#515151`. Partial/pinned-path hover arrow: points right, active color `#393a3d`.
+- TLT context menus include `Show children` for folder tracks only when `Enable TLT expand` is off. It adds the TLT's direct children as manual Track Navigator buttons, like selecting those child tracks and using `Show selected tracks`, while leaving the parent TLT visible. It does not change REAPER TCP/Mixer visibility or Navigator tree disclosure state. When `Enable TLT expand` is on, child disclosure belongs to the tree arrow/double-click behavior instead.
+- Collapsed tree arrow: points right, rest color `#25272c`, TLT-row hover color `#515151`; inactive TLT arrows use `#3d3d3d`. Expanded arrow: points down and uses `#515151`.
 - After changing TLT arrow layout, reload Track Navigator in REAPER and, if spacing is disputed, use screenshot-based pixel measurement before further tuning.
 
-## A/S/R View Buttons
+## Q/A/S/R View Buttons
 - `NAV.A`, `NAV.S`, and `NAV.R` are special view modes. On entry, each captures the current TCP/Mixer visibility snapshot, folder compact state, selected-track set, inspector/flow state, and TCP vertical scroll; on exit, that state is restored. Horizontal arrange scroll/zoom is captured but restored only when `Recall arrange view` is enabled in `NAV.menu`.
 - When applying any A/S/R view, expand every shown folder and every parent folder of every shown track, even when that parent folder is not itself shown. REAPER will not render a visible child track inside a collapsed parent.
 - While an A/S/R mode is active, plain-click its button restores the previous view. Opt/Alt-click recalculates the active mode in place: `NAV.A` rescans active tracks, `NAV.S` rebuilds from the current REAPER track selection, and `NAV.R` rebuilds routing from the current REAPER track selection.
@@ -124,14 +130,15 @@ Use this shorthand in discussion and bug reports.
 - `NAV.R` walks routing directionally: downstream follows sends and main-send folder parents from the selected track(s), upstream follows receives and main-send-enabled folder children into the selected track(s). Receive-side source tracks must not expand into their unrelated downstream sends or parent folders. When the selected source is a folder, receives into routed child tracks count as upstream contributors to that selected folder, including sidechain-channel receives.
 - Track Navigator fixes `NAV.R` routing depth at one hop. Do not load or expose the old Reflex `routing_depth` preference in the standalone package.
 - `NAV.A` peak polling is intentionally throttled for large templates. Revisit this after real 1000+ track session testing; if it is still measurable, prefer adaptive scan intervals before adding a UI option that removes the Active Tracks View button.
-- Keep the three controls grouped in A/S/R order. Wide expanded mode pins all three to the top row. When width gets tight, all three drop together to row 2; then A stays on row 2 while S/R drop together to row 3; then A, S, and R stack individually. Collapsed mode follows the same A/S/R grouping before TLT dots.
-- A/S/R labels are image assets in `icons/`, not live text. Do not tune normal A/S/R centering with fallback text nudges; create or edit the PNG asset so it uses the same `NavDrawArLabelImage` path as the other buttons. `Nav.Select.S.png` uses alpha bounds `24,23,39,41` in a 64x64 source, matching A/R's vertical placement.
+- `NAV.R` uses amber `#e6b365` (`rgb(0xE6B365)`) so Routing is visually distinct from the Quick Set blue.
+- Keep the controls grouped in optional-Q/A/S/R order. Wide expanded mode pins the full group to the top row. When width gets tight, the full group drops together to row 2; then Q/A and S/R split across rows when Q is visible, or A and S/R split across rows when Q is hidden; then each button stacks individually. Collapsed mode follows the same grouping before TLT dots.
+- Q/A/S/R labels are image assets in `icons/`, not live text. Do not tune normal centering with fallback text nudges; create or edit the PNG asset so it uses the same `NavDrawArLabelImage` path as the other buttons. `Nav.Select.S.png` uses alpha bounds `24,23,39,41` in a 64x64 source, matching A/R's vertical placement.
 
 ## View History
 - Standalone Track Navigator shows Previous/Next view buttons in the bottom-left corner when `Show history buttons` is enabled in `NAV.menu`. They mirror the A/S/R button geometry: same diameter, horizontal gap, row cadence, and stack behavior. When the width cannot fit both buttons side by side, Back is the first row and Forward is the row below.
 - History buttons reserve bottom space from the standalone NAV list. As the window gets shorter, the gap between the final visible TLT row and the history buttons shrinks until the list scrolls.
 - A direction with no available history uses Reflex's disabled history look. An available history direction rests as a dimmed A-colored button and hovers into the normal available view-mode treatment.
-- View history snapshots include REAPER TCP/Mixer visibility, folder compact state, selected tracks, TCP/arrange work state, Navigator tree disclosure/layer overrides, pins, hidden/promoted/manual visibility, custom set membership/mode, and TLT search text.
+- View history snapshots include REAPER TCP/Mixer visibility, folder compact state, selected tracks, TCP/arrange work state, Navigator tree disclosure/layer overrides, pins, hidden/promoted/manual visibility, Quick Set membership/mode, and TLT search text.
 - Tree disclosure changes push history before they mutate state, including `Collapse all`, so Back can recover an accidentally collapsed Navigator tree.
 - Track Navigator exposes `History Back` and `History Forward` helper actions. They send commands through the running standalone action bridge so user-bound REAPER shortcuts work even when the Navigator window is not focused. The standalone window must keep keyboard passthrough active so these shortcuts reach REAPER unless an ImGui item is actively editing/dragging.
 
@@ -152,16 +159,16 @@ Use this shorthand in discussion and bug reports.
 - With modifier-key tooltips off, expanded `NAV.pill` simple track-name tooltips should appear only when the drawn label is clipped down to two UTF-8 characters or fewer. Collapsed `NAV.dot` tooltips still show the track name because dots have no visible label.
 - TLT tooltip titles show the REAPER track number prefix plus the full track name, e.g. `45: Synths`; the number prefix uses the normal TLT name color and the track name is white.
 
-## Custom Visibility
+## Navigator Visibility
 - `NAV.menu` exposes three selected-track actions: `Show selected tracks`, `Hide selected tracks`, and `Hide selected & show descendants`.
-- `Show selected tracks` can add any allowed selected REAPER track as a manual NAV button. `Hide selected tracks` and `Hide selected & show descendants` apply only to selected eligible natural TLTs, matching the per-TLT right-click rules.
-- The custom visibility recovery sections are `Manually shown tracks`, `Hidden tracks`, and `Showing descendants instead`. Each section has an `X` clear-all button. All close/clear `X` buttons use the shared drawn cross with rest color `#4c4e53` and a one-screen-pixel optical nudge up/left; the Options close button uses the same cross at a bolder stroke. Row labels include the REAPER track number prefix (`T26`) and clip track names to 16 UTF-8 characters plus `...`.
+- `Show selected tracks` can add any allowed selected REAPER track as a manual NAV button. With `Enable TLT expand` on, it also expands the selected tracks' parent chains so the newly shown rows are not hidden behind a closed parent. `Hide selected tracks` and `Hide selected & show descendants` apply only to selected eligible natural TLTs, matching the per-TLT right-click rules.
+- The visibility overrides recovery sections are `Manually shown tracks`, `Hidden tracks`, and `Showing descendants instead`. Each section has an `X` clear-all button. All close/clear `X` buttons use the shared drawn cross with rest color `#4c4e53` and a one-screen-pixel optical nudge up/left; the Options close button uses the same cross at a bolder stroke. Row labels include the REAPER track number prefix (`T26`) and clip track names to 16 UTF-8 characters plus `...`.
 - The show-descendants rule uses the existing `nav_excluded` behavior: hide the parent TLT button and promote direct children as NAV buttons.
 
 ## Modifier Behavior
 - Click `NAV.pill` / `NAV.dot`: show only this TLT; subsequent clicks expand/collapse if the track is a folder.
 - Cmd-click on macOS / Ctrl-click on Windows: add/remove this TLT from the visible set. This additive visibility toggle preserves the current REAPER track selection and TCP vertical scroll; it must not select or scroll to the newly shown TLT.
-- Opt+Shift-click on macOS / Alt+Shift-click on Windows: add/remove this TLT from the custom set without changing track visibility. The same chord on `NAV.arr` toggles `Show custom set`.
+- Opt+Shift-click on macOS / Alt+Shift-click on Windows: add/remove this TLT from the Quick Set without changing track visibility. The same chord on `NAV.arr` toggles `Show Quick Set`.
 - Cmd+Shift-click on macOS / Ctrl+Shift-click on Windows: show all tracks.
 - Opt-click on macOS / Alt-click on Windows: pin/unpin this TLT.
 - Pins are absolute visibility rules for the pinned button only, not its descendants. After project-state changes such as REAPER undo/redo, Track Navigator should reconcile pinned GUIDs back to visible without creating a separate Navigator history action.
@@ -242,26 +249,28 @@ Important macOS detail: standalone Track Navigator can report Cmd-click as raw C
   - double-clicking an expandable TLT body toggles disclosure without changing visibility
   - body click outside the arrow cap keeps existing TLT visibility behavior
   - expanded colored-endcap hover shows the hand cursor in normal and mirrored mode; endcap click selects/scrolls the real REAPER track, primary-click toggles track selection, Shift selects a track-number range, and hidden targets are revealed first without soloing/show-onlying the TLT
-  - TLT context menu `Show children` adds direct child tracks as manual Navigator buttons without changing REAPER visibility or Navigator tree disclosure, with `Enable TLT expand` on and off
+  - with `Enable TLT expand` off, TLT context menu `Show children` adds direct child tracks as manual Navigator buttons without changing REAPER visibility or Navigator tree disclosure
+  - with `Enable TLT expand` on, the `Show children` shortcut is unavailable and the tree arrow/double-click owns child disclosure
   - Opt/Alt-click arrow applies the opposite of the clicked TLT's current disclosure state to expandable siblings at the same visible parent/depth, including the clicked TLT
   - manual deeper expansions survive sibling-layer toggles
-  - pinned descendants force only the minimal ancestor path, show the quiet circle at rest, reveal the active right-arrow on hover, and do not become explicit expansion state
-  - `Collapse all` clears disclosure state without unpinning or clearing custom visibility
+  - pinned descendants force only the minimal ancestor path, show the darkened/saturated partial pin color inside ancestor track-color circles, keep normal tree arrows, and do not become explicit expansion state
+  - `Collapse all` clears disclosure state without unpinning or clearing visibility overrides
 - Test TLT search:
   - normal text matches as a case-insensitive literal substring
   - plain `pin` matches track names containing `pin`
   - `/pin` shows only pinned tracks as a flat search-style list and tints the search text amber
   - `Show pinned only` writes/clears `/pin` and enables the search row if needed
-- Test custom set:
-  - TLT context menu adds/removes a track from the custom set
-  - Opt+Shift-click on macOS / Alt+Shift-click on Windows on a TLT adds/removes it from the custom set without changing track visibility
-  - Opt+Shift-click on macOS / Alt+Shift-click on Windows on `NAV.arr` enters/exits `Show custom set`
-  - custom-set member TLTs draw the `#1485e0` asterisk in the stable arrow/control lane
-  - `Add selected to custom set` adds selected allowed tracks without changing visibility
-  - `Clear custom set` empties the set, exits `Show custom set`, and does not touch pins or custom visibility
-  - `Show custom set` displays only custom-set members as a flat TLT list
-  - custom-set rows can still be clicked/soloed normally and are not pinned by membership
-  - normal search text filters the custom set, and clearing the custom set leaves pins/hidden/promoted state unchanged
+- Test Quick Set:
+  - TLT context menu adds/removes a track from the Quick Set
+  - Opt+Shift-click on macOS / Alt+Shift-click on Windows on a TLT adds/removes it from the Quick Set without changing track visibility
+  - Opt+Shift-click on macOS / Alt+Shift-click on Windows on `NAV.arr` enters/exits `Show Quick Set`
+  - `NAV.Q` appears before `NAV.A/S/R` while the Quick Set has members, toggles Quick Set view, and Opt/Alt-click clears the Quick Set
+  - Quick Set member TLTs draw the `#1485e0` circle in the stable arrow/control lane outside Quick Set view, and the row indicators are hidden inside Quick Set view
+  - `Add selected to Quick Set` adds selected allowed tracks without changing visibility
+  - `Clear Quick Set` empties the set, exits `Show Quick Set`, and does not touch pins or visibility overrides
+  - `Show Quick Set` displays only Quick Set members as a flat TLT list
+  - Quick Set rows can still be clicked/soloed normally and are not pinned by membership
+  - normal search text filters the Quick Set, and clearing the Quick Set leaves pins/hidden/promoted state unchanged
 - Test `NAV.menu`:
   - Help / Manual opens/closes
   - Show all tracks

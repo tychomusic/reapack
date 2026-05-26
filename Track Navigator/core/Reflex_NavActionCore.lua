@@ -61,6 +61,26 @@ ReflexInstallNavActionCore = function(deps)
         end
     end
 
+    local function NavClearListFilters()
+        local changed = false
+        if opt_nav_custom_set_mode == true then
+            opt_nav_custom_set_mode = false
+            if SavePref then SavePref("nav_custom_set_mode", false) end
+            changed = true
+        end
+        if (nav_tlt_search_text or "") ~= "" or (nav_tlt_search_effective_query or "") ~= "" then
+            nav_tlt_search_text = ""
+            nav_tlt_search_effective_query = ""
+            nav_tlt_search_hide_clear = true
+            nav_tlt_search_recent_clear_frames = 8
+            nav_tlt_search_focus_requested_frames = 0
+            nav_tlt_search_window_focus_requested_frames = 0
+            changed = true
+        end
+        if changed then markDirty() end
+        return changed
+    end
+
     EnsurePinnedVisible = function()
         if next(pinned_folders) == nil then return false end
         local changed = false
@@ -176,6 +196,17 @@ ReflexInstallNavActionCore = function(deps)
 
     HideEverything = function()
         ViewHistoryPush()
+        for _, entry in ipairs(top_folders) do
+            if not (NavTrackAutoIgnored and NavTrackAutoIgnored(entry.track)) then
+                SetFolderVisible(entry, false)
+            end
+        end
+        for _, sg in ipairs(sub_groups) do for _, e in ipairs(sg.entries) do sg.selected[e.display_name] = false end end
+        for _, e in ipairs(songs_sub.entries) do songs_sub.selected[e.display_name] = false end
+        songs_follow_active = false; songs_section_mode = false
+    end
+
+    local function NavHideEverythingWithoutHistory()
         for _, entry in ipairs(top_folders) do
             if not (NavTrackAutoIgnored and NavTrackAutoIgnored(entry.track)) then
                 SetFolderVisible(entry, false)
@@ -560,18 +591,22 @@ ReflexInstallNavActionCore = function(deps)
             end
         elseif is_alt and not is_cmd then
             -- Opt+click: toggle pin state for folders, toggle selection for sub_children
-            if item.custom then
-                do_scroll = HandleTracksSolo(ri, true)
-            elseif item.kind == "folder" then
-                local guid = r.GetTrackGUID(item.entry.track)
-                if pinned_folders[guid] then
+            if item.kind == "folder" then
+                local track = (item.entry and item.entry.track) or item.track
+                local guid = track and r.GetTrackGUID(track) or nil
+                if not guid then
+                    do_scroll = false
+                elseif pinned_folders[guid] then
                     pinned_folders[guid] = nil
+                    SavePinnedFolders()
+                    markDirty()
+                    do_scroll = false
                 else
                     pinned_folders[guid] = true
+                    SavePinnedFolders()
+                    markDirty()
+                    do_scroll = false
                 end
-                SavePinnedFolders()
-                markDirty()
-                do_scroll = false
             elseif item.kind == "sub_child" then
                 if item.sub_group.is_song_sub then
                     songs_sub.selected[item.label] = not songs_sub.selected[item.label]
@@ -600,6 +635,43 @@ ReflexInstallNavActionCore = function(deps)
         end
         if do_scroll then local st = item.track; r.defer(function() ScrollTrackToCenter(st) end) end
         r.Undo_EndBlock("Track Navigator: " .. item.label, 0)
+    end
+
+    local function NavCurrentSearchMatchItems()
+        local items = {}
+        local seen = {}
+        for _, item in ipairs(render_list or {}) do
+            if item.tree_search_match == true then
+                local track = NavItemTrack(item)
+                if track and r.ValidatePtr(track, "MediaTrack*") then
+                    local guid = r.GetTrackGUID(track)
+                    if guid and not seen[guid] then
+                        seen[guid] = true
+                        items[#items + 1] = item
+                    end
+                end
+            end
+        end
+        return items
+    end
+
+    ShowTltSearchResults = function()
+        local items = NavCurrentSearchMatchItems()
+        if #items == 0 then return 0 end
+        ExitSpecialViews()
+        ViewHistoryPush()
+        r.Undo_BeginBlock(); r.PreventUIRefresh(1)
+        NavHideEverythingWithoutHistory()
+        for _, item in ipairs(items) do
+            if item.kind == "folder" then
+                ShowFolderItem(item, false)
+            end
+        end
+        SyncGhostVisibility()
+        EnsurePinnedVisible()
+        r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
+        r.Undo_EndBlock("Track Navigator: Show Search Results", 0)
+        return #items
     end
 
     -- =========================================================================
@@ -684,6 +756,7 @@ ReflexInstallNavActionCore = function(deps)
     ShowAllTLFs = function()
         ExitSpecialViews()
         ViewHistoryPush()
+        NavClearListFilters()
         r.Undo_BeginBlock(); r.PreventUIRefresh(1)
         for _, sg in ipairs(sub_groups) do for _, e in ipairs(sg.entries) do sg.selected[e.display_name] = true end end
         for _, entry in ipairs(top_folders) do
@@ -710,6 +783,7 @@ ReflexInstallNavActionCore = function(deps)
     ShowAllTracks = function()
         ExitSpecialViews()
         ViewHistoryPush()
+        NavClearListFilters()
         r.Undo_BeginBlock(); r.PreventUIRefresh(1)
         local nt = r.CountTracks(0)
         for i = 0, nt - 1 do

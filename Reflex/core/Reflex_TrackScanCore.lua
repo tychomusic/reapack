@@ -178,13 +178,14 @@ ReflexInstallTrackScanCore = function(deps)
         local roots = {}
         local nodes = {}
         local stack = {}
+        local current_depth = 0
         for i = 0, nt - 1 do
-            while #stack > r.GetTrackDepth(r.GetTrack(0, i)) do
+            while #stack > current_depth do
                 stack[#stack].end_idx = i - 1
                 stack[#stack] = nil
             end
             local track = r.GetTrack(0, i)
-            local depth = r.GetTrackDepth(track)
+            local depth = current_depth
             local fd = r.GetMediaTrackInfo_Value(track, "I_FOLDERDEPTH")
             local _, name = r.GetTrackName(track)
             local guid = r.GetTrackGUID(track)
@@ -206,6 +207,7 @@ ReflexInstallTrackScanCore = function(deps)
             if parent then parent.children[#parent.children + 1] = node
             else roots[#roots + 1] = node end
             stack[depth + 1] = node
+            current_depth = math.max(0, current_depth + fd)
         end
         for i = #stack, 1, -1 do
             if stack[i] then stack[i].end_idx = nt - 1 end
@@ -418,6 +420,7 @@ ReflexInstallTrackScanCore = function(deps)
                 tree_expanded = expanded == true,
                 tree_partial = false,
                 tree_search_result = opts.search_result == true,
+                tree_search_match = opts.search_match == true,
                 tree_custom_set = opts.custom_set == true,
             }
             represented[node.guid] = true
@@ -475,13 +478,14 @@ ReflexInstallTrackScanCore = function(deps)
 
         local emit_search_matches
         local emit_search_expanded_children
-        local function emit_search_row(node, tree_depth, visible_parent_guid, ghost_parent)
+        local function emit_search_row(node, tree_depth, visible_parent_guid, ghost_parent, search_match)
             local layer_scope = "search:" .. (((visible_parent_guid and visible_parent_guid ~= "") and visible_parent_guid or "root"))
                 .. "#" .. tostring(tree_depth or 0)
             local expanded = emit_flat_node(node, tree_depth, visible_parent_guid, ghost_parent, {
                 expandable = true,
                 layer_scope = layer_scope,
                 search_result = true,
+                search_match = search_match == true,
             })
             if expanded then
                 emit_search_expanded_children(node, (tree_depth or 0) + 1, node.guid, ghost_parent)
@@ -496,7 +500,7 @@ ReflexInstallTrackScanCore = function(deps)
                         represented[child.guid] = true
                         emit_search_expanded_children(child, tree_depth, visible_parent_guid, entry_for_node(child))
                     elseif not represented[child.guid] then
-                        emit_search_row(child, tree_depth, visible_parent_guid, ghost_parent)
+                        emit_search_row(child, tree_depth, visible_parent_guid, ghost_parent, node_matches_search(child))
                     end
                 end
             end
@@ -510,7 +514,7 @@ ReflexInstallTrackScanCore = function(deps)
                 return
             end
             if node_matches_search(node) then
-                local expanded = emit_search_row(node, 0, nil, nil)
+                local expanded = emit_search_row(node, 0, nil, nil, true)
                 if not expanded then
                     for _, child in ipairs(node.children) do emit_search_matches(child) end
                 end
@@ -528,6 +532,7 @@ ReflexInstallTrackScanCore = function(deps)
                     emit_flat_node(node, 0, nil, nil, {
                         no_sub_group = true,
                         search_result = true,
+                        search_match = true,
                     })
                 end
             end
@@ -543,6 +548,7 @@ ReflexInstallTrackScanCore = function(deps)
                     emit_flat_node(node, 0, nil, nil, {
                         no_sub_group = true,
                         search_result = true,
+                        search_match = true,
                         custom_set = true,
                     })
                 end
@@ -652,8 +658,6 @@ ReflexInstallTrackScanCore = function(deps)
                 end
             elseif forced_path then
                 emit_children(node, (tree_depth or 0) + 1, node.guid, true)
-            else
-                add_custom_range(node.idx + 1, node.end_idx, (tree_depth or 0) + 1, node.guid)
             end
         end
 

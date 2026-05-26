@@ -287,7 +287,9 @@ ReflexInstallViewModes = function(deps)
     local view_mode_project_key = nil
 
     local function ViewModeCurrentProject()
-        return r.EnumProjects(-1)
+        local proj = r.EnumProjects and r.EnumProjects(-1, "") or nil
+        local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+        return tostring(proj or "0") .. "|" .. tostring(master or "")
     end
 
     local function ViewModeTrackGuid(track)

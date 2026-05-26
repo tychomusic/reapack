@@ -7,6 +7,12 @@ ReflexInstallPinCore = function(deps)
     local PREF = deps.PREF
     local _pin_last_proj = nil
 
+    local function NavCurrentProjectKey()
+        local proj = r.EnumProjects and r.EnumProjects(-1, "") or nil
+        local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+        return tostring(proj or "0") .. "|" .. tostring(master or "")
+    end
+
     -- Pinned TLTs (always visible). v20.480: GUID-keyed and persisted
     -- per-project via ProjExtState. Previously was label-keyed and stored in
     -- global ExtState, which produced two bugs: (a) pins followed same-named
@@ -26,7 +32,7 @@ ReflexInstallPinCore = function(deps)
         if v and v ~= "" then
             for guid in v:gmatch("([^|]+)") do pinned_folders[guid] = true end
         end
-        _pin_last_proj = r.EnumProjects(-1)
+        _pin_last_proj = NavCurrentProjectKey()
     end
 
     SavePinnedFolders = function()
@@ -39,7 +45,7 @@ ReflexInstallPinCore = function(deps)
         -- Project tab switch: ProjExtState scopes per-project automatically, so
         -- our in-memory cache needs to refresh when the active project pointer
         -- changes. Called once per frame from Loop.
-        local cur = r.EnumProjects(-1)
+        local cur = NavCurrentProjectKey()
         if cur ~= _pin_last_proj then LoadPinnedFolders() end
     end
 

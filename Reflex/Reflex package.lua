@@ -1,10 +1,10 @@
 -- @description Reflex
--- @version 20.672
+-- @version 20.673
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Add draggable Navigator/Inspector split, fix embedded Navigator arrow rendering, and restore normal non-ReaperTips dock gaps.
+--   Refine Reflex scaling, footer controls, Navigator assets, and flow-card outlines.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua

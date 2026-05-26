@@ -1,7 +1,9 @@
 -- @description Track Navigator
--- @version 1.2.12
+-- @version 1.2.13
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
+-- @changelog
+--   Refine Navigator tree controls, Quick Set assets, and shared NAV behavior.
 -- @metapackage
 -- @provides
 --   [main] Track Navigator.lua
@@ -51,6 +53,7 @@
 --   [nomain] core/Reflex_ViewModes.lua
 --   [nomain] core/Reflex_NavViewCore.lua
 --   [nomain] icons/Nav.Active.A.png
+--   [nomain] icons/Nav.QuickSet.Q.png
 --   [nomain] icons/Nav.Select.S.png
 --   [nomain] icons/Nav.Route.R.png
 --   [nomain] icons/Nav.CustomSet.Asterisk.png

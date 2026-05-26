@@ -8,6 +8,12 @@ ReflexInstallNavTreeCore = function(deps)
     local markDirty = deps.mark_dirty or function() end
     local _tree_last_proj = nil
 
+    local function NavCurrentProjectKey()
+        local proj = r.EnumProjects and r.EnumProjects(-1, "") or nil
+        local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+        return tostring(proj or "0") .. "|" .. tostring(master or "")
+    end
+
     nav_tree_expanded = {}
     nav_tree_layer_overrides = {}
 
@@ -39,7 +45,7 @@ ReflexInstallNavTreeCore = function(deps)
                 end
             end
         end
-        _tree_last_proj = r.EnumProjects(-1)
+        _tree_last_proj = NavCurrentProjectKey()
     end
 
     SaveNavTreeExpansion = function()
@@ -54,7 +60,7 @@ ReflexInstallNavTreeCore = function(deps)
     end
 
     MaybeReloadNavTreeExpansion = function()
-        local cur = r.EnumProjects(-1)
+        local cur = NavCurrentProjectKey()
         if cur ~= _tree_last_proj then LoadNavTreeExpansion() end
     end
 
@@ -128,6 +134,31 @@ ReflexInstallNavTreeCore = function(deps)
         SaveNavTreeExpansion()
         markDirty()
         return true
+    end
+
+    NavTreeExpandParentChain = function(track)
+        if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
+        local changed = false
+        local parent = r.GetParentTrack(track)
+        while parent and r.ValidatePtr(parent, "MediaTrack*") do
+            local guid = r.GetTrackGUID(parent)
+            if guid and not nav_tree_expanded[guid] then
+                nav_tree_expanded[guid] = true
+                changed = true
+            end
+            parent = r.GetParentTrack(parent)
+        end
+        for scope, state in pairs(nav_tree_layer_overrides or {}) do
+            if state == "collapsed" then
+                nav_tree_layer_overrides[scope] = nil
+                changed = true
+            end
+        end
+        if changed then
+            SaveNavTreeExpansion()
+            markDirty()
+        end
+        return changed
     end
 
     NavTreeToggleItem = function(item)

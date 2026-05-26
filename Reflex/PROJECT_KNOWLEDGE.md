@@ -4,7 +4,7 @@
 
 Reflex is a standalone ReaImGui script for REAPER providing track visibility/collapse management, a track inspector with FX chain display, A/B compare system, volume/pan controls, envelope management, inline routing panel, FX plugin browser, routing view, sends view, flow view, send topology view, view history, noise floor detection, and a configurable macro pad (Remote) with pages. It is a companion to the Realist live performance system for Tycho.
 
-**Current version: v20.672** (~10,700-line main script; I/O Manager split into shared core modules)
+**Current version: v20.673** (~10,700-line main script; I/O Manager split into shared core modules)
 
 **Dependencies:** REAPER's built-in Lua 5.4, ReaImGui 0.10+. SWS still exists in some Reflex-only legacy paths (`BR_GetMediaTrackSendInfo_Track` in routing panels/send topology and `BR_GetMediaTrackSendInfo_Envelope` for send envelope matching), but standalone Navigator's `NAV.R` no longer requires SWS as of v20.662 / Navigator v20.662; it uses native `GetTrackSendInfo_Value(..., "P_DESTTRACK"/"P_SRCTRACK")` only. Prefer native REAPER/Lua APIs over SWS wherever they can provide the same behavior.
 
@@ -21,7 +21,7 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - Package path: `Reflex/`
 - Package metadata: `Reflex/Reflex package.lua`
 - Main script: `Reflex/Reflex.lua`
-- Public version: `20.672`
+- Public version: `20.673`
 - Author metadata: `S.Hansen / Tycho`
 - Release package excludes generated/user-local state files such as `remote_buttons.txt`, `remote_pages.txt`, and `fx_browser_action.txt`.
 - The user's normal Reflex toolbar/action should run `/Applications/Reaper/Scripts/Tycho/reapack/Reflex/Reflex.lua`.
@@ -41,7 +41,7 @@ NAV             Navigator section (TLT buttons / mini circles)
 NAV.arr         Expand/collapse arrow
 NAV.pill        TLT pill button (expanded view)
 NAV.dot         TLT mini circle (collapsed view)
-NAV.A/S/R       Active / Selected / Routing view mode buttons
+NAV.Q/A/S/R     Quick Set / Active / Selected / Routing view mode buttons
 NAV.R/F/S       Circle buttons (routing/flow/sends)
 
 HDR             Track header box (rounded bg) — loose density
@@ -54,6 +54,7 @@ HDR.mon         Record-monitor input icon, shown only when HDR.record is armed
 HDR.input       Record-input selector row, shown only when HDR.record is armed
 HDR.M / .S      Mute / Solo
 HDR.pan         Pan value (draggable) — on row2 after record/mon/M/S
+HDR.pin         Track-card pin indicator: outer edge inset 20 Retina px from the card's top/right outer edge, 21 Retina px OD. Unpinned draws an inactive `HDR.M` rest-background (`C.fx_ctrl_bg`) outer circle with a 13 Retina px knockout in card charcoal (`C.bg`); pinned stays amber.
 
 ENV.track       Track-level envelope list (between HDR and VOL when expanded)
 ENV.row         Single envelope row (transparent bg, C.env_row_bg on hover)
@@ -165,10 +166,11 @@ Scripts/Tycho/Reflex/
   remote_pages.txt             Remote page definitions (auto-generated, not packaged)
   fx_browser_action.txt        Custom FX browser action ID (auto-generated, not packaged)
   icons/                       Remote button icon PNGs (3-state horizontal strips)
+  icons/Nav.QuickSet.Q.png     NAV.Q label image
   icons/Nav.Active.A.png       NAV.A label image
   icons/Nav.Select.S.png       NAV.S label image
   icons/Nav.Route.R.png        NAV.R label image
-  icons/Nav.CustomSet.Asterisk.png Custom-set membership marker
+  icons/Nav.CustomSet.Asterisk.png Legacy Quick Set asterisk asset (unused; indicator is drawn)
   icons/Tycho-Logo-dots.png    Standalone Navigator title/menu mark
   icons/rounded-arrow-down.png Flow view separator arrow (white on transparent, tinted at render)
   icons/inspect-send-arrow.png Inspect arrow (white on transparent, 28px → 14px at 2:1)
@@ -321,21 +323,25 @@ Optional. Skip unless it unblocks other work.
 
 ## Scale System
 
-`ui_scale` defaults to 1.0 (displayed as 100%). The 0.8 base factor is baked into `S()`:
+`ui_scale` defaults to 1.0 (displayed as 100%). Reflex work surfaces apply a body compensation multiplier of `0.9`, so the displayed 100% Reflex Size renders `HDR`/`VOL`/`CTRL`/`FX`/`SEND`/`RMT` at the old 90% size. The 0.8 base factor is still baked into `S()`:
 
 ```lua
-S = function(v) return math.floor(v * ui_scale * 0.8 + 0.5) end
+S = function(v) return ReflexScaleValue(v, ReflexEffectiveUiScale()) end
 ```
 
 Pref key: `"ui_scale_v2"` (auto-migrates from legacy `"ui_scale"` key on first load). Steps: 0.10 (10% increments), range 50%–250%.
 
-Font step base: `ui_scale * 0.8 * 10`.
+Font step base for Reflex work surfaces: `ReflexEffectiveUiScale() * 0.8 * 10`.
 
-**Pixel communication convention:** S.Hansen provides retina physical pixels. Convert: **retina px ÷ 1.6 = S-units** at 100% scale. Example: "20px" = S(12.5), "13px" = S(8).
+**Pixel communication convention:** S.Hansen provides retina physical pixels. For normal scalable Reflex body layout constants at displayed 100%, convert: **retina px ÷ 1.44 = S-units**. For raw-scale contexts (footer, embedded NAV, fixed settings panel), keep using **retina px ÷ 1.6 = S-units** at 100% scale.
 
-**Settings panel scale lock (100% fixed):** save `real_ui_scale = ui_scale; ui_scale = 1.0` at top of `if settings_open then`, restore at end. This makes `S()` and `GetFontStep` resolve to 100% values. Reflex Size +/- buttons read/write `real_ui_scale` directly. Additionally: push a 100%-scale font *inside* the window's `Begin`/`End` — the main loop's outer scaled font push stays active otherwise, and ImGui built-in widget heights will scale even with `ui_scale` overridden.
+**Draw-list pixel targets override the S-unit rule.** When editing final rendered geometry from screenshot/pixel specs, convert Retina pixels to raw logical draw-list coordinates with `retina_px / 2`. Do not run odd Retina-pixel diameters, radii, edge offsets, or final center coordinates through `S()` because it rounds away half-logical pixels. For example, a 21 Retina-px circle uses logical diameter `10.5` and radius `5.25`; a 13 Retina-px knockout uses logical diameter `6.5` and radius `3.25`; a 20 Retina-px visible edge gap is logical `10`, so a right/top inset circle center is `edge +/- (10 + radius)`. If a user says an object is `N px from` or `N px in from` an edge, treat `N` as the visible outer-edge gap unless they explicitly say center.
 
-**Separate NAV scale (v20.552):** `navigator_scale_v1` is the shared scale for `NAV.arr`, `NAV.dot`, `NAV.pill`, A/S/R, and standalone `Navigator.lua`. Reflex keeps `ui_scale_v2` for the inspector/work surfaces; the main loop temporarily sets `ui_scale = nav_ui_scale` only around `NavDrawSection`, pushes a NAV-scaled font, then restores the Reflex scale before drawing `HDR`/`VOL`/`CTRL`/`FX`/`SEND`/`RMT`. Standalone Navigator loads `navigator_scale_v1` directly, falling back to `ui_scale_v2` on first run.
+**Settings panel scale lock (100% fixed):** save `real_ui_scale = ui_scale; ui_scale = 1.0` and temporarily disable body scale compensation at top of `if settings_open then`, restore both at end. This makes `S()` and `GetFontStep` resolve to raw 100% values. Reflex Size +/- buttons read/write `real_ui_scale` directly. Additionally: push a 100%-scale font *inside* the window's `Begin`/`End` — the main loop's outer scaled font push stays active otherwise, and ImGui built-in widget heights will scale even with `ui_scale` overridden.
+
+**Separate NAV scale (v20.552):** `navigator_scale_v1` is the shared scale for `NAV.arr`, `NAV.dot`, `NAV.pill`, A/S/R, and standalone `Navigator.lua`. Reflex keeps `ui_scale_v2` for the inspector/work surfaces; the main loop temporarily sets `ui_scale = nav_ui_scale` and disables body scale compensation only around `NavDrawSection`, pushes a NAV-scaled font, then restores the Reflex scale before drawing `HDR`/`VOL`/`CTRL`/`FX`/`SEND`/`RMT`. Standalone Navigator loads `navigator_scale_v1` directly, falling back to `ui_scale_v2` on first run.
+
+**Footer raw-scale exemption:** Reflex's bottom footer (history, settings, F/S, clipboard chip, and compare controls) uses raw `ui_scale`/`ReflexRawS()` and pushes a raw-scale font while rendering. Do not let the 0.9 body compensation affect the footer; at 100% it must continue matching Navigator A/S/R button size.
 
 ---
 
@@ -347,7 +353,7 @@ UI = { pad=10, pad_sm=6, row_gap=10, section_gap=10, btn_h=26,
        slider_h=22, circ_btn_r=13, hdr_row_gap=14,
        gap_hdr_vol=0, gap_vol_ctrl=10, gap_ctrl_route=0,
        gap_ctrl_fx=0, gap_route_fx=14, gap_bottom=0, gap_sends=4,
-       card_r=12, card_pad=14, card_pad_top=15, card_pad_bot=22,
+       card_r=12, card_pad=14, card_pad_top=15, card_pad_bot=14,
        card_gap=12, flow_gap=3, edge_pad=12,
        send_pad_top=10, send_pad_bot=17, send_folder_pad_bot=12,
        font_insp_name=4, font_title=3, font_section=2,
@@ -364,7 +370,7 @@ Every button must use one. **Forbidden:** raw `InvisibleButton + AddRectFilled +
 
 ## Card Box System
 
-**Stroke colors:** `C.source_stroke` (amber) on source track cards. `C.send_stroke` (white) on whichever flow view card is currently inspected (`is_selected` / `chain_track == insp_track`). Send modules, folder spanners, and distant sends have **no stroke**.
+**Stroke colors:** `C.source_stroke` on pinned/source track cards must match the pin indicator amber (`C.amber`, `#d29922`) exactly and uses `SOURCE_STROKE_W = 1.5` raw logical px for a 3 Retina-px stroke. Do not run this source stroke width through `S()`. `C.flow_stroke` (`#c4c4c4`) follows whichever flow view card is currently inspected (`is_selected` / `chain_track == insp_track`) and uses `FLOW_STROKE_W = 1.5` raw logical px for a 3 Retina-px stroke. Send modules, folder spanners, and distant sends have **no stroke**.
 
 **FX row strokes (v20.403+):** three additional tokens for multi-select + drag state:
 - `C.fx_drag_move` (washed red `0xE57373`) — move-operation source rows and destination dashed outline
@@ -374,6 +380,12 @@ Every button must use one. **Forbidden:** raw `InvisibleButton + AddRectFilled +
 These colors are currently script-owned constants. Future user-facing overrides should be exposed through the Options GUI rather than an external theme file.
 
 `CardBegin`/`CardEnd` handle rounded-rect containers with optional stroke, height estimation from previous frame, and cursor inset/restore.
+
+Rounded UI smoothing uses `ImGui_StyleVar_CircleTessellationMaxError = 0.03`, matching standalone Navigator. Visible stroked card corners use a tighter local `CARD_STROKE_TESSELLATION_MAX_ERROR = 0.005` around the double-filled rounded-rect stroke path. Keep the main Reflex, FX Browser, and pop-out Remote style stacks at the same `0.03` value when touching broad rounded-rect rendering.
+
+Inspector track-card bottom spacing has final raw logical corrections from Retina screenshot measurements: empty/collapsed FX cards use no offset, and cards with visible FX rows add `-2.0` logical px (-4 Retina px). Use `InspCardBottomPadAdjust()` everywhere the final card bottom is mirrored (`CardEnd`, mute overlay, FX drop-target `body_rect`, and blank-card context hit bounds).
+
+Inactive rest `HDR.ENV`, track ENV expand arrow, FX-row `ENV`, and FX-row ENV expand arrow use `C.fx_ctrl_bg`, the same color as inactive M/S rest BG and the unpinned pin indicator outer circle. Active/visible states and hover states remain separate.
 
 ### Card Top Padding
 
@@ -616,6 +628,8 @@ TLT click handlers (`HandleTracksClick`, `HandleSongsClick`) use `ViewHistoryPus
 ### Pinned TCP Sync
 When pinned, external TCP selection changes do NOT push view history. Pinned mode doesn't change `insp_track`, pin state, or any navigatable state — pushing created either dedup'd no-ops or ghost entries. Clears `insp_pin_suppress_selected` flag and selection-tracking state only.
 
+Inspector source/pin state is cached in memory per project tab using the same NAV project key (`EnumProjects(-1)` plus master-track pointer). Cache the source track by GUID while the tab is active, then resolve it back to a live track when the tab returns; do not rely on the old `MediaTrack*` after a tab switch because it may already fail `ValidatePtr` by the time Reflex detects the switch. The same per-tab cache carries `card_heights_prev` so a tab with a short/no-FX inspector card does not briefly reuse another tab's taller FX-card background estimate.
+
 **Unpin pre-push (v20.426).** The "pinned + secondary B selected" state isn't recorded by suppression above. At the moment of unpinning into a different track (double-click on secondary card title — header at line 6938, flow-view variant at line 9474), the secondary state would be lost from history: head was "pinned A", new push is "unpinned B", Back appears to skip a step. Fix: pre-push the live state before mutating, then mutate, then push the new state. Two entries land where one was, reflecting the actual visited states. `ViewHistoryPush`'s dedup makes the pre-push a no-op when no state actually changed (e.g. unpin without prior secondary selection), so the fix only adds entries in the case it was missing. Sites where this pattern is needed: any unpin path where `sel_track ≠ insp_track`. The pin-button toggle path (line 7014) doesn't need it — it calls `SetOnlyTrackSelected(insp_track)` first, so live state matches the existing head.
 
 ### View History Flow View Restoration (v20.428–v20.429)
@@ -624,7 +638,9 @@ Snapshot captures `flow_active` (bool) and `flow_anchor_guid` (string, when acti
 
 ### View History Navigator And Armed View State
 
-`ViewHistorySnapshot()` captures NAV-local state that changes what the Navigator shows but is not represented by TCP visibility alone: pins, tree expansion/layer overrides, manual includes, hidden/promoted rules, custom set membership/mode, and TLT search text. Restore writes those maps back through their persistence helpers and rebuilds the render list.
+`ViewHistorySnapshot()` captures NAV-local state that changes what the Navigator shows but is not represented by TCP visibility alone: pins, tree expansion/layer overrides, manual includes, hidden/promoted rules, Quick Set membership/mode, and TLT search text. Restore writes those maps back through their persistence helpers and rebuilds the render list.
+
+NAV project-tab identity uses a current-project key that includes the current master-track pointer, not only `EnumProjects(-1)`. This catches untouched/default-template project tabs that can otherwise look identical to tab-switch detection. TLT search text is cached in memory per project tab; Enter while the NAV search field is focused shows only the current search matches in TCP/Mixer, with Cmd+Enter/Ctrl+Enter accepted when the focused text input reports the chord. `Show all tracks` / Cmd+Shift show-all also clears NAV-only filters (`Show Quick Set`, normal search, and `/pin`) without clearing Quick Set membership, pins, or visibility override maps. `NAV.Q` appears before `NAV.A/S/R` only while the Quick Set has members, uses the Quick Set blue, and hides per-row Quick Set indicators while Quick Set view is active; `NAV.R` uses amber `#e6b365` to stay distinct from Quick Set. Manually shown NAV rows keep normal Opt/Alt pin behavior and right-click pin actions. Manually shown NAV descendants do not pierce an explicitly collapsed visible parent; collapse hides the full subtree except for pinned descendant paths. Pinned-descendant ancestor paths keep normal tree arrows and show a 50% opacity pin indicator inside the track-color circle. In tree mode, `Show selected tracks` expands the selected tracks' Navigator parent chains so the result is immediately visible. The flat `Show children` manual-visibility shortcut is unavailable while `Enable TLT expand` is on; tree arrows/double-click own child disclosure in tree mode.
 
 Armed View is also captured as history state: `armed_view_active`, the GUID set for `armed_view_tracks`, and the current `armed_view_saved_snap` reference. This prevents Back/Forward from restoring an armed-filtered TCP layout while leaving the command-driven Armed View flag or exit target stale.
 
@@ -684,7 +700,7 @@ ImGui `AddImage` scaling is nearest-neighbor — unusable at small sizes. Provid
 `SendEnvSetVisible`: resolve via `BR_GetMediaTrackSendInfo_Envelope`, flip `ACT`/`VIS` via gsubs, inject `PT 0 <unity> 0` if none exists (unity = 1 for vol, 0 for pan/mute).
 
 ### Flow View Stroke
-White outline (`C.send_stroke`) follows `is_selected` (`chain_track == insp_track`), not `is_focus`. The stroke moves to whichever flow view card is currently being inspected. Send modules never get stroke.
+Light gray outline (`C.flow_stroke`, `#c4c4c4`) follows `is_selected` (`chain_track == insp_track`), not `is_focus`. The stroke moves to whichever flow view card is currently being inspected. Expanded and minimal flow cards both use raw `FLOW_STROKE_W = 1.5` for a 3 Retina-px stroke and `CARD_STROKE_TESSELLATION_MAX_ERROR = 0.005` for smoother rounded corners. Send modules never get stroke.
 
 ### MuteOpts / SoloOpts Field Names
 Return tables use `fg` / `fg_hov` for text color, not `txt`. Consistent with NavRect opts convention. The mute overlay redraw in `InspDrawTrackBlock` must reference `mc.fg`.
@@ -1140,7 +1156,7 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 - ✅ **Embedded NAV renderer catch-up (v20.671; Navigator v20.671).** Ported the standalone Track Navigator renderer fixes into Reflex's shared `core/Reflex_NavViewCore.lua` while preserving Reflex's Windows-safe vector disclosure arrows and embedded menu behavior. Reflex NAV now uses the sticky TLT search header above the scroll child, smart row clipping for partially visible TLT pills, newer endcap modifier handling, and history pushes for tree-collapse/disclosure mutations.
 - ✅ **Embedded theme + right-dock gap cleanup (v20.670; Navigator v20.670).** Folded the tested `Reflex_Theme.lua` values into `Reflex.lua`, standalone `Navigator.lua`, and `Reflex_IOManager.lua`; removed `Reflex_Theme_Default.lua` from the ReaPack package so future user-facing UI customization can move into Options instead of external files. Full Reflex now keeps normal right `WindowPadding` when docked right under non-Reapertips REAPER themes, while retaining the historical chrome compensation for left dock and Reapertips.
 
-- ✅ **NAV range selection parity + history reconciliation (v20.669; Navigator v20.669).** Ported Track Navigator's range-selection fixes into Reflex's shared Navigator cores: body Shift-range keeps a GUID-backed anchor across repeated Shift-clicks and shows only the ranged rows plus required parents, while colored-endcap Shift ranges select only TCP-visible tracks between anchor and target. View history now also captures/restores Navigator-local maps and Armed View state so Back/Forward does not lose pins/tree/search/custom-set context or the command-driven Armed View exit target.
+- ✅ **NAV range selection parity + history reconciliation (v20.669; Navigator v20.669).** Ported Track Navigator's range-selection fixes into Reflex's shared Navigator cores: body Shift-range keeps a GUID-backed anchor across repeated Shift-clicks and shows only the ranged rows plus required parents, while colored-endcap Shift ranges select only TCP-visible tracks between anchor and target. View history now also captures/restores Navigator-local maps and Armed View state so Back/Forward does not lose pins/tree/search/Quick Set context or the command-driven Armed View exit target.
 
 - ✅ **Navigator helper action fallback (v20.669; Navigator v20.669).** Reflex Navigator companion actions now pass `launch_if_missing=true` to `Reflex_NavigatorActionBridge.lua`, so direct action/mapping invocations can wake standalone `Navigator.lua` when no current Reflex/Navigator instance has registered the shared command key. Existing running Reflex instances still receive commands through the same `reflex_navigator_external_command` channel.
 
@@ -1156,7 +1172,7 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 
 - ✅ **Footer boundary sentinel for ReaImGui 0.10 (v20.663).** Added a no-inline-Remote main-window `Dummy()` after the footer's bottom cursor reservation so ReaImGui records the extended boundary before `ImGui_End()` and no longer reports the `SetCursorPos()` boundary warning.
 
-- ✅ **Track Navigator 1.2.7 NAV integration (v20.662; Navigator v20.662).** Ported the shared NAV cores forward into Reflex, including `Reflex_NavTreeCore.lua`, tree disclosure state, TLT search, custom-set rendering/actions, selected-tracks view (`NAV.S`), A/S/R icon assets, ReaImGui 0.10 font-size/key-mod adapters, and standalone Navigator dock/quit/search shell hooks. Reflex keeps its inspector, Flow, Sends, Remote, I/O Manager, and configurable `routing_view_depth` behavior while embedded and standalone Navigator both require ReaImGui 0.10+.
+- ✅ **Track Navigator 1.2.7 NAV integration (v20.662; Navigator v20.662).** Ported the shared NAV cores forward into Reflex, including `Reflex_NavTreeCore.lua`, tree disclosure state, TLT search, Quick Set rendering/actions, selected-tracks view (`NAV.S`), A/S/R icon assets, ReaImGui 0.10 font-size/key-mod adapters, and standalone Navigator dock/quit/search shell hooks. Reflex keeps its inspector, Flow, Sends, Remote, I/O Manager, and configurable `routing_view_depth` behavior while embedded and standalone Navigator both require ReaImGui 0.10+.
 
 - ✅ **Native-only NAV.R routing relationship lookup (v20.661; Navigator v20.618).** Removed the SWS fallback from `core/Reflex_ViewModes.lua` for routing-view send/receive relationship resolution. `RoutingViewGetSendDests()` now uses native `"P_DESTTRACK"` only, and `RoutingViewGetRecvSources()` uses native `"P_SRCTRACK"` only. This makes standalone Navigator's no-SWS dependency claim testable even on systems that have SWS installed. Broader Reflex SWS removal remains a later audit for routing panels/send topology and send-envelope matching.
 
@@ -1262,9 +1278,9 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 
 - ✅ **NAV manual layout/dismissal pass (v20.610).** Reworked the `Help / Manual` popup into a clearer reference-card layout with section separators, consistent row rhythm, and less awkward indentation. Added explicit dismissal behavior: `Esc` inside the manual closes the manual, `Esc` in the NAV global popup closes the global popup, clicking the global popup while the manual is open closes the manual, and outside-click behavior is explicitly guarded so a click outside both popups closes the stack.
 
-- ✅ **NAV Help / Manual popup (v20.609).** Added a bottom-row `Help / Manual` entry in the NAV global popup with a circled `?` icon aligned to the far right. The row opens a compact styled manual popup covering Navigator, custom visibility, track inspector, FX, routing/sends/flow, history/remote, and key terms such as TLT, manually shown tracks, hidden TLTs, promoted children, and ARCHIVE ignore behavior.
+- ✅ **NAV Help / Manual popup (v20.609).** Added a bottom-row `Help / Manual` entry in the NAV global popup with a circled `?` icon aligned to the far right. The row opens a compact styled manual popup covering Navigator, visibility overrides, track inspector, FX, routing/sends/flow, history/remote, and key terms such as TLT, manually shown tracks, hidden TLTs, promoted children, and ARCHIVE ignore behavior.
 
-- ✅ **NAV customization wording/tooltips (v20.608).** Shortened global menu labels to `Show selected tracks` and `Reset custom visibility`. Added explanatory hover tooltips for showing selected tracks, hidden/promoted recovery rows, and both TLT right-click hide modes. Hidden/promoted recovery rows now hover red to communicate that clicking removes that custom visibility rule.
+- ✅ **NAV customization wording/tooltips (v20.608).** Shortened global menu labels to `Show selected tracks` and `Reset Navigator visibility`. Added explanatory hover tooltips for showing selected tracks, hidden/promoted recovery rows, and both TLT right-click hide modes. Hidden/promoted recovery rows now hover red to communicate that clicking removes that visibility overrides rule.
 
 - ✅ **NAV global popup density pass (v20.607).** `UI size` / `Navigator size` now shares a single row with the right-aligned NAV scale controls, removing the wasted label-only row. General global options (`Ignore ARCHIVE`, `Mirror TLT buttons`) moved to the bottom below reset so the manual shown/hidden/promoted/reset customization section stays contiguous.
 
@@ -1332,9 +1348,9 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 - ✅ **R label down 1 Retina px (v20.566).** Adjusted shared A/R label micro-nudge in `core/Reflex_NavViewCore.lua`: R moves down 1 Photoshop/Retina screenshot px by using per-label raw y offsets. Current offsets: A `x + 0.0, y + 0.0`; R `x + 1.0, y + 0.5`.
 - ✅ **A/R label down 1 Retina px (v20.565).** Adjusted shared A/R label micro-nudge in `core/Reflex_NavViewCore.lua`: both A and R move down 1 Photoshop/Retina screenshot px by changing raw draw-list y offset from `-0.5` to `0.0`. X offsets remain A `0.0`, R `1.0`.
 - ✅ **Expanded A/R pair fallback left-align (v20.564).** Updated shared expanded NAV fallback in `core/Reflex_NavViewCore.lua`: when A/R break together below `NAV.arr`, they now render as adjacent left-aligned circles with the normal `NAV.dot` gap instead of bridging to the left/right `NAV.pill` edges. The very narrow fallback still stacks `R` then `A`.
-- ✅ **NAV.arr rest color + all Reflex-window smoothing (v20.563).** Updated shared `NAV.arr` rest color to `#545a5a` in `core/Reflex_NavViewCore.lua` for both expanded (`▼`) and collapsed (`▶`) states, with hover still using `C.text`. Extended `CircleTessellationMaxError = 0.1` to Reflex's FX Browser and pop-out Remote window style stacks too, so smoothing now covers the main Reflex window, standalone Navigator, and Reflex auxiliary windows when the ReaImGui style var is available.
-- ✅ **Smoother rounded corners globally (v20.562).** Promoted `CircleTessellationMaxError = 0.1` from the card-only path to the main Reflex and standalone Navigator window style stacks when the ReaImGui style var is available. This smooths rounded-rect arcs (`NAV.pill`, `NavRect`, scale controls, cards, popups inherited inside the window) in addition to the explicit 48-segment NAV circles from v20.561.
-- ✅ **Smoother NAV circles (v20.561).** Added explicit `NAV_CIRCLE_SEGMENTS = 48` to both shells' `NavCircle` primitive and applied the same segment count to shared `NAV.dot` / collapsed-pill color circles and pin overlays in `core/Reflex_NavViewCore.lua`. This avoids ImGui's low auto segment count on small circles, so Reflex and standalone Navigator render rounder NAV circles without bitmap assets.
+- ✅ **NAV.arr rest color + all Reflex-window smoothing (v20.563).** Updated shared `NAV.arr` rest color to `#545a5a` in `core/Reflex_NavViewCore.lua` for both expanded (`▼`) and collapsed (`▶`) states, with hover still using `C.text`. Extended `CircleTessellationMaxError` to Reflex's FX Browser and pop-out Remote window style stacks too, so smoothing now covers the main Reflex window, standalone Navigator, and Reflex auxiliary windows when the ReaImGui style var is available. Current target is `0.03`.
+- ✅ **Smoother rounded corners globally (v20.562).** Promoted `CircleTessellationMaxError` from the card-only path to the main Reflex and standalone Navigator window style stacks when the ReaImGui style var is available. This smooths rounded-rect arcs (`NAV.pill`, `NavRect`, scale controls, cards, popups inherited inside the window) in addition to the explicit NAV circle segments. Current target is `0.03`.
+- ✅ **Smoother NAV circles (v20.561).** Added explicit `NAV_CIRCLE_SEGMENTS` to both shells' `NavCircle` primitive and applied the same segment count to shared `NAV.dot` / collapsed-pill color circles and pin overlays in `core/Reflex_NavViewCore.lua`. Current target is `96`, matching standalone Navigator's smoother circle rendering. This avoids ImGui's low auto segment count on small circles, so Reflex and standalone Navigator render rounder NAV circles without bitmap assets.
 - ✅ **A/R retina nudge follow-up 4 (v20.560).** Applied the latest Photoshop-measured A label correction in `core/Reflex_NavViewCore.lua`: A moves left 1 Retina screenshot px from v20.559. Raw draw-list offsets are now A `x + 0.0`, R `x + 1.0`, both A/R `y - 0.5`.
 - ✅ **A/R retina nudge follow-up 3 (v20.559).** Applied the latest Photoshop-measured A label correction in `core/Reflex_NavViewCore.lua`: A moves right 1 Retina screenshot px from v20.558. Raw draw-list offsets are now A `x + 0.5`, R `x + 1.0`, both A/R `y - 0.5`.
 - ✅ **A/R retina nudge follow-up 2 (v20.558).** Applied the latest relative A/R label correction in `core/Reflex_NavViewCore.lua`: both labels move right 1 Retina screenshot px and up 1 Retina screenshot px from v20.557. Raw draw-list offsets are now A `x + 0.0`, R `x + 1.0`, both A/R `y - 0.5`.
@@ -1504,7 +1520,7 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 
   **Storage:** `pinned_folders` is now keyed by track GUID (`r.GetTrackGUID(track)`). Persistence moved to `ProjExtState/0/"reflex"/"pinned_folders"` (per-project, pipe-separated GUIDs). REAPER never reuses GUIDs after track deletion, and each project has its own GUID space — both bugs disappear.
 
-  **API:** `LoadPinnedFolders()` (reads ProjExtState, captures `_pin_last_proj` for change detection), `SavePinnedFolders()` (writes ProjExtState), `MaybeReloadPins()` (compares `r.EnumProjects(-1)` against `_pin_last_proj`, reloads on mismatch — catches tab switches), `PinnedTrack(track)` (O(1) GUID lookup with `ValidatePtr` guard).
+  **API:** `LoadPinnedFolders()` (reads ProjExtState, captures `_pin_last_proj` for change detection), `SavePinnedFolders()` (writes ProjExtState), `MaybeReloadPins()` (compares the current NAV project key against `_pin_last_proj`, reloads on mismatch — catches tab switches, including untouched/default-template tabs), `PinnedTrack(track)` (O(1) GUID lookup with `ValidatePtr` guard).
 
   **Loop integration:** `MaybeReloadPins()` runs at the top of every Loop frame, after the per-frame state resets and before any pin lookup.
 
@@ -1520,7 +1536,7 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 
 - ✅ **NAV section visual unification (v20.452–v20.477).** Long iterative session collapsing the expanded TLT view and the collapsed mini-circle view into a single coherent visual system. Goal: toggling navigator_expanded should rotate the arrow in place with no other apparent layout change, and at narrow widths the two views should be visually indistinguishable except for arrow rotation direction.
 
-  **Design Mode removal (v20.452).** Removed ~440 lines of dead live-token-editor code: `UI_DEFAULTS`/`C_DEFAULTS`/`design_mode_*` globals, all 23 inline `DM()` overlay calls, all 3 `DM_DrawInChild()` calls. Replaced with 5 ALL_CAPS constants at file scope: `INSP_MAX_W=295`, `STROKE_W=1.5`, `WIN_MIN_W=280`, `WIN_MAX_W=480`, `TWO_COL_MULT=1.75`. Live editing was broken; constants are simpler and code reads cleaner.
+  **Design Mode removal (v20.452).** Removed ~440 lines of dead live-token-editor code: `UI_DEFAULTS`/`C_DEFAULTS`/`design_mode_*` globals, all 23 inline `DM()` overlay calls, all 3 `DM_DrawInChild()` calls. Replaced with ALL_CAPS constants at file scope: `INSP_MAX_W=295`, `STROKE_W=1.5`, `SOURCE_STROKE_W=1.5`, `WIN_MIN_W=280`, `WIN_MAX_W=480`, `TWO_COL_MULT=1.75`. Live editing was broken; constants are simpler and code reads cleaner.
 
   **Filterable Add-menu popup (v20.453–v20.458; extracted v20.528).** Sends/Receives/HW Outputs `+` popups gained search-with-keyboard-nav. Shared state is module-local in `Reflex_RouteMenuCore.lua` as of v20.528; helpers `RouteFilterMatch(haystack_lower, needle_lower)` (multi-word AND substring) and `RouteAddMenuList(items, on_commit)` own search input, filter, kbd nav, scrollable list, commit-and-close. All three popup closures (`##route_add_send`, `##route_add_recv`, `##route_add_hw`) use it. Sharp 2px stroke `#383C46` via double-AddRectFilled (avoids ImGui's anti-aliased gradient). Esc closes from filter; mouse-vs-kbd mode switching via the add-menu state. Per-popup cached size is kept with that module-local state. v20.458 switched to `NoScrollbar` + `DrawScrollIndicator` to match the rest of the script. `MAX_LABEL=45` chars.
 

@@ -3,11 +3,11 @@
  * Description: Standalone Navigator section for Reflex.
  *              Top NAV visibility manager only.
  * Author:      S.Hansen / Tycho
- * Version:     20.671
+ * Version:     20.673
 --]]
 
 local r = reaper
-NAVIGATOR_VERSION = "20.671"
+NAVIGATOR_VERSION = "20.673"
 
 NavigatorDependencyError = function(detail)
     local msg = "Navigator requires ReaImGui 0.10 or newer."
@@ -1005,6 +1005,11 @@ require("Reflex_NavInclusionCore")({
         if NavTrackInLiveSpecialArea and NavTrackInLiveSpecialArea(track) then return false end
         return true
     end,
+    tree_expand_enabled = function() return opt_nav_tlt_expand ~= false end,
+    expand_parent_chain = function(track)
+        if NavTreeExpandParentChain then return NavTreeExpandParentChain(track) end
+        return false
+    end,
     mark_dirty = function() needs_rescan = true; needs_song_rescan = true end,
 })
 LoadNavIncluded()
@@ -1335,6 +1340,50 @@ project_state_rescan_pending = false
 pinned_visibility_reconcile_pending = false
 local last_rescan_time = 0
 local RESCAN_THROTTLE = 0.5
+local nav_project_key = nil
+local nav_project_search_cache = {}
+
+NavigatorCurrentProjectKey = function()
+    local proj = r.EnumProjects and r.EnumProjects(-1, "") or nil
+    local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+    return tostring(proj or "0") .. "|" .. tostring(master or "")
+end
+
+NavigatorSetSearchForProject = function(query)
+    query = query or ""
+    nav_tlt_search_text = query
+    nav_tlt_search_effective_query = query
+    nav_tlt_search_hide_clear = query == ""
+    nav_tlt_search_recent_clear_frames = 0
+    nav_tlt_search_focus_requested_frames = 0
+    nav_tlt_search_window_focus_requested_frames = 0
+    if NavSetTltSearchEffectiveQuery then NavSetTltSearchEffectiveQuery(query, true) end
+end
+
+NavigatorSyncProjectTab = function()
+    local cur = NavigatorCurrentProjectKey()
+    if cur == "" then return false end
+    if not nav_project_key then
+        nav_project_key = cur
+        nav_project_search_cache[cur] = nav_tlt_search_text or ""
+        return false
+    end
+    if cur == nav_project_key then return false end
+
+    nav_project_search_cache[nav_project_key] = nav_tlt_search_text or ""
+    nav_project_key = cur
+    NavigatorSetSearchForProject(nav_project_search_cache[cur] or "")
+    top_folders = {}
+    render_list = {}
+    song_entries = {}
+    archive_entry = nil
+    songs_entry_ref = nil
+    for _, sg in ipairs(sub_groups) do sg.entry_ref = nil; sg.entries = {} end
+    needs_rescan = true
+    needs_song_rescan = true
+    project_state_rescan_pending = false
+    return true
+end
 
 NavigatorLoop = function()
     MaybeReloadPins()
@@ -1342,6 +1391,7 @@ NavigatorLoop = function()
     MaybeReloadNavExcluded()
     MaybeReloadNavIncluded()
     MaybeSyncViewModeProject()
+    local project_tab_changed = NavigatorSyncProjectTab()
     ActiveViewUpdatePeaks()
     ReflexNavigatorPollExternalCommand()
     if view_history_restoring > 0 then view_history_restoring = view_history_restoring - 1 end
@@ -1361,6 +1411,8 @@ NavigatorLoop = function()
     elseif nt ~= last_track_count then
         needs_rescan = true
         needs_song_rescan = true
+        NavigatorRequestPinnedVisibilityReconcile()
+    elseif project_tab_changed then
         NavigatorRequestPinnedVisibilityReconcile()
     elseif proj_state ~= last_project_state then
         project_state_rescan_pending = true

@@ -5,8 +5,19 @@
 ReflexInstallNavInclusionCore = function(deps)
     local r = deps.r
     local canIncludeTrack = deps.can_include_track or function() return true end
+    local treeExpandEnabled = deps.tree_expand_enabled or function() return opt_nav_tlt_expand ~= false end
+    local expandParentChain = deps.expand_parent_chain or function(track)
+        if NavTreeExpandParentChain then return NavTreeExpandParentChain(track) end
+        return false
+    end
     local markDirty = deps.mark_dirty or function() end
     local _include_last_proj = nil
+
+    local function NavCurrentProjectKey()
+        local proj = r.EnumProjects and r.EnumProjects(-1, "") or nil
+        local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+        return tostring(proj or "0") .. "|" .. tostring(master or "")
+    end
 
     -- Custom NAV items: GUID-keyed and persisted per-project.
     nav_included = {}  -- nav_included[guid] = true
@@ -23,7 +34,7 @@ ReflexInstallNavInclusionCore = function(deps)
         if cv ~= "" then
             for guid in cv:gmatch("([^|]+)") do nav_custom_set[guid] = true end
         end
-        _include_last_proj = r.EnumProjects(-1)
+        _include_last_proj = NavCurrentProjectKey()
     end
 
     SaveNavIncluded = function()
@@ -41,7 +52,7 @@ ReflexInstallNavInclusionCore = function(deps)
     end
 
     MaybeReloadNavIncluded = function()
-        local cur = r.EnumProjects(-1)
+        local cur = NavCurrentProjectKey()
         if cur ~= _include_last_proj then LoadNavIncluded() end
     end
 
@@ -57,6 +68,11 @@ ReflexInstallNavInclusionCore = function(deps)
     NavCustomSetTrack = function(track)
         if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
         return nav_custom_set[r.GetTrackGUID(track)] == true
+    end
+
+    NavCustomSetHasEntries = function()
+        for _ in pairs(nav_custom_set or {}) do return true end
+        return false
     end
 
     NavSetTrackIncluded = function(track, included)
@@ -197,24 +213,30 @@ ReflexInstallNavInclusionCore = function(deps)
     end
 
     NavIncludeSelectedTracks = function()
-        local changed = false
+        local included_changed = false
+        local tree_changed = false
         local added = 0
         local skipped = 0
         for i = 0, r.CountSelectedTracks(0) - 1 do
             local track = r.GetSelectedTrack(0, i)
             if NavCanIncludeTrack(track) then
+                if treeExpandEnabled() and expandParentChain(track) then
+                    tree_changed = true
+                end
                 local guid = r.GetTrackGUID(track)
                 if not nav_included[guid] then
                     nav_included[guid] = true
-                    changed = true
+                    included_changed = true
                     added = added + 1
                 end
             else
                 skipped = skipped + 1
             end
         end
-        if changed then
+        if included_changed then
             SaveNavIncluded()
+            markDirty()
+        elseif tree_changed then
             markDirty()
         end
         return added, skipped

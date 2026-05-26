@@ -31,6 +31,10 @@ ReaPack repository for Tycho REAPER scripts. This is a multi-package repo: each 
 ## Pixel And Retina UI Work
 - For disputed 1-2px UI spacing/alignment, stop before tuning constants and use screenshot-based measurement. Do not iterate from verbal estimates or inferred geometry alone.
 - Treat odd Retina-pixel targets as half-logical coordinates. Do not run them through `S()` or floor/round the Y coordinate afterward.
+- For draw-list geometry from user-provided pixel specs, write the pixel contract before editing: which visible edge is being measured, whether the number is an outer-edge inset or a center coordinate, the target OD/ID in Retina pixels, and the exact existing color token being used.
+- If the user says an object is `N px from` or `N px in from` an edge, treat `N` as the visible outer-edge gap unless they explicitly say the center is `N px` from that edge. Compute center as `edge + gap + radius` or `edge - gap - radius`.
+- For fixed screenshot/Retina draw-list targets, convert to raw logical coordinates with `retina_px / 2` at the rendered surface. Do not pass odd diameters, radii, or final center coordinates through `S()`, because `S()` rounds away half-logical pixels. Use `S()` for scalable layout primitives only, not for final measured pixel targets.
+- When a requested color is described by another control/state, trace that control's actual code path and reuse its token. Do not substitute a visually similar token.
 - If a parent/child ImGui boundary snaps away the odd pixel, put the final 1px half-logical offset at the rendered surface immediately before drawing the card/row, not in `WindowPadding`.
 - After one failed pixel attempt, switch to measuring the rendered screenshot and identify both edges being measured before another edit.
 

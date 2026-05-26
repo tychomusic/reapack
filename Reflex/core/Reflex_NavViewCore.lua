@@ -1,6 +1,6 @@
 -- @noindex
 -- Reflex shared Navigator view renderer.
--- Installs NavDrawSection, the single drawing path for NAV.arr, NAV.dot, NAV.pill, and NAV A/S/R.
+-- Installs NavDrawSection, the single drawing path for NAV.arr, NAV.dot, NAV.pill, and NAV Q/A/S/R.
 
 ReflexInstallNavViewCore = function(deps)
     local r = deps.r
@@ -33,6 +33,69 @@ ReflexInstallNavViewCore = function(deps)
         return 0
     end
 
+    local function NavKeyPressed(key_fn)
+        if not (r.ImGui_IsKeyPressed and key_fn) then return false end
+        local ok_key, key = pcall(key_fn)
+        if not ok_key or type(key) ~= "number" then return false end
+        local ok_pressed, pressed = pcall(r.ImGui_IsKeyPressed, ctx, key, false)
+        return ok_pressed and pressed == true
+    end
+
+    local function NavEnterPressed()
+        return NavKeyPressed(r.ImGui_Key_Enter)
+            or NavKeyPressed(r.ImGui_Key_KeypadEnter)
+    end
+
+    local function NavConst(name)
+        local fn = r["ImGui_" .. name]
+        if not fn then return nil end
+        local ok, value = pcall(fn)
+        if ok and type(value) == "number" then return value end
+        return nil
+    end
+
+    local function NavShortcutFlags()
+        local flags = 0
+        local route_always = NavConst("InputFlags_RouteAlways")
+        if route_always then return route_always end
+        local route_global = NavConst("InputFlags_RouteGlobal") or 0
+        local over_active = NavConst("InputFlags_RouteOverActive") or 0
+        return flags | route_global | over_active
+    end
+
+    local function NavShortcutChordPressed(mod_name, key_name)
+        local mod = NavConst(mod_name)
+        local key = NavConst(key_name)
+        if not mod or not key then return false end
+        local chord = mod | key
+        local flags = NavShortcutFlags()
+        if r.ImGui_Shortcut then
+            local ok, pressed = pcall(r.ImGui_Shortcut, ctx, chord, flags)
+            if ok and pressed == true then return true end
+        end
+        if r.ImGui_IsKeyChordPressed then
+            local ok, pressed = pcall(r.ImGui_IsKeyChordPressed, ctx, chord)
+            if ok and pressed == true then return true end
+        end
+        return false
+    end
+
+    local function NavPrimaryEnterShortcutPressed()
+        return NavShortcutChordPressed("Mod_Ctrl", "Key_Enter")
+            or NavShortcutChordPressed("Mod_Ctrl", "Key_KeypadEnter")
+            or NavShortcutChordPressed("Mod_Super", "Key_Enter")
+            or NavShortcutChordPressed("Mod_Super", "Key_KeypadEnter")
+            or NavShortcutChordPressed("Mod_Shortcut", "Key_Enter")
+            or NavShortcutChordPressed("Mod_Shortcut", "Key_KeypadEnter")
+    end
+
+    local function NavInputTextEnterFlags()
+        if not r.ImGui_InputTextFlags_EnterReturnsTrue then return 0 end
+        local ok, flags = pcall(r.ImGui_InputTextFlags_EnterReturnsTrue)
+        if ok and type(flags) == "number" then return flags end
+        return 0
+    end
+
     local function NavClickMods()
         return NavFrameKeyMods()
     end
@@ -50,20 +113,20 @@ ReflexInstallNavViewCore = function(deps)
     end
 
     local AR_LABEL_TEXT_FALLBACK_NUDGE = {
+        Q = { x = 0.0, y = 0.0 },
         A = { x = 0.5, y = 0.0 },
         S = { x = 0.0, y = 0.0 },
         R = { x = 1.0, y = 0.0 },
     }
     local AR_LABEL_IMAGE_FILES = {
+        Q = "Nav.QuickSet.Q.png",
         A = "Nav.Active.A.png",
         S = "Nav.Select.S.png",
         R = "Nav.Route.R.png",
     }
-    local CUSTOM_SET_ASTERISK_FILE = "Nav.CustomSet.Asterisk.png"
     local TYCHO_DOTS_FILE = "Tycho-Logo-dots.png"
     local TYCHO_DOTS_SCALE = 0.2175
     local ar_label_images = {}
-    local custom_set_asterisk_image = nil
     local tycho_dots_image = nil
     local nav_reset_confirm = false
     local nav_help_manual_close_requested = false
@@ -110,11 +173,20 @@ ReflexInstallNavViewCore = function(deps)
             NavSetTltSearchText("", true)
         end
         markDirty()
+        if BuildRenderList then BuildRenderList() end
         return true
     end
 
     local function NavToggleCustomSetMode()
         return NavSetCustomSetMode(opt_nav_custom_set_mode ~= true)
+    end
+
+    local function NavQuickSetHasEntries()
+        if NavCustomSetHasEntries then return NavCustomSetHasEntries() end
+        if NavCustomSetEntries then
+            return #NavCustomSetEntries({ include_blocked = true }) > 0
+        end
+        return false
     end
 
     local function NavGetArLabelImage(which)
@@ -138,29 +210,6 @@ ReflexInstallNavViewCore = function(deps)
             end
         end
         ar_label_images[which] = false
-        return nil
-    end
-
-    local function NavGetCustomSetAsteriskImage()
-        if custom_set_asterisk_image ~= nil then
-            return custom_set_asterisk_image or nil
-        end
-        if script_dir == "" then
-            custom_set_asterisk_image = false
-            return nil
-        end
-        local path = script_dir .. "icons/" .. CUSTOM_SET_ASTERISK_FILE
-        local f = io.open(path, "rb")
-        if f then
-            f:close()
-            local ok, img = pcall(r.ImGui_CreateImage, path)
-            if ok and img then
-                r.ImGui_Attach(ctx, img)
-                custom_set_asterisk_image = img
-                return img
-            end
-        end
-        custom_set_asterisk_image = false
         return nil
     end
 
@@ -219,21 +268,8 @@ ReflexInstallNavViewCore = function(deps)
         return true
     end
 
-    local function NavDrawCustomSetAsterisk(dl, cx, cy, box, col)
-        local img = NavGetCustomSetAsteriskImage()
-        if img then
-            local x = cx - box * 0.5
-            local y = cy - box * 0.5
-            r.ImGui_DrawList_AddImage(dl, img, x, y, x + box, y + box, 0, 0, 1, 1, col)
-            return true
-        end
-        local pushed = NavPushFont(scaled_fonts[5])
-        local glyph = "*"
-        local gw = r.ImGui_CalcTextSize(ctx, glyph)
-        local gh = r.ImGui_GetTextLineHeight(ctx)
-        r.ImGui_DrawList_AddText(dl, cx - gw * 0.5, cy - gh * 0.5, col, glyph)
-        NavPopFont(pushed)
-        return false
+    local function NavDrawQuickSetIndicator(dl, cx, cy, diameter, col, segments)
+        r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, diameter * 0.5, col, segments or NAV_CIRCLE_SEGMENTS or 48)
     end
 
     local function NavSetHandCursor()
@@ -664,7 +700,7 @@ ReflexInstallNavViewCore = function(deps)
     local COL_AR_REST_BG = rgb(0x171B21)
     local COL_AR_ACTIVE_RED = rgb(0xDA6449)
     local COL_AR_SELECTED_GREEN = rgb(0x42A66B)
-    local COL_AR_ROUTING_BLUE = rgb(0x1185E0)
+    local COL_AR_ROUTING_AMBER = rgb(0xE6B365)
     local COL_AR_HOVER_BG = COL_AR_REST_BG
     local COL_AR_TEXT_REST = rgb(0x919394)
     local COL_AR_TEXT_ACTIVE = 0xFFFFFFFF
@@ -673,11 +709,10 @@ ReflexInstallNavViewCore = function(deps)
     local AR_DISABLED_FG = NavWithAlpha(COL_AR_TEXT_REST, AR_DISABLED_ALPHA)
     local COL_NAV_ADD = C.green or 0x3FB950FF
     local COL_NAV_REMOVE = C.danger or C.fx_remove or C.warn or 0xE35B4FFF
-    local COL_TREE_ARROW_REST = rgb(0x23262A)
-    local COL_TREE_ARROW_ACTIVE = rgb(0x393A3D)
+    local COL_TREE_ARROW_REST = rgb(0x393A3D)
+    local COL_TREE_ARROW_ACTIVE = rgb(0x515151)
     local COL_TREE_ARROW_EXPANDED = rgb(0x515151)
     local COL_TREE_ARROW_INACTIVE = rgb(0x3D3D3D)
-    local COL_TREE_PARTIAL_REST = rgb(0x3E3E3E)
     local COL_TLT_CUSTOM_SET = rgb(0x1485E0)
     local COL_TLT_NAME_TEXT = rgb(0xD1D6DB)
     local COL_TLT_BG_DIM_RESOLVED = rgb(0x2E3033)
@@ -1253,6 +1288,13 @@ ReflexInstallNavViewCore = function(deps)
             NavHelpLine("in the global menu.", manual_w)
 
             ReflexPopupStackGap(S(16))
+            NavHelpInfoBlock("Q - Quick Set View Button", {
+                "Shows only tracks currently in the Quick Set.",
+                "Appears only when the Quick Set has members.",
+                "Click again to exit Quick Set view.",
+                pin_click .. " clears the Quick Set",
+            }, manual_w)
+            ReflexPopupStackGap(S(12))
             NavHelpInfoBlock("A - Active Tracks View Button", {
                 "Shows tracks whose signal exceeded -60 dB recently.",
                 "Also includes parent folders and forward send destinations",
@@ -1284,7 +1326,7 @@ ReflexInstallNavViewCore = function(deps)
             }, manual_w)
             ReflexPopupStackGap(S(9))
             NavHelpInfoBlock(custom_set_click, {
-                "Add or remove this TLT from the custom set",
+                "Add or remove this TLT from the Quick Set",
                 "without changing track visibility",
             }, manual_w)
             ReflexPopupStackGap(S(9))
@@ -1307,13 +1349,13 @@ ReflexInstallNavViewCore = function(deps)
                 "Pin, hide, or customize this TLT",
             }, manual_w)
 
-            NavHelpSection("Custom Visibility", manual_w)
+            NavHelpSection("Navigator Visibility", manual_w)
             NavHelpInfoBlock("Show selected tracks", {
                 "Adds selected REAPER tracks manually as TLT buttons",
             }, manual_w)
             ReflexPopupStackGap(S(9))
-            NavHelpInfoBlock("Custom set", {
-                "Add tracks to a flat custom TLT list",
+            NavHelpInfoBlock("Quick Set", {
+                "Create a flat saved TLT list",
                 "without pinning or changing visibility",
             }, manual_w)
             ReflexPopupStackGap(S(9))
@@ -1334,7 +1376,7 @@ ReflexInstallNavViewCore = function(deps)
             ReflexPopupStackGap(S(9))
             NavHelpInfoBlock("Collapse all", {
                 "Collapses all Navigator tree rows",
-                "without changing pins or custom visibility",
+                "without changing pins or visibility overrides",
             }, manual_w)
 
             NavHelpSection("Options", manual_w)
@@ -1400,7 +1442,7 @@ ReflexInstallNavViewCore = function(deps)
         local tlt_expand_w = r.ImGui_CalcTextSize(ctx, "Enable TLT expand") + check_w + S(30)
         local show_search_w = r.ImGui_CalcTextSize(ctx, "Show search") + check_w + S(30)
         local pinned_only_w = r.ImGui_CalcTextSize(ctx, "Show pinned only") + check_w + S(30)
-        local custom_set_mode_w = r.ImGui_CalcTextSize(ctx, "Show custom set") + check_w + S(30)
+        local custom_set_mode_w = r.ImGui_CalcTextSize(ctx, "Show Quick Set") + check_w + S(30)
         local indent_tlts_w = r.ImGui_CalcTextSize(ctx, "Indent TLTs") + check_w + S(30)
         local flip_indent_w = r.ImGui_CalcTextSize(ctx, "Flip indent") + check_w + S(30)
         local mirror_w = r.ImGui_CalcTextSize(ctx, "Mirror TLT buttons") + check_w + S(30)
@@ -1414,8 +1456,8 @@ ReflexInstallNavViewCore = function(deps)
         local show_all_w = r.ImGui_CalcTextSize(ctx, "Show all tracks") + S(16)
         local help_w = r.ImGui_CalcTextSize(ctx, "Help / Manual") + S(42)
         local include_w = r.ImGui_CalcTextSize(ctx, "Show selected tracks") + S(16)
-        local custom_set_add_w = r.ImGui_CalcTextSize(ctx, "Add selected to custom set") + S(16)
-        local custom_set_clear_w = r.ImGui_CalcTextSize(ctx, "Clear custom set") + S(16)
+        local custom_set_add_w = r.ImGui_CalcTextSize(ctx, "Add selected to Quick Set") + S(16)
+        local custom_set_clear_w = r.ImGui_CalcTextSize(ctx, "Clear Quick Set") + S(16)
         local hide_selected_w = r.ImGui_CalcTextSize(ctx, "Hide selected tracks") + S(16)
         local promote_selected_w = r.ImGui_CalcTextSize(ctx, "Hide selected & show descendants") + S(16)
         local window_w = 0
@@ -1429,15 +1471,15 @@ ReflexInstallNavViewCore = function(deps)
         end
         include_w = math.max(include_w, r.ImGui_CalcTextSize(ctx, "No tracks selected") + S(16))
         local custom_w = r.ImGui_CalcTextSize(ctx, "Manually shown tracks") + S(20) + S(24)
-        local custom_set_w = r.ImGui_CalcTextSize(ctx, "Custom set") + S(20) + S(24)
+        local custom_set_w = r.ImGui_CalcTextSize(ctx, "Quick Set") + S(20) + S(24)
         local hidden_w = r.ImGui_CalcTextSize(ctx, "Hidden tracks") + S(20) + S(24)
         local promoted_w = r.ImGui_CalcTextSize(ctx, "Showing descendants instead") + S(20) + S(24)
-        local reset_w = r.ImGui_CalcTextSize(ctx, "Reset custom visibility") + S(16)
+        local reset_w = r.ImGui_CalcTextSize(ctx, "Reset Navigator visibility") + S(16)
         local reset_tree_w = r.ImGui_CalcTextSize(ctx, "Collapse all") + S(16)
         local confirm_w = 0
         if nav_reset_confirm then
             confirm_w = math.max(
-                r.ImGui_CalcTextSize(ctx, "Reset custom visibility?") + S(16),
+                r.ImGui_CalcTextSize(ctx, "Reset Navigator visibility?") + S(16),
                 r.ImGui_CalcTextSize(ctx, "Clear manually shown tracks and") + S(16),
                 r.ImGui_CalcTextSize(ctx, "hidden/show-descendants rules.") + S(16)
             )
@@ -1476,8 +1518,9 @@ ReflexInstallNavViewCore = function(deps)
     local function NavTlfMenuWidth(pin_label, ignore_label, ghost_parent, custom_item, custom_set_label)
         if custom_item then
             return math.max(
+                r.ImGui_CalcTextSize(ctx, pin_label or "Pin") + S(16),
                 r.ImGui_CalcTextSize(ctx, "Hide in Track Navigator") + S(16),
-                r.ImGui_CalcTextSize(ctx, custom_set_label or "Add to custom set") + S(16),
+                r.ImGui_CalcTextSize(ctx, custom_set_label or "Add to Quick Set") + S(16),
                 r.ImGui_CalcTextSize(ctx, "Collapse all") + S(16),
                 r.ImGui_CalcTextSize(ctx, "Options") + S(16)
             )
@@ -1485,12 +1528,14 @@ ReflexInstallNavViewCore = function(deps)
         local w = math.max(
             r.ImGui_CalcTextSize(ctx, pin_label) + S(16),
             r.ImGui_CalcTextSize(ctx, "Unpin all") + S(16),
-            r.ImGui_CalcTextSize(ctx, custom_set_label or "Add to custom set") + S(16),
+            r.ImGui_CalcTextSize(ctx, custom_set_label or "Add to Quick Set") + S(16),
             r.ImGui_CalcTextSize(ctx, "Collapse all") + S(16),
             r.ImGui_CalcTextSize(ctx, "Options") + S(16)
         )
         if ignore_label then w = math.max(w, r.ImGui_CalcTextSize(ctx, ignore_label) + S(16)) end
-        w = math.max(w, r.ImGui_CalcTextSize(ctx, "Show children") + S(16))
+        if opt_nav_tlt_expand == false then
+            w = math.max(w, r.ImGui_CalcTextSize(ctx, "Show children") + S(16))
+        end
         if ghost_parent then w = math.max(w, r.ImGui_CalcTextSize(ctx, "Show parent in Track Navigator") + S(16)) end
         return w
     end
@@ -1686,10 +1731,10 @@ ReflexInstallNavViewCore = function(deps)
             markDirty()
         end
         local custom_set_mode = opt_nav_custom_set_mode == true
-        local custom_set_clicked, custom_set_hov = NavMenuCheckItem("Show custom set", custom_set_mode, "show_custom_set", menu_w)
+        local custom_set_clicked, custom_set_hov = NavMenuCheckItem("Show Quick Set", custom_set_mode, "show_custom_set", menu_w)
         if custom_set_hov then
             NavPopupTip({
-                "Show only tracks in the custom set",
+                "Show only tracks in the Quick Set",
                 "as a flat, normal-clickable TLT list.",
             })
         end
@@ -1945,7 +1990,7 @@ ReflexInstallNavViewCore = function(deps)
         if include_clicked then
             if NavIncludeSelectedTracks then NavIncludeSelectedTracks() end
         end
-        local set_clicked, set_hov = ReflexMenuItem("Add selected to custom set", {
+        local set_clicked, set_hov = ReflexMenuItem("Add selected to Quick Set", {
             id = "add_selected_to_custom_set",
             min_w = menu_w,
             enabled = sel_count > 0,
@@ -1954,15 +1999,15 @@ ReflexInstallNavViewCore = function(deps)
         })
         if set_hov and sel_count > 0 then
             NavPopupTip({
-                "Add selected tracks to the custom set",
-                "Show custom set displays them as a flat TLT list.",
+                "Add selected tracks to the Quick Set",
+                "Show Quick Set displays them as a flat TLT list.",
                 "This does not pin or change track visibility.",
             })
         end
         if set_clicked then
             if NavAddSelectedTracksToCustomSet then NavAddSelectedTracksToCustomSet() end
         end
-        local clear_set_clicked, clear_set_hov = ReflexMenuItem("Clear custom set", {
+        local clear_set_clicked, clear_set_hov = ReflexMenuItem("Clear Quick Set", {
             id = "clear_custom_set",
             min_w = menu_w,
             enabled = #custom_set > 0 or opt_nav_custom_set_mode == true,
@@ -1971,9 +2016,9 @@ ReflexInstallNavViewCore = function(deps)
         })
         if clear_set_hov then
             NavPopupTip({
-                "Remove all tracks from the custom set",
-                "and exit Show custom set mode.",
-                "Pins and custom visibility stay unchanged.",
+                "Remove all tracks from the Quick Set",
+                "and exit Show Quick Set mode.",
+                "Pins and visibility overrides stay unchanged.",
             })
         end
         if clear_set_clicked then
@@ -2016,10 +2061,10 @@ ReflexInstallNavViewCore = function(deps)
 
         if #custom_set > 0 then
             NavPopupSectionBreak(menu_w)
-            if NavDrawClearableSectionHeader(menu_w, "Custom set", "##clear_custom_set_tracks", {
-                "Remove all tracks from the custom set",
-                "Show custom set mode turns off.",
-                "Pins and custom visibility stay unchanged.",
+            if NavDrawClearableSectionHeader(menu_w, "Quick Set", "##clear_custom_set_tracks", {
+                "Remove all tracks from the Quick Set",
+                "Show Quick Set mode turns off.",
+                "Pins and visibility overrides stay unchanged.",
             }, NavClearCustomSetAndExitMode) then return end
             ReflexPopupStackGap(S(4))
             for _, entry in ipairs(custom_set) do
@@ -2091,7 +2136,7 @@ ReflexInstallNavViewCore = function(deps)
         if tree_hov then
             NavPopupTip({
                 "Collapse all Navigator tree rows",
-                "Pins and custom visibility stay unchanged.",
+                "Pins and visibility overrides stay unchanged.",
             })
         end
         if tree_clicked and NavTreeResetExpansion then
@@ -2100,7 +2145,7 @@ ReflexInstallNavViewCore = function(deps)
         end
         ReflexPopupStackGap(S(4))
         if nav_reset_confirm then
-            ReflexPopupLabel("Reset custom visibility?", { col = C.text, min_w = menu_w })
+            ReflexPopupLabel("Reset Navigator visibility?", { col = C.text, min_w = menu_w })
             ReflexPopupStackGap(S(6))
             ReflexPopupLabel("Clear manually shown tracks and", { col = C.text_dim, min_w = menu_w })
             ReflexPopupLabel("hidden/show-descendants rules.", { col = C.text_dim, min_w = menu_w })
@@ -2124,7 +2169,7 @@ ReflexInstallNavViewCore = function(deps)
                 NavResetNavigatorCustomizations()
                 nav_reset_confirm = false
             end
-        elseif ReflexMenuItem("Reset custom visibility", {
+        elseif ReflexMenuItem("Reset Navigator visibility", {
             id = "reset_nav_customizations",
             min_w = menu_w,
             enabled = NavHasNavigatorCustomizations(),
@@ -2255,7 +2300,7 @@ ReflexInstallNavViewCore = function(deps)
         if hovered then
             NavPopupTip({
                 "Collapse all Navigator tree rows",
-                "Pins and custom visibility stay unchanged.",
+                "Pins and visibility overrides stay unchanged.",
             })
         end
         if clicked and NavTreeResetExpansion then
@@ -2303,10 +2348,18 @@ ReflexInstallNavViewCore = function(deps)
         if not track or not r.ValidatePtr(track, "MediaTrack*") then return end
         local guid = r.GetTrackGUID(track)
         local in_custom_set = NavCustomSetTrack and NavCustomSetTrack(track) or false
-        local custom_set_label = in_custom_set and "Remove from custom set" or "Add to custom set"
+        local custom_set_label = in_custom_set and "Remove from Quick Set" or "Add to Quick Set"
         local custom_set_enabled = in_custom_set or not NavCanIncludeTrack or NavCanIncludeTrack(track)
+        local is_pinned = pinned_folders[guid] == true
+        local pin_label = is_pinned and "Unpin" or "Pin"
         if custom_item then
-            local menu_w = NavTlfMenuWidth(nil, nil, nil, true, custom_set_label)
+            local menu_w = NavTlfMenuWidth(pin_label, nil, nil, true, custom_set_label)
+            if ReflexMenuItem(pin_label, { id = "tlf_custom_pin", min_w = menu_w }) then
+                if is_pinned then pinned_folders[guid] = nil
+                else pinned_folders[guid] = true end
+                SavePinnedFolders()
+                markDirty()
+            end
             if ReflexMenuItem(custom_set_label, {
                 id = "tlf_custom_set",
                 min_w = menu_w,
@@ -2330,8 +2383,6 @@ ReflexInstallNavViewCore = function(deps)
             NavDrawOptionsMenuItem(menu_w)
             return
         end
-        local is_pinned = pinned_folders[guid] == true
-        local pin_label = is_pinned and "Unpin" or "Pin"
         local is_excluded = nav_excluded and nav_excluded[guid] == true
         local is_hidden = nav_hidden and nav_hidden[guid] == true
         local ignore_label = nil
@@ -2374,7 +2425,8 @@ ReflexInstallNavViewCore = function(deps)
             end
         end
 
-        local can_show_children = r.GetMediaTrackInfo_Value(track, "I_FOLDERDEPTH") == 1
+        local can_show_children = opt_nav_tlt_expand == false
+            and r.GetMediaTrackInfo_Value(track, "I_FOLDERDEPTH") == 1
 
         if ignore_label then
             ReflexPopupSeparator(menu_w)
@@ -2426,8 +2478,8 @@ ReflexInstallNavViewCore = function(deps)
                 if show_children_hov then
                     NavPopupTip({
                         "Add this TLT's direct children",
-                        "as Track Navigator buttons.",
-                        "not Navigator tree disclosure.",
+                        "as flat Track Navigator buttons.",
+                        "Use tree arrows when TLT expand is on.",
                     })
                 end
                 if show_children_clicked then
@@ -2444,8 +2496,8 @@ ReflexInstallNavViewCore = function(deps)
             if show_children_hov then
                 NavPopupTip({
                     "Add this TLT's direct children",
-                    "as Track Navigator buttons.",
-                    "not Navigator tree disclosure.",
+                    "as flat Track Navigator buttons.",
+                    "Use tree arrows when TLT expand is on.",
                 })
             end
             if show_children_clicked then
@@ -2527,7 +2579,7 @@ ReflexInstallNavViewCore = function(deps)
           local nav_arrow_font_shared = scaled_fonts[nav_arrow_step_shared]
           local COL_NAV_ARROW_REST = rgb(0x545758)
 
-          -- A/S/R nav buttons. Expanded NAV pins them to the top-right header
+          -- Q/A/S/R nav buttons. Expanded NAV pins them to the top-right header
           -- space in normal widths, falling back to inline flow only when the
           -- header is too narrow. Collapsed NAV always renders them as the
           -- first grouped controls after NAV.arr.
@@ -2547,23 +2599,25 @@ ReflexInstallNavViewCore = function(deps)
           end
           local ar_d = nav_dot_r * 2
           local ar_gap = nav_dot_gap
-          local ar_buttons = { "A", "S", "R" }
-          local ar_reserved_w = ar_d * #ar_buttons + ar_gap * (#ar_buttons - 1)  -- [A] gap [S] gap [R]
+          local quick_set_button_visible = NavQuickSetHasEntries()
+          if not quick_set_button_visible and opt_nav_custom_set_mode == true then
+              NavSetCustomSetMode(false)
+          end
+          local ar_buttons = quick_set_button_visible and { "Q", "A", "S", "R" } or { "A", "S", "R" }
+          local ar_reserved_w = ar_d * #ar_buttons + ar_gap * (#ar_buttons - 1)
           local ar_pair_w = ar_d + ar_gap + ar_d
           local ar_fixed = (bw - nav_left_pad_shared) >= (nav_arrow_area + ar_gap + ar_reserved_w)
-          -- Wide-mode fixed positions (only valid when ar_fixed)
-          local ar_r_cx = nav_shared_scx + bw - nav_dot_r + nav_ar_x_offset  -- R center X (flush right)
-          local ar_s_cx = ar_r_cx - ar_d - ar_gap
-          local ar_a_cx = ar_s_cx - ar_d - ar_gap
+          local ar_fixed_start_x = nav_shared_scx + bw - ar_reserved_w + nav_ar_x_offset
           local ar_cy = nav_shared_scy + math.floor(nav_single_row_h / 2)  -- center Y row 1, floored to match dot_cy convention
 
           local ar_font = GetSteppedFont(-1)
 
-          -- Render A/S/R circle button at screen-space (cx, cy). Used by both
+          -- Render Q/A/S/R circle button at screen-space (cx, cy). Used by both
           -- fixed-position rendering (wide mode) and inline rendering (narrow
-          -- mode where A/S/R appear as flow items in mini-circle layout).
+          -- mode where view buttons appear as flow items in mini-circle layout).
           local DrawArButton = function(cx, cy, which)
-              local mode_active = (which == "A" and active_view_active)
+              local mode_active = (which == "Q" and opt_nav_custom_set_mode == true)
+                  or (which == "A" and active_view_active)
                   or (which == "S" and selected_view_active)
                   or (which == "R" and routing_view_active)
               local no_active_signal = which == "A"
@@ -2578,9 +2632,10 @@ ReflexInstallNavViewCore = function(deps)
                   and not routing_view_active
                   and r.CountSelectedTracks(0) == 0
               local disabled = no_active_signal or no_selected_selection or no_routing_selection
-              local state_col = (which == "A") and COL_AR_ACTIVE_RED
+              local state_col = (which == "Q") and COL_TLT_CUSTOM_SET
+                  or (which == "A" and COL_AR_ACTIVE_RED)
                   or (which == "S" and COL_AR_SELECTED_GREEN)
-                  or COL_AR_ROUTING_BLUE
+                  or COL_AR_ROUTING_AMBER
               if which == "A" and active_view_active then
                   local flash = NavActiveFlashAmount()
                   if flash > 0 then state_col = NavBrightenColor(state_col, flash) end
@@ -2622,7 +2677,7 @@ ReflexInstallNavViewCore = function(deps)
                   NavPopFont(ar_font_pushed)
               end
               if clk then
-                  NavDebugEvent("A/S/R." .. which, {
+                  NavDebugEvent("NAV.mode." .. which, {
                       mods = mods,
                       label = which,
                       item_active = r.ImGui_IsItemActive(ctx),
@@ -2630,8 +2685,11 @@ ReflexInstallNavViewCore = function(deps)
                       state = mode_active and "active" or "inactive",
                   })
                   if disabled then
-                      -- Disabled A/S/R still owns the hitbox, but does not enter
+                      -- Disabled view buttons still own the hitbox, but do not enter
                       -- the view mode; hover tooltip explains why.
+                  elseif which == "Q" then
+                      if nav_mods.pin then NavClearCustomSetAndExitMode()
+                      else NavToggleCustomSetMode() end
                   elseif which == "A" then
                       if active_view_active then
                           if nav_mods.pin then ActiveViewToggle()
@@ -2656,7 +2714,9 @@ ReflexInstallNavViewCore = function(deps)
                   end
               end
               if hov then
-                  if which == "A" then
+                  if which == "Q" then
+                      NavArTooltip("Quick Set view", (opt_nav_custom_set_mode == true and "Click: exit Quick Set\n" or "Click: show Quick Set\n") .. NavPinLabel() .. ": clear Quick Set")
+                  elseif which == "A" then
                       if disabled then
                           NavArTooltip("Active tracks view", "No levels detected")
                       else
@@ -2690,14 +2750,18 @@ ReflexInstallNavViewCore = function(deps)
                   NavAsrAddRow(placements, 2, start_x, ar_buttons)
                   return placements, 2
               elseif start_x + ar_pair_w <= max_x then
-                  NavAsrAddRow(placements, 2, start_x, { "A" })
+                  if quick_set_button_visible then
+                      NavAsrAddRow(placements, 2, start_x, { "Q", "A" })
+                  else
+                      NavAsrAddRow(placements, 2, start_x, { "A" })
+                  end
                   NavAsrAddRow(placements, 3, start_x, { "S", "R" })
                   return placements, 3
               end
-              NavAsrAddRow(placements, 2, start_x, { "A" })
-              NavAsrAddRow(placements, 3, start_x, { "S" })
-              NavAsrAddRow(placements, 4, start_x, { "R" })
-              return placements, 4
+              for i, which in ipairs(ar_buttons) do
+                  NavAsrAddRow(placements, i + 1, start_x, { which })
+              end
+              return placements, #ar_buttons + 1
           end
 
           local function NavAsrCollapsedFlowLayout(first_x, wrap_x, max_x)
@@ -2709,14 +2773,18 @@ ReflexInstallNavViewCore = function(deps)
                   NavAsrAddRow(placements, 2, wrap_x, ar_buttons)
                   return placements, 2, wrap_x + ar_reserved_w + ar_gap
               elseif wrap_x + ar_pair_w <= max_x then
-                  NavAsrAddRow(placements, 2, wrap_x, { "A" })
+                  if quick_set_button_visible then
+                      NavAsrAddRow(placements, 2, wrap_x, { "Q", "A" })
+                  else
+                      NavAsrAddRow(placements, 2, wrap_x, { "A" })
+                  end
                   NavAsrAddRow(placements, 3, wrap_x, { "S", "R" })
                   return placements, 3, wrap_x + ar_pair_w + ar_gap
               end
-              NavAsrAddRow(placements, 2, wrap_x, { "A" })
-              NavAsrAddRow(placements, 3, wrap_x, { "S" })
-              NavAsrAddRow(placements, 4, wrap_x, { "R" })
-              return placements, 4, wrap_x + ar_d + ar_gap
+              for i, which in ipairs(ar_buttons) do
+                  NavAsrAddRow(placements, i + 1, wrap_x, { which })
+              end
+              return placements, #ar_buttons + 1, wrap_x + ar_d + ar_gap
           end
 
           -- Expanded mode's top header can grow when A/S/R have joined the dot
@@ -2828,8 +2896,8 @@ ReflexInstallNavViewCore = function(deps)
                   ShowModKeyTip()
               end
 
-              -- Expanded A/S/R wrap is grouped: fixed top-right while all
-              -- three fit, then A/S/R on row 2, then A + S/R, then stacked.
+              -- Expanded mode-button wrap is grouped: fixed top-right while all
+              -- fit, then a compact flow row, then split pairs, then stacked.
               if not ar_fixed then
                   local flow_left = nav_cx_h + nav_left_pad_shared + nav_ar_x_offset
                   local placements, max_row = NavAsrExpandedFlowLayout(flow_left, nav_cx_h + bw)
@@ -2868,9 +2936,9 @@ ReflexInstallNavViewCore = function(deps)
               -- of row 2 sits directly under the arrow of row 1).
               local dot_start_x_first = nav_cx + nav_left_pad + arrow_area + nav_header_x_offset
               local dot_start_x_wrap = nav_cx + nav_left_pad + nav_header_x_offset
-              -- Collapsed NAV treats A/S/R as one leading group, so the
+              -- Collapsed NAV treats view buttons as one leading group, so the
               -- dot row uses the full width instead of reserving a top-right
-              -- A/S/R zone.
+              -- view-button zone.
               local max_dot_x = nav_cx + bw
               local asr_placements, asr_row, asr_next_x = NavAsrCollapsedFlowLayout(dot_start_x_first, dot_start_x_wrap, max_dot_x)
               local mini_items = {}
@@ -3070,6 +3138,8 @@ ReflexInstallNavViewCore = function(deps)
                   -- Pinned indicator, centered inside the track-color circle.
                   if PinnedTrack(item.entry.track) then
                       r.ImGui_DrawList_AddCircleFilled(dl, dot_x + dot_r, dot_cy, pin_overlay_r, NavTltPinBgColor(alpha), nav_circle_segments)
+                  elseif item.tree_partial then
+                      r.ImGui_DrawList_AddCircleFilled(dl, dot_x + dot_r, dot_cy, pin_overlay_r, NavWithAlpha(NavTltPinBgColor(alpha), 0x80), nav_circle_segments)
                   end
                   r.ImGui_PopID(ctx)
                   dot_x = dot_x + dot_r * 2 + dot_gap
@@ -3099,13 +3169,15 @@ ReflexInstallNavViewCore = function(deps)
               last_nav_collapsed_visible_h = row_h
           end
 
-          -- ── A/S/R nav buttons ──
+          -- ── NAV view-mode buttons ──
           -- Expanded fixed mode: drawn at top-right of row 1 via DrawArButton.
-          -- Collapsed NAV and expanded non-fixed modes draw A/S/R inline.
+          -- Collapsed NAV and expanded non-fixed modes draw view buttons inline.
           if nav_render_expanded and ar_fixed then
-              DrawArButton(ar_a_cx, ar_cy, "A")
-              DrawArButton(ar_s_cx, ar_cy, "S")
-              DrawArButton(ar_r_cx, ar_cy, "R")
+              local fixed_placements = {}
+              NavAsrAddRow(fixed_placements, 1, ar_fixed_start_x, ar_buttons)
+              for _, placement in ipairs(fixed_placements) do
+                  DrawArButton(placement.cx, ar_cy, placement.which)
+              end
           end
 
         if nav_render_expanded then
@@ -3227,8 +3299,15 @@ ReflexInstallNavViewCore = function(deps)
                   end
                   r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FramePadding(), 0, input_pad_y)
                   local input_changed
-                  input_changed, new_text = r.ImGui_InputText(ctx, "##nav_tlt_search", new_text)
+                  local previous_text = nav_tlt_search_text or ""
+                  local enter_pressed = NavEnterPressed()
+                  local primary_down = NavMods(NavFrameKeyMods()).primary == true
+                  local primary_enter_shortcut = NavPrimaryEnterShortcutPressed()
+                  input_changed, new_text = r.ImGui_InputText(ctx, "##nav_tlt_search", new_text, NavInputTextEnterFlags())
                   local input_active = r.ImGui_IsItemActive(ctx) or (r.ImGui_IsItemFocused and r.ImGui_IsItemFocused(ctx))
+                  local input_deactivated = r.ImGui_IsItemDeactivated and r.ImGui_IsItemDeactivated(ctx)
+                  local input_enter_returned = input_changed and (new_text or "") == previous_text
+                  local search_enter = input_enter_returned or primary_enter_shortcut or (primary_down and enter_pressed)
                   local esc_pressed = type(TrackNavigatorEscapePressed) == "function" and TrackNavigatorEscapePressed()
                   local release_focus = false
                   r.ImGui_PopStyleVar(ctx, 1)
@@ -3247,6 +3326,13 @@ ReflexInstallNavViewCore = function(deps)
                       nav_tlt_search_esc_consumed = true
                       release_focus = true
                       input_active = false
+                  end
+
+                  if (input_active or input_deactivated)
+                     and search_enter
+                     and NavNormalizeTltSearchQuery(nav_tlt_search_text or "") ~= "" then
+                      NavSetTltSearchEffectiveQuery(nav_tlt_search_text or "", true)
+                      if ShowTltSearchResults then ShowTltSearchResults() end
                   end
 
                   local show_clear = not nav_tlt_search_hide_clear
@@ -3346,7 +3432,7 @@ ReflexInstallNavViewCore = function(deps)
           local tree_arrow_glyph_down = "\xE2\x96\xBC"
           local tree_arrow_font = nav_arrow_font_shared or scaled_fonts[5]
           local tree_arrow_w = tree_indicator_d
-          local custom_set_indicator_w = NavRetinaPx(16)
+          local custom_set_indicator_w = NavRetinaPx(15)
           -- The NAV arrow glyph has transparent/advance padding: a 14px text
           -- advance renders closer to a 10px visible triangle. Size the font
           -- from the compensated advance, while keeping layout/hit geometry 14px.
@@ -3419,7 +3505,7 @@ ReflexInstallNavViewCore = function(deps)
           local function NavTlfLayout(row_cx, item)
               local _, row_w, pill_w, pill_collapsed = NavTlfRowMetrics(item)
               local has_tree_arrow = tree_expand_enabled and item and item.kind == "folder" and item.tree_expandable == true and not pill_collapsed
-              local has_custom_set_indicator = NavTlfCustomSet(item) and not pill_collapsed
+              local has_custom_set_indicator = NavTlfCustomSet(item) and opt_nav_custom_set_mode ~= true and not pill_collapsed
               local text_left_anchor, text_right_anchor
               local arrow_cx, arrow_hit_left, arrow_hit_right, custom_set_cx
               local color_left = tlt_mirror
@@ -3748,43 +3834,31 @@ ReflexInstallNavViewCore = function(deps)
               end
 
               if layout.has_custom_set_indicator and layout.custom_set_cx then
-                  NavDrawCustomSetAsterisk(dl, layout.custom_set_cx, mid_y, custom_set_indicator_w, COL_TLT_CUSTOM_SET)
+                  NavDrawQuickSetIndicator(dl, layout.custom_set_cx, mid_y, custom_set_indicator_w, COL_TLT_CUSTOM_SET, nav_circle_segments)
               end
 
-	              -- Tree disclosure indicator. Partial pinned-descendant paths rest
-	              -- as a quiet dot, then reveal the normal arrow affordance on hover.
+	              -- Tree disclosure indicator. Pinned-descendant paths use the
+	              -- normal collapsed arrow; their partial-pin signal lives in the
+	              -- track-color circle.
 	              if layout.has_tree_arrow then
 	                  local arrow_down = item.tree_expanded == true
 	                  local arrow_col
                   if not (vis or tlf_hov) then
                       arrow_col = COL_TREE_ARROW_INACTIVE
-                  elseif item.tree_partial then
-                      arrow_col = COL_TREE_ARROW_ACTIVE
                   elseif item.tree_expanded then
                       arrow_col = COL_TREE_ARROW_EXPANDED
                   else
-                      arrow_col = arrow_hovered and COL_TREE_ARROW_ACTIVE or COL_TREE_ARROW_REST
+                      arrow_col = (arrow_hovered or tlf_hov) and COL_TREE_ARROW_ACTIVE or COL_TREE_ARROW_REST
                   end
-	                  if item.tree_partial and not tlf_hov then
-	                      r.ImGui_DrawList_AddCircleFilled(
-	                          dl,
-	                          layout.arrow_cx,
-	                          mid_y,
-	                          NavRetinaPx(7.5),
-	                          COL_TREE_PARTIAL_REST,
-	                          nav_circle_segments
-	                      )
-	                  else
-	                      NavDrawTreeDisclosureGlyph(
-	                          dl,
-	                          layout.arrow_cx,
-	                          mid_y,
-	                          tree_arrow_font,
-	                          tree_arrow_font_size,
-	                          arrow_down and tree_arrow_glyph_down or tree_arrow_glyph_right,
-	                          arrow_col
-	                      )
-	                  end
+	                  NavDrawTreeDisclosureGlyph(
+	                      dl,
+	                      layout.arrow_cx,
+	                      mid_y,
+	                      tree_arrow_font,
+	                      tree_arrow_font_size,
+	                      arrow_down and tree_arrow_glyph_down or tree_arrow_glyph_right,
+	                      arrow_col
+	                  )
 
 	                  if arrow_clicked then
 	                      local mods = NavClickMods()
@@ -3796,6 +3870,8 @@ ReflexInstallNavViewCore = function(deps)
               -- matching the minimized TLT circle convention.
               if item.kind == "folder" and PinnedTrack(item.entry.track) then
                   r.ImGui_DrawList_AddCircleFilled(dl, circ_cx, mid_y, pin_dot_r, NavTltPinBgColor(alpha), nav_circle_segments)
+              elseif item.kind == "folder" and item.tree_partial then
+                  r.ImGui_DrawList_AddCircleFilled(dl, circ_cx, mid_y, pin_dot_r, NavWithAlpha(NavTltPinBgColor(alpha), 0x80), nav_circle_segments)
               end
               if collapsed_clip_pushed then
                   r.ImGui_DrawList_PopClipRect(dl)
@@ -3831,13 +3907,11 @@ ReflexInstallNavViewCore = function(deps)
                       NavDrawTlfTooltipTitle(item)
                       r.ImGui_Separator(ctx)
                       r.ImGui_TextColored(ctx, C.text_dim, NavPrimaryLabel() .. ": add/remove from view")
-                      r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. "+Shift: add/remove custom set")
+                      r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. "+Shift: add/remove Quick Set")
                       if item.custom then
-                          r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. ": expand all")
                           r.ImGui_TextColored(ctx, C.text_dim, "Right-click: hide in Track Navigator")
-                      else
-                          r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. ": toggle pin")
                       end
+                      r.ImGui_TextColored(ctx, C.text_dim, NavPinLabel() .. ": toggle pin")
                       r.ImGui_TextColored(ctx, C.text_dim, NavChildExpandLabel() .. ": expand/collapse children")
                       r.ImGui_TextColored(ctx, C.text_dim, "Shift: range select")
                       r.ImGui_EndTooltip(ctx)
