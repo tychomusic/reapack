@@ -788,15 +788,12 @@ ReflexInstallNavActionCore = function(deps)
         local nt = r.CountTracks(0)
         for i = 0, nt - 1 do
             local t = r.GetTrack(0, i)
-            if not (NavTrackAutoIgnored and NavTrackAutoIgnored(t)) then
+            if t and r.ValidatePtr(t, "MediaTrack*") then
                 r.SetMediaTrackInfo_Value(t, "B_SHOWINTCP", 1)
                 r.SetMediaTrackInfo_Value(t, "B_SHOWINMIXER", 1)
-            end
-        end
-        -- Expand all visible top-level tracks (except auto-ignored tracks such as ARCHIVE)
-        for _, entry in ipairs(top_folders) do
-            if not (NavTrackAutoIgnored and NavTrackAutoIgnored(entry.track)) then
-                SetFolderCollapsed(entry, false)
+                if r.GetMediaTrackInfo_Value(t, "I_FOLDERDEPTH") == 1 then
+                    r.SetMediaTrackInfo_Value(t, "I_FOLDERCOMPACT", 0)
+                end
             end
         end
         for _, sg in ipairs(sub_groups) do for _, e in ipairs(sg.entries) do sg.selected[e.display_name] = true end end

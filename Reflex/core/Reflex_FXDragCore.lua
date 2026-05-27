@@ -29,8 +29,8 @@ fx_drag = {
 
 FX_DRAG_THRESHOLD = 8         -- logical px before drag flips active; S() scales it at use sites
 
--- Last-frame DRAG hover target (v20.412). When a drag is active and the
--- cursor is over a target card, card strokes yield to the dashed outline.
+-- Last-frame DRAG hover target (v20.412). Kept for compatibility with older
+-- card-stroke suppression paths; target-card dashed outlines are no longer drawn.
 nav_fx_drag_last_hover_track = nil
 
 -- Seed drag state on mouse-down over an FX row.
@@ -170,8 +170,8 @@ FxDragReadMode = function()
         -- Copy: default = no automation; Opt adds it
         return "copy", is_opt
     else
-        -- Move: default = with automation; Opt strips it
-        return "move", not is_opt
+        -- Move always carries automation with the FX.
+        return "move", true
     end
 end
 
@@ -257,7 +257,7 @@ FxDragTrackLabel = function(track)
     return "Track " .. math.floor(r.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER"))
 end
 
--- Pre-drag modifier legend. Shows the four drag modes when Cmd or Opt is held
+-- Pre-drag modifier legend. Shows drag modes when Cmd or Opt is held
 -- over an FX row AND no drag is yet active. Gated on opt_tooltips (descriptive
 -- category per v20.392 tooltip categorization). Call from FX row hover scope.
 FxDragLegendTip = function()
@@ -267,7 +267,6 @@ FxDragLegendTip = function()
     if not (IsCmd(mods) or IsAlt(mods)) then return end
     local legend =
         "drag: move\n" ..
-        "⌥ drag: move (no auto)\n" ..
         "⌘ drag: copy\n" ..
         "⌘⌥ drag: copy (with auto)"
     TipDirect(legend)
@@ -276,7 +275,9 @@ end
 -- Drop-target registry (v20.396+).
 -- Rebuilt each frame. Each entry describes one FX chain rendering surface.
 -- Populated by surfaces during their render pass; consumed by FxDragResolveDrop
--- at end of frame.
+-- and FxClipResolveHover at end of frame. FxClipResolveHover snapshots the table
+-- to fx_drop_targets_prev before clearing it so top-of-loop hotkeys can still
+-- resolve the hovered card/row before the next render pass repopulates geometry.
 -- Entry shape:
 --   surface        : "inspector" | "secondary" | "return"
 --   track          : MediaTrack* the chain belongs to
@@ -285,6 +286,7 @@ end
 --   body_rect      : {x, y, w, h}  -- card-body hit area (for end-of-chain fallback)
 --   card_id        : unique string ID (for ImGui scope)
 fx_drop_targets = {}
+fx_drop_targets_prev = {}
 
 -- Auto-scroll request queue (v20.396+).
 -- Drag hover detection writes pending scroll deltas here.
@@ -395,10 +397,7 @@ end
 --     matching real rows) instead of a neutral tooltip. For single FX it shows
 --     the FX name (blue text if instrument, matching how row would render).
 --     For multi it shows "N plugins" in muted text.
---   • Operation colors swapped: move = washed red (C.fx_drag_move), copy = blue
---     (C.fx_drag_copy). Amber is freed up as "source/inspected" semantic.
---   • Destination card now gets a dashed outline around its body_rect during
---     hover, communicating "valid drop zone" as a preview state.
+--   • Move destinations use amber; copy destinations use the clipboard blue.
 --   • Indicator line uses the operation color.
 --   • Multi-source commit with index arithmetic for same-chain/cross-chain
 --     and move/copy combinations. Sources are always 0-based ascending in
@@ -423,8 +422,8 @@ FxDragResolveDrop = function()
     -- Read live drag mode (op + automation) from modifier state
     local op, with_auto = FxDragReadMode()
     local is_move_flag = (op == "move")
-    local op_col = (op == "copy") and (C.fx_drag_copy or rgb(0x58A6FF))
-                                   or (C.fx_drag_move or rgb(0xE57373))
+    local op_col = (op == "copy") and (C.fx_drag_copy or C.fx_clip_carry or rgb(0x73A3F4))
+                                   or (C.fx_drag_move or C.amber or rgb(0xD29922))
 
     -- Find which target the cursor is over (card body contains the mouse)
     local hit
@@ -436,8 +435,7 @@ FxDragResolveDrop = function()
         end
     end
 
-    -- Cache drag hover target for next-frame stroke suppression (v20.412).
-    -- Card pin/selected strokes yield to the dashed destination outline.
+    -- Cache drag hover target for legacy readers.
     nav_fx_drag_last_hover_track = (hit and hit.track) or nil
 
     -- Locate source chain rect (for tooltip visibility gate)
@@ -464,20 +462,6 @@ FxDragResolveDrop = function()
 
     local dl_fg = r.ImGui_GetForegroundDrawList(ctx)
 
-    -- Dashed outline around destination card (v20.404). Positioned exactly at
-    -- body_rect with the card's own corner radius so it traces the card edge
-    -- (rather than floating inside with gaps at corners). Skipped when the
-    -- destination IS the source card — internal drags use only the indicator
-    -- line + source-row strokes; a dashed ring around the source would be
-    -- redundant noise.
-    if hit and hit.body_rect and hit.track ~= src_track then
-        local b = hit.body_rect
-        DrawDashedRoundedRect(dl_fg,
-            b.x, b.y, b.x + b.w, b.y + b.h,
-            op_col, S(UI.card_r), math.max(1, S(1.5)),
-            math.max(4, S(5)), math.max(2, S(3)))
-    end
-
     -- Floating in-flight preview — styled as an FX row clone.
     -- v20.404: rendered inside a BeginTooltip so it can extend past the
     -- script window's edge (ForegroundDrawList is clipped to the viewport,
@@ -502,10 +486,8 @@ FxDragResolveDrop = function()
             text_col = fx_drag.is_instr and (C.fx_instr_txt or rgb(0x1643D6))
                                          or (C.text or rgb(0xE6EDF3))
         end
-        -- Automation-variant suffix only when user has modifier active
-        if op == "move" and not with_auto then
-            text_str = text_str .. "  no auto"
-        elseif op == "copy" and with_auto then
+        -- Automation-variant suffix only when user has modifier active.
+        if op == "copy" and with_auto then
             text_str = text_str .. "  + auto"
         end
 
@@ -597,7 +579,7 @@ FxDragResolveDrop = function()
                and src_track and r.ValidatePtr(src_track, "MediaTrack*") then
                 local src_name = FxDragTrackLabel(src_track)
                 local dst_name = FxDragTrackLabel(hit.track)
-                local auto_tag = with_auto and "" or " (no auto)"
+                local auto_tag = (op == "copy" and not with_auto) and " (no auto)" or ""
                 local count_tag = (n_src > 1) and (" " .. n_src) or ""
                 -- Label construction: singular for n=1 preserves existing labels
                 local label

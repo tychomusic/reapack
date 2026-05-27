@@ -1,20 +1,24 @@
 -- @description Reflex
--- @version 20.673
+-- @version 20.674
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Refine Reflex scaling, footer controls, Navigator assets, and flow-card outlines.
+--   Refine FX row selection, routing/send card states, armed input controls, and FX browser actions.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua
 --   [main] Navigator.lua
 --   [main] Reflex_IOManager.lua
 --   [main] Reflex_WindowToggle.lua
+--   [main] Reflex_AddFX.lua
+--   [main] Reflex_FocusSearch.lua
+--   [main] Reflex_OpenFXBrowser.lua
 --   [main] Reflex_HistoryBack.lua
 --   [main] Reflex_HistoryForward.lua
 --   [main] Reflex_Navigator_ArmedViewToggle.lua
 --   [main] Reflex_Navigator_ScrollToRecordArmed.lua
+--   [nomain] Reflex_ActionBridge.lua
 --   [nomain] Reflex_NavigatorActionBridge.lua
 --   [nomain] core/*.lua
 --   [nomain] icons/*.png

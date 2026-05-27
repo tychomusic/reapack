@@ -5,6 +5,8 @@
 ReflexInstallFXBrowserCore = function(deps)
     local r = deps.r
     local getButtons = deps.get_buttons
+    local getProvider = deps.get_provider
+    local launchExternal = deps.launch_external
 
     local actionPath = function()
         return r.GetResourcePath() .. "/Scripts/Tycho/Reflex/fx_browser_action.txt"
@@ -23,16 +25,28 @@ ReflexInstallFXBrowserCore = function(deps)
         if f then f:write(tostring(action_id)); f:close() end
     end
 
-    InspOpenFXBrowser = function(track)
+    InspOpenInternalFXBrowser = function(track, opts)
         if not track or not r.ValidatePtr(track, "MediaTrack*") then return end
-        -- Left-click +FX must target the clicked track deterministically. Do
-        -- not delegate to saved REAPER actions here; stale actions can run
-        -- unrelated commands such as creating/arming tracks.
+        opts = opts or {}
+        if not opts.preserve_insert then
+            insp_fx_insert_target = nil
+            insp_fx_insert_count = 0
+            insp_fx_insert_time = 0
+        end
         fx_browser_target_track = track
         fx_browser_target_btn = nil
         fx_browser_open = true
         fx_browser_search = ""
         fx_browser_focus_search = true
+    end
+
+    InspOpenFXBrowser = function(track, opts)
+        if not track or not r.ValidatePtr(track, "MediaTrack*") then return end
+        local provider = getProvider and getProvider() or "reflex"
+        if provider ~= "reflex" and launchExternal and launchExternal(track, provider, opts) then
+            return
+        end
+        InspOpenInternalFXBrowser(track, opts)
     end
 
     FxBrowserCleanName = function(raw)

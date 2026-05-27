@@ -195,13 +195,13 @@ end
 --
 -- Cascade (mutually exclusive, first match wins):
 --   1. drag active + src matches (track + surface) + fi in src_fis
---      → operation color (washed red move, blue copy) via live FxDragReadMode()
+--      → active source color via live FxDragReadMode()
 --   2. else not drag + NavPasteLandedHas(track, guid) + alpha > 0
---      → animated green (paste-landing pulse)
+--      → animated blue (paste-landing pulse)
 --   3. else not drag + FxClipHasGuid(guid)
---      → carry green C.fx_clip_carry
+--      → carry blue C.fx_clip_carry
 --   4. else not drag + InspFxSelHas(guid)
---      → white C.fx_sel_outline
+--      → grey C.fx_sel_outline
 --   5. else nil
 FxRowOutlineColor = function(track, fi, guid, surface)
     if fx_drag.active and fx_drag.src_track == track
@@ -209,8 +209,8 @@ FxRowOutlineColor = function(track, fi, guid, surface)
         for _, sf in ipairs(fx_drag.src_fis) do
             if sf == fi then
                 local _op, _ = FxDragReadMode()
-                return (_op == "copy") and (C.fx_drag_copy or rgb(0x58A6FF))
-                                        or (C.fx_drag_move or rgb(0xE57373))
+                if _op == "copy" then return C.fx_drag_copy or C.fx_clip_carry or rgb(0x73A3F4) end
+                return C.fx_drag_source or rgb(0xA4A4A4)
             end
         end
         return nil
@@ -221,7 +221,7 @@ FxRowOutlineColor = function(track, fi, guid, surface)
     if NavPasteLandedHas(track, guid) then
         local a = NavPasteLandedAlpha()
         if a > 0 then
-            local base = C.fx_clip_carry or rgb(0x3FB950)
+            local base = C.fx_clip_carry or rgb(0x73A3F4)
             local base_a = base & 0xFF
             local final_a = math.max(0, math.min(255, math.floor(base_a * a)))
             return (base & 0xFFFFFF00) | final_a
@@ -229,13 +229,13 @@ FxRowOutlineColor = function(track, fi, guid, surface)
         return nil
     end
     if FxClipHasGuid(guid) then
-        -- Green wins over white during loud carry. FxClipHasGuid returns false
+        -- Clipboard blue wins over selection grey during loud carry. FxClipHasGuid returns false
         -- once paste_count > 0, so after first paste this branch falls through
         -- and the white selection outline (data preserved) re-emerges.
-        return C.fx_clip_carry or rgb(0x3FB950)
+        return C.fx_clip_carry or rgb(0x73A3F4)
     end
     if InspFxSelHas(guid) then
-        return C.fx_sel_outline or rgb(0xFFFFFF)
+        return C.fx_sel_outline or C.fx_drag_source or rgb(0xA4A4A4)
     end
     return nil
 end
@@ -249,7 +249,7 @@ end
 --   - Tooltip suppression-during-carry (Tip("Shift: bypass\n..."))
 --   - Per-surface rect cache (insp_fx_rects vs col_fx_rects)
 --   - Text rendering, side widgets (A/B, wet, ENV, arrow), envelope details
---   - Fade overlay, outline render (FxRowOutlineColor + AddRect)
+--   - Fade overlay, outline render (FxRowOutlineColor + solid rounded outline)
 --   - Cursor advance, PopID
 --
 -- This helper handles:
@@ -290,11 +290,19 @@ FxRowInteract = function(p)
     end
 
     -- Hover/active fill + pre-drag legend tip. Suppressed during active drag.
-    if not fx_drag.active then
+    if not fx_drag.active and not FxClipHasContent() then
         if p.hovered and not p.sel then
-            r.ImGui_DrawList_AddRectFilled(p.dl, p.cx, p.cy, p.cx + p.w, p.cy + p.h, p.hover_col, p.radius)
+            if DrawHighResRoundedRectFilled then
+                DrawHighResRoundedRectFilled(p.dl, p.cx, p.cy, p.cx + p.w, p.cy + p.h, p.hover_col, p.radius)
+            else
+                r.ImGui_DrawList_AddRectFilled(p.dl, p.cx, p.cy, p.cx + p.w, p.cy + p.h, p.hover_col, p.radius)
+            end
         elseif p.sel then
-            r.ImGui_DrawList_AddRectFilled(p.dl, p.cx, p.cy, p.cx + p.w, p.cy + p.h, p.active_col, p.radius)
+            if DrawHighResRoundedRectFilled then
+                DrawHighResRoundedRectFilled(p.dl, p.cx, p.cy, p.cx + p.w, p.cy + p.h, p.active_col, p.radius)
+            else
+                r.ImGui_DrawList_AddRectFilled(p.dl, p.cx, p.cy, p.cx + p.w, p.cy + p.h, p.active_col, p.radius)
+            end
         end
         if p.hovered then FxDragLegendTip() end
     end

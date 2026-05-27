@@ -14,6 +14,7 @@ ReflexInstallNavViewCore = function(deps)
     local script_dir = deps.script_dir or ""
     local nav_version = deps.version or TRACK_NAVIGATOR_VERSION or REFLEX_VERSION or "?"
     local nav_menu_context = deps.menu_context or "reflex"
+    local embedded_nav_panel = deps.embedded_nav_panel == true
     local markDirty = deps.mark_dirty or function() end
     local openIoManager = deps.open_io_manager
     local debugEvent = deps.debug_event
@@ -90,9 +91,6 @@ ReflexInstallNavViewCore = function(deps)
     end
 
     local function NavInputTextEnterFlags()
-        if not r.ImGui_InputTextFlags_EnterReturnsTrue then return 0 end
-        local ok, flags = pcall(r.ImGui_InputTextFlags_EnterReturnsTrue)
-        if ok and type(flags) == "number" then return flags end
         return 0
     end
 
@@ -187,6 +185,56 @@ ReflexInstallNavViewCore = function(deps)
             return #NavCustomSetEntries({ include_blocked = true }) > 0
         end
         return false
+    end
+
+    local function NavTltSearchModeActive()
+        if current_page ~= "tracks" or opt_nav_show_search == false then return false end
+        return NavNormalizeTltSearchQuery(nav_tlt_search_text or "") ~= ""
+            or NavNormalizeTltSearchQuery(nav_tlt_search_effective_query or "") ~= ""
+    end
+
+    local function NavTransientExpandModeActive()
+        if current_page ~= "tracks" then return false end
+        return NavTltSearchModeActive() or opt_nav_custom_set_mode == true
+    end
+
+    local function NavClearTltSearchState(rebuild_now)
+        local changed = (nav_tlt_search_text or "") ~= ""
+            or (nav_tlt_search_effective_query or "") ~= ""
+            or nav_tlt_search_active == true
+            or (nav_tlt_search_focus_requested_frames or 0) > 0
+        nav_tlt_search_text = ""
+        nav_tlt_search_effective_query = ""
+        nav_tlt_search_active = false
+        nav_tlt_search_hide_clear = true
+        nav_tlt_search_recent_clear_frames = 8
+        nav_tlt_search_focus_requested_frames = 0
+        nav_tlt_search_force_empty_frames = 3
+        if changed then
+            markDirty()
+            if rebuild_now and BuildRenderList then BuildRenderList() end
+        end
+        return changed
+    end
+
+    local function NavExitTransientExpandModes(rebuild_now)
+        local changed = NavClearTltSearchState(rebuild_now)
+        if opt_nav_custom_set_mode == true then
+            changed = NavSetCustomSetMode(false) or changed
+        end
+        return changed
+    end
+
+    NavToggleNavigatorExpandedPlain = function()
+        if navigator_expanded == true then
+            NavExitTransientExpandModes(true)
+            navigator_expanded = false
+            SavePref("navigator_expanded", false)
+        else
+            navigator_expanded = true
+            SavePref("navigator_expanded", true)
+        end
+        return true
     end
 
     local function NavGetArLabelImage(which)
@@ -1840,8 +1888,8 @@ ReflexInstallNavViewCore = function(deps)
         })
         if show_hov then
             NavPopupTip({
-                "Restore all tracks to Track Navigator",
-                "visibility in TCP and Mixer.",
+                "Show every track in TCP and Mixer.",
+                "Ignores ARCHIVE and all NAV filters.",
             })
         end
         if show_clicked then
@@ -2523,6 +2571,7 @@ ReflexInstallNavViewCore = function(deps)
         local content_gap = params.content_gap or NavRetinaPx(21)
         local nav_bottom_extra = params.nav_bottom_extra or S(180)
         local nav_split_h = params.nav_split_h
+        local nav_temp_split_h = params.nav_temp_split_h
         local nav_context_scope = params.nav_context_scope or "nav"
         local nav_body_x_offset = params.nav_body_x_offset or 0
         local nav_header_x_offset = params.nav_header_x_offset or 0
@@ -2579,10 +2628,9 @@ ReflexInstallNavViewCore = function(deps)
           local nav_arrow_font_shared = scaled_fonts[nav_arrow_step_shared]
           local COL_NAV_ARROW_REST = rgb(0x545758)
 
-          -- Q/A/S/R nav buttons. Expanded NAV pins them to the top-right header
-          -- space in normal widths, falling back to inline flow only when the
-          -- header is too narrow. Collapsed NAV always renders them as the
-          -- first grouped controls after NAV.arr.
+          -- Q/A/S/R nav buttons. Embedded Reflex keeps them pinned to the
+          -- top-right header slot in every NAV state; standalone Navigator keeps
+          -- its responsive flow behavior.
           local nav_shared_scx, nav_shared_scy = r.ImGui_GetCursorScreenPos(ctx)
           local nav_ctx_x1 = nav_shared_scx
           local nav_ctx_y1 = nav_shared_scy
@@ -2606,7 +2654,8 @@ ReflexInstallNavViewCore = function(deps)
           local ar_buttons = quick_set_button_visible and { "Q", "A", "S", "R" } or { "A", "S", "R" }
           local ar_reserved_w = ar_d * #ar_buttons + ar_gap * (#ar_buttons - 1)
           local ar_pair_w = ar_d + ar_gap + ar_d
-          local ar_fixed = (bw - nav_left_pad_shared) >= (nav_arrow_area + ar_gap + ar_reserved_w)
+          local ar_fixed = embedded_nav_panel
+              or (bw - nav_left_pad_shared) >= (nav_arrow_area + ar_gap + ar_reserved_w)
           local ar_fixed_start_x = nav_shared_scx + bw - ar_reserved_w + nav_ar_x_offset
           local ar_cy = nav_shared_scy + math.floor(nav_single_row_h / 2)  -- center Y row 1, floored to match dot_cy convention
 
@@ -2676,8 +2725,8 @@ ReflexInstallNavViewCore = function(deps)
                   r.ImGui_DrawList_AddText(dl, tx, ty, fg_col, which)
                   NavPopFont(ar_font_pushed)
               end
-              if clk then
-                  NavDebugEvent("NAV.mode." .. which, {
+	              if clk then
+	                  NavDebugEvent("NAV.mode." .. which, {
                       mods = mods,
                       label = which,
                       item_active = r.ImGui_IsItemActive(ctx),
@@ -2688,9 +2737,11 @@ ReflexInstallNavViewCore = function(deps)
                       -- Disabled view buttons still own the hitbox, but do not enter
                       -- the view mode; hover tooltip explains why.
                   elseif which == "Q" then
+                      NavClearTltSearchState(true)
                       if nav_mods.pin then NavClearCustomSetAndExitMode()
                       else NavToggleCustomSetMode() end
                   elseif which == "A" then
+                      NavClearTltSearchState(true)
                       if active_view_active then
                           if nav_mods.pin then ActiveViewToggle()
                           else ActiveViewExit() end
@@ -2698,6 +2749,7 @@ ReflexInstallNavViewCore = function(deps)
                           ActiveViewToggle()
                       end
                   elseif which == "S" then
+                      NavClearTltSearchState(true)
                       if selected_view_active then
                           if nav_mods.pin and SelectedViewRefreshFromSelection then SelectedViewRefreshFromSelection()
                           else SelectedViewToggle() end
@@ -2705,6 +2757,7 @@ ReflexInstallNavViewCore = function(deps)
                           SelectedViewToggle()
                       end
                   else
+                      NavClearTltSearchState(true)
                       if routing_view_active then
                           if nav_mods.pin and RoutingViewRefreshFromSelection then RoutingViewRefreshFromSelection()
                           else RoutingViewToggle() end
@@ -2712,6 +2765,7 @@ ReflexInstallNavViewCore = function(deps)
                           RoutingViewToggle()
                       end
                   end
+                  if not disabled then NavClearTltSearchState(true) end
               end
               if hov then
                   if which == "Q" then
@@ -2791,15 +2845,27 @@ ReflexInstallNavViewCore = function(deps)
           -- flow and wrapped below row 1. Consumed by the cursor advance before
           -- the TLT pills.
           local nav_ar_flow_rows = 1
-          local nav_render_expanded = navigator_expanded
-          if not nav_render_expanded or current_page ~= "tracks" or opt_nav_show_search == false then
+          local nav_collapsed_search_visible = embedded_nav_panel
+              and navigator_expanded ~= true
+              and current_page == "tracks"
+              and opt_nav_show_search ~= false
+          local nav_temp_expanded = embedded_nav_panel
+              and navigator_expanded ~= true
+              and NavTransientExpandModeActive()
+          local nav_manual_expanded = navigator_expanded == true
+          local nav_render_expanded = nav_manual_expanded or nav_temp_expanded
+          nav_temporary_expanded = nav_temp_expanded
+          if not (nav_render_expanded or nav_collapsed_search_visible)
+             or current_page ~= "tracks"
+             or opt_nav_show_search == false then
               nav_tlt_search_visible = false
+              nav_tlt_search_active = false
               nav_tlt_search_hide_clear = false
               nav_tlt_search_recent_clear_frames = 0
               NavSetTltSearchEffectiveQuery("", true)
           end
 
-          if nav_render_expanded then
+          if nav_manual_expanded then
               -- Custom header: a single_row_h-tall row with the down-arrow drawn
               -- at the exact same screen position the collapsed-state right-arrow
               -- uses. Visually the arrow rotates in place; row height stays
@@ -2888,6 +2954,7 @@ ReflexInstallNavViewCore = function(deps)
                           ToggleCollapseAll()
                       end
                   else
+                      NavExitTransientExpandModes(true)
                       navigator_expanded = false
                       SavePref("navigator_expanded", false)
                   end
@@ -2907,13 +2974,9 @@ ReflexInstallNavViewCore = function(deps)
                   nav_ar_flow_rows = max_row
               end
           else
-              -- Collapsed: arrow + mini TLT circles (flow layout). Each mini
-              -- circle matches the fully-collapsed expanded-pill anatomy:
-              -- dark charcoal outer disc (size = tlf_h diameter) + inner
-              -- colored circle + pin overlay at center when pinned. Geometry
-              -- (dot_r, arrow_area, single_row_h, nav_left_pad) reuses the
-              -- shared values declared above so the arrow stays in the same
-              -- screen position when toggling expanded/collapsed.
+              -- Standalone collapsed NAV keeps mini TLT circles; embedded
+              -- collapsed NAV suppresses them so only arrow + Q/A/S/R remain.
+              -- Mini circles share the fully-collapsed expanded-pill anatomy.
               local dot_r = nav_dot_r
               local dot_render_r = nav_dot_render_r  -- float radius for outer disc only; layout still uses integer dot_r
               local dot_inner_r = Round(S(9.03))  -- match expanded TLT circ_r
@@ -2940,10 +3003,17 @@ ReflexInstallNavViewCore = function(deps)
               -- dot row uses the full width instead of reserving a top-right
               -- view-button zone.
               local max_dot_x = nav_cx + bw
-              local asr_placements, asr_row, asr_next_x = NavAsrCollapsedFlowLayout(dot_start_x_first, dot_start_x_wrap, max_dot_x)
+              local asr_placements, asr_row, asr_next_x
+              if embedded_nav_panel then
+                  asr_placements, asr_row, asr_next_x = {}, 1, dot_start_x_first
+              else
+                  asr_placements, asr_row, asr_next_x = NavAsrCollapsedFlowLayout(dot_start_x_first, dot_start_x_wrap, max_dot_x)
+              end
               local mini_items = {}
-              for ri, item in ipairs(render_list) do
-                  if item.kind == "folder" then mini_items[#mini_items + 1] = { kind = "tlf", ri = ri, item = item } end
+              if not embedded_nav_panel then
+                  for ri, item in ipairs(render_list) do
+                      if item.kind == "folder" then mini_items[#mini_items + 1] = { kind = "tlf", ri = ri, item = item } end
+                  end
               end
               local num_rows = asr_row
               do
@@ -3170,9 +3240,9 @@ ReflexInstallNavViewCore = function(deps)
           end
 
           -- ── NAV view-mode buttons ──
-          -- Expanded fixed mode: drawn at top-right of row 1 via DrawArButton.
-          -- Collapsed NAV and expanded non-fixed modes draw view buttons inline.
-          if nav_render_expanded and ar_fixed then
+          -- Embedded Reflex always keeps these fixed at top-right; standalone
+          -- collapsed NAV keeps using the inline circle flow above.
+          if ar_fixed and (nav_render_expanded or embedded_nav_panel) then
               local fixed_placements = {}
               NavAsrAddRow(fixed_placements, 1, ar_fixed_start_x, ar_buttons)
               for _, placement in ipairs(fixed_placements) do
@@ -3180,7 +3250,7 @@ ReflexInstallNavViewCore = function(deps)
               end
           end
 
-        if nav_render_expanded then
+        if nav_render_expanded or nav_collapsed_search_visible then
 
           local search_gap = NavRetinaPx(12)
           local search_min_w = NavRetinaPx(125)
@@ -3226,6 +3296,10 @@ ReflexInstallNavViewCore = function(deps)
                   nav_tlt_search_visible = true
                   if (nav_tlt_search_recent_clear_frames or 0) > 0 then
                       nav_tlt_search_recent_clear_frames = nav_tlt_search_recent_clear_frames - 1
+                  end
+                  local force_empty = (nav_tlt_search_force_empty_frames or 0) > 0
+                  if force_empty then
+                      nav_tlt_search_force_empty_frames = nav_tlt_search_force_empty_frames - 1
                   end
                   r.ImGui_SetCursorPosY(ctx, nav_body_y)
                   r.ImGui_SetCursorPosX(ctx, nav_start_x + nav_body_x_offset)
@@ -3304,15 +3378,21 @@ ReflexInstallNavViewCore = function(deps)
                   local primary_down = NavMods(NavFrameKeyMods()).primary == true
                   local primary_enter_shortcut = NavPrimaryEnterShortcutPressed()
                   input_changed, new_text = r.ImGui_InputText(ctx, "##nav_tlt_search", new_text, NavInputTextEnterFlags())
+                  local text_changed = (new_text or "") ~= previous_text
                   local input_active = r.ImGui_IsItemActive(ctx) or (r.ImGui_IsItemFocused and r.ImGui_IsItemFocused(ctx))
                   local input_deactivated = r.ImGui_IsItemDeactivated and r.ImGui_IsItemDeactivated(ctx)
-                  local input_enter_returned = input_changed and (new_text or "") == previous_text
-                  local search_enter = input_enter_returned or primary_enter_shortcut or (primary_down and enter_pressed)
+                  local search_enter = primary_enter_shortcut or (primary_down and enter_pressed)
                   local esc_pressed = type(TrackNavigatorEscapePressed) == "function" and TrackNavigatorEscapePressed()
                   local release_focus = false
                   r.ImGui_PopStyleVar(ctx, 1)
                   r.ImGui_PopStyleColor(ctx, input_color_count)
-                  if input_changed then
+                  if force_empty then
+                      new_text = ""
+                      text_changed = false
+                      input_active = false
+                      release_focus = true
+                  end
+                  if text_changed then
                       nav_tlt_search_text = new_text or ""
                       nav_tlt_search_hide_clear = false
                       nav_tlt_search_recent_clear_frames = 0
@@ -3357,13 +3437,17 @@ ReflexInstallNavViewCore = function(deps)
                       end
                   end
                   if release_focus then NavStickyReleaseTltSearchFocus() end
-
                   NavSetTltSearchEffectiveQuery(nav_tlt_search_text or "", true)
+                  nav_tlt_search_active = input_active
+                      or (nav_tlt_search_focus_requested_frames or 0) > 0
+                      or NavNormalizeTltSearchQuery(nav_tlt_search_text or "") ~= ""
+                      or NavNormalizeTltSearchQuery(nav_tlt_search_effective_query or "") ~= ""
               end
               NavDrawStickyTltSearchBox()
               sticky_search_h = tlf_h + search_gap
           else
               nav_tlt_search_visible = false
+              nav_tlt_search_active = false
               nav_tlt_search_hide_clear = false
               nav_tlt_search_recent_clear_frames = 0
               NavSetTltSearchEffectiveQuery("", true)
@@ -3374,6 +3458,13 @@ ReflexInstallNavViewCore = function(deps)
           local nav_parent_screen_y0 = nav_list_screen_y - nav_list_y
           local nav_last_drawn_bottom_y = nil
 
+          if nav_collapsed_search_visible and not nav_render_expanded then
+              if search_can_show then
+                  nav_end_y = nav_list_y
+                  nav_ctx_y2 = math.max(nav_ctx_y2, nav_ctx_y1 + (nav_end_y - nav_start_y))
+                  last_nav_collapsed_visible_h = math.max(last_nav_collapsed_visible_h or 0, nav_end_y - nav_start_y)
+              end
+          else
           -- Make NAV's expanded list scrollable when it would otherwise push the
           -- inspector + remote off the bottom of the window. No ImGui scrollbar
           -- (NoScrollbar flag) - thin indicator drawn after EndChild matching
@@ -3381,9 +3472,18 @@ ReflexInstallNavViewCore = function(deps)
           local _bottom_used = vh_row_h + rem_h + (rem_h > 0 and divider_h or 0) + nav_bottom_extra
           local _nav_top_used = nav_list_y - nav_start_y
           local _nav_block_max_h = math.max(1, win_h - _nav_top_used - _bottom_used)
+          local active_nav_split_h = nav_temp_expanded and nav_temp_split_h or nav_split_h
           local _nav_h
-          if nav_split_h and nav_split_h > _nav_top_used then
-              _nav_h = math.min(math.max(1, nav_split_h - _nav_top_used), _nav_block_max_h)
+          if nav_temp_expanded then
+              local cap_h = active_nav_split_h and active_nav_split_h > _nav_top_used
+                  and math.max(1, active_nav_split_h - _nav_top_used)
+                  or _nav_block_max_h
+              local content_h = last_nav_natural_h and last_nav_natural_h > 0
+                  and last_nav_natural_h
+                  or cap_h
+              _nav_h = math.min(content_h, cap_h, _nav_block_max_h)
+          elseif active_nav_split_h and active_nav_split_h > _nav_top_used then
+              _nav_h = math.min(math.max(1, active_nav_split_h - _nav_top_used), _nav_block_max_h)
           elseif last_nav_natural_h and last_nav_natural_h > 0 then
               _nav_h = math.min(last_nav_natural_h, _nav_block_max_h)
           else
@@ -3445,6 +3545,8 @@ ReflexInstallNavViewCore = function(deps)
           local custom_set_indicator_gap = NavRetinaPx(15)
           local tree_text_gap = circ_gap
           local tlt_mirror = nav_mirror ~= true
+          local show_custom_set_edit_indicators = opt_nav_custom_set_mode == true
+              and NavMods(NavFrameKeyMods()).custom_set == true
           local function NavTltClickTime()
               return r.time_precise and r.time_precise() or os.clock()
           end
@@ -3505,7 +3607,9 @@ ReflexInstallNavViewCore = function(deps)
           local function NavTlfLayout(row_cx, item)
               local _, row_w, pill_w, pill_collapsed = NavTlfRowMetrics(item)
               local has_tree_arrow = tree_expand_enabled and item and item.kind == "folder" and item.tree_expandable == true and not pill_collapsed
-              local has_custom_set_indicator = NavTlfCustomSet(item) and opt_nav_custom_set_mode ~= true and not pill_collapsed
+              local has_custom_set_indicator = NavTlfCustomSet(item)
+                  and (opt_nav_custom_set_mode ~= true or show_custom_set_edit_indicators)
+                  and not pill_collapsed
               local text_left_anchor, text_right_anchor
               local arrow_cx, arrow_hit_left, arrow_hit_right, custom_set_cx
               local color_left = tlt_mirror
@@ -4038,11 +4142,19 @@ ReflexInstallNavViewCore = function(deps)
           -- Bottom edge of last NAV element in expanded mode = the last fully
           -- drawn row. Partial TLT rows are intentionally hidden, so their
           -- unused viewport space must not become part of the visible gap.
-          nav_end_y = nav_split_h and (nav_list_y + _nav_h) or (nav_last_drawn_bottom_y or (nav_list_y + _nav_h))
+          if nav_temp_expanded then
+              nav_end_y = nav_last_drawn_bottom_y
+                  or (nav_list_y + math.min(_nav_h, math.max(0, last_nav_natural_h or 0)))
+          elseif nav_split_h then
+              nav_end_y = nav_list_y + _nav_h
+          else
+              nav_end_y = nav_last_drawn_bottom_y or (nav_list_y + _nav_h)
+          end
           if nav_ctx_y2 <= nav_ctx_y1 then
               nav_ctx_y2 = nav_ctx_y1 + (nav_end_y - nav_start_y)
           end
-        end -- nav_render_expanded
+          end
+        end -- nav expanded/search body
 
           if r.ImGui_IsMouseClicked(ctx, 1) and not nav_context_blocked then
               local mx, my = r.ImGui_GetMousePos(ctx)

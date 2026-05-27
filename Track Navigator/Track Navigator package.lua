@@ -1,9 +1,9 @@
 -- @description Track Navigator
--- @version 1.2.13
+-- @version 1.2.14
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @changelog
---   Refine Navigator tree controls, Quick Set assets, and shared NAV behavior.
+--   Refine promoted child visibility and shared NAV behavior.
 -- @metapackage
 -- @provides
 --   [main] Track Navigator.lua

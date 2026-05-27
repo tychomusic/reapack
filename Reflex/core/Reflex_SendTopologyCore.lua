@@ -4,6 +4,25 @@
 
 ReflexInstallSendTopologyCore = function(deps)
     local r = deps.r
+    local getInspPinned = deps.get_insp_pinned or function() return false end
+    local getInspTrack = deps.get_insp_track or function() return nil end
+    local getExternalFxGuard = deps.get_external_fx_guard or function() return false end
+
+local SendsViewSourceTrack = function()
+    local inspected = getInspTrack()
+    if getInspPinned() and inspected and r.ValidatePtr(inspected, "MediaTrack*") then
+        return inspected
+    end
+    if getExternalFxGuard() then
+        if sends_view_source and r.ValidatePtr(sends_view_source, "MediaTrack*") then return sends_view_source end
+        if inspected and r.ValidatePtr(inspected, "MediaTrack*") then return inspected end
+    end
+    local selected = r.GetSelectedTrack(0, 0)
+    if selected and r.ValidatePtr(selected, "MediaTrack*") then return selected end
+    if inspected and r.ValidatePtr(inspected, "MediaTrack*") then return inspected end
+    if sends_view_source and r.ValidatePtr(sends_view_source, "MediaTrack*") then return sends_view_source end
+    return nil
+end
 
 -- Analyze send topology for a source track.
 -- For each send, traces the destination's parent chain upward until it
@@ -118,7 +137,7 @@ end
 -- Debug: dump topology analysis to REAPER console for the selected track.
 -- Call from console: DebugSendTopology()
 DebugSendTopology = function()
-    local track = insp_track or r.GetSelectedTrack(0, 0)
+    local track = getInspTrack() or r.GetSelectedTrack(0, 0)
     if not track then r.ShowConsoleMsg("No track selected\n"); return end
     local _, name = r.GetTrackName(track)
     local num = math.floor(r.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER"))
@@ -172,10 +191,11 @@ end
 -- intended for the pinned track). When unpinned, fall back to sends_view_source
 -- if set (sends view shown for some source) or the current inspected track.
 NavRoutingTargetTrack = function()
-    if insp_pinned and insp_track and r.ValidatePtr(insp_track, "MediaTrack*") then
-        return insp_track
+    if getInspPinned() then
+        local inspected = getInspTrack()
+        if inspected and r.ValidatePtr(inspected, "MediaTrack*") then return inspected end
     end
-    local t = sends_view_source or insp_track
+    local t = sends_view_source or getInspTrack()
     if t and r.ValidatePtr(t, "MediaTrack*") then return t end
     return r.GetSelectedTrack(0, 0)
 end
@@ -192,7 +212,7 @@ SendsViewToggle = function()
         sends_fx_cache = {}
         return
     end
-    local source = insp_pinned and insp_track or (r.GetSelectedTrack(0, 0) or insp_track)
+    local source = SendsViewSourceTrack()
     if not source or not r.ValidatePtr(source, "MediaTrack*") then return end
     sends_view_active = true
     sends_view_source = source
@@ -319,7 +339,7 @@ end
 
 SendsViewRefresh = function()
     if not sends_view_active then return end
-    local source = insp_pinned and insp_track or (r.GetSelectedTrack(0, 0) or insp_track)
+    local source = SendsViewSourceTrack()
     if not source or not r.ValidatePtr(source, "MediaTrack*") then
         sends_view_tracks = {}; sends_view_send_indices = {}; sends_view_groups = {}; sends_view_distant = {}
         sends_view_source = nil; sends_view_last_send_count = -1; sends_fx_cache = {}
@@ -340,7 +360,7 @@ end
 -- Check if sends need refresh (called each frame, cheap — only counts sends)
 -- Also auto-activates/deactivates based on opt_show_sends
 SendsViewCheckRefresh = function()
-    local source = insp_pinned and insp_track or (r.GetSelectedTrack(0, 0) or insp_track)
+    local source = SendsViewSourceTrack()
     if not source or not r.ValidatePtr(source, "MediaTrack*") then
         if sends_view_active then
             sends_view_active = false; sends_view_tracks = {}; sends_view_send_indices = {}

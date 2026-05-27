@@ -38,13 +38,9 @@ nav_fx_clipboard = nil
 -- via FxClipResolveHover -> FxClipExecutePendingPaste.
 nav_fx_clip_pending_paste = nil  -- nil | { where = "above"|"below"|"auto" }
 
--- Last-frame clipboard hover target (v20.411). Stroke decisions (pin amber
--- source_stroke, flow-selected send_stroke) happen during render BEFORE
--- FxClipResolveHover runs at end-of-frame — so we can't consult the live
--- hover state from the decision point. Instead, cache last frame's hover
--- track here and read it this frame. 1-frame lag is imperceptible.
--- Used to suppress card strokes so the dashed green paste target outline
--- becomes the exclusive outline on the hovered card.
+-- Last-frame clipboard hover target (v20.411). Kept for compatibility with
+-- older call sites; target-card dashed outlines and card-stroke suppression
+-- are no longer used.
 nav_fx_clip_last_hover_track = nil
 
 FxClipClear = function()
@@ -111,7 +107,7 @@ FxClipCapture = function(track, fis, op, include_automation)
     nav_fx_clipboard = {
         op = op,
         count = #items,
-        source_track = track,   -- MediaTrack*; used to suppress dashed outline on source card (v20.410)
+        source_track = track,   -- MediaTrack* source for undo labels and source-row outlines
         source_track_name = tname,
         include_automation = include_automation and true or false,  -- v20.411
         paste_count = 0,        -- v20.415: track # pastes for auto-dismiss-pill behavior
@@ -138,11 +134,11 @@ FxClipCapture = function(track, fis, op, include_automation)
 
     -- Consume multi-selection on the source track for CUT only (v20.416).
     -- For cut, source FX are deleted, so selection refs would become stale —
-    -- clear to keep state clean. For copy, retain selection: the green
-    -- carry outline replaces the white selection visually during loud mode
-    -- (paste_count==0). After first paste, green extinguishes and white
+    -- clear to keep state clean. For copy, retain selection: the blue
+    -- carry outline replaces the grey selection visually during loud mode
+    -- (paste_count==0). After first paste, blue extinguishes and grey
     -- naturally re-emerges because selection data was preserved.
-    -- Earlier (v20.409) cleared on both ops to make white→green transition
+    -- Earlier (v20.409) cleared on both ops to make selection→carry transition
     -- visible. Now achieved via outline-cascade priority swap instead.
     if op == "cut" and insp_fx_sel_track == track then InspFxSelClear() end
     return true
@@ -260,9 +256,10 @@ end
 -- during render/end-of-frame. Both are fine for hover resolution — one
 -- frame of lag on a moving mouse is imperceptible at 30fps.
 FxClipFindHoveredRow = function()
-    if not fx_drop_targets or #fx_drop_targets == 0 then return nil end
+    local targets = (fx_drop_targets and #fx_drop_targets > 0) and fx_drop_targets or fx_drop_targets_prev
+    if not targets or #targets == 0 then return nil end
     local mx, my = r.ImGui_GetMousePos(ctx)
-    for _, t in ipairs(fx_drop_targets) do
+    for _, t in ipairs(targets) do
         if t.rects then
             for fi0, rc in pairs(t.rects) do
                 if rc and mx >= rc.cx and mx <= rc.cx + rc.w
@@ -277,9 +274,10 @@ end
 
 -- Find card under mouse (any FX chain surface). Returns { track, surface } or nil.
 FxClipFindHoveredCard = function()
-    if not fx_drop_targets or #fx_drop_targets == 0 then return nil end
+    local targets = (fx_drop_targets and #fx_drop_targets > 0) and fx_drop_targets or fx_drop_targets_prev
+    if not targets or #targets == 0 then return nil end
     local mx, my = r.ImGui_GetMousePos(ctx)
-    for _, t in ipairs(fx_drop_targets) do
+    for _, t in ipairs(targets) do
         local b = t.body_rect
         if b and mx >= b.x and mx <= b.x + b.w and my >= b.y and my <= b.y + b.h then
             return { track = t.track, surface = t.surface, entry = t }
@@ -331,7 +329,7 @@ FxClipRebuildGuidSet = function()
 end
 
 -- v20.417: Paste-landing visual confirmation. After a successful paste, the
--- destination FX get a brief animated green outline that pulses then fades
+-- destination FX get a brief animated blue outline that pulses then fades
 -- — a "where did they land?" confirmation. Implemented as global state
 -- captured at paste time and consumed in the outline cascade.
 --
@@ -378,7 +376,7 @@ end
 -- still "matches" in the set but there's no live FX to outline (which is
 -- fine — the matching loop won't find it). For copy, source is live, so
 -- outlines appear on source track rows.
--- v20.416: also gated on paste_count == 0 (green source-row outlines auto-
+-- v20.416: also gated on paste_count == 0 (blue source-row outlines auto-
 -- extinguish after first paste, mirroring the carry-pill auto-dismiss).
 -- Loud carry visuals exit on action; clipboard data remains alive silently
 -- for additional pastes via Cmd+V or right-click menu.
@@ -390,28 +388,9 @@ FxClipHasGuid = function(guid)
     return nav_fx_clipboard_guid_set and nav_fx_clipboard_guid_set[guid] == true
 end
 
--- Is this track the one currently hovered as a paste / drag target?
--- (v20.411 / v20.412) Read from cached last-frame hover state. Used by
--- card-stroke render sites to suppress pin/selected strokes so the
--- dashed paste/drop target outline is the exclusive outline.
--- Also checks the card is not the source card — source cards don't get
--- the dashed outline, so their strokes should render normally.
+-- Legacy predicate retained for card-stroke render sites. Target-card dashed
+-- outlines were removed; insert indicators no longer suppress card strokes.
 NavCardIsDropTarget = function(track)
-    if not track then return false end
-    -- Drag-active hover (v20.412)
-    if fx_drag.active then
-        if track ~= nav_fx_drag_last_hover_track then return false end
-        -- Don't suppress on source card during drag (drag pipeline doesn't
-        -- draw a dashed outline on its own source card either).
-        if fx_drag.src_track == track then return false end
-        return true
-    end
-    -- Clipboard-active hover (v20.411)
-    if FxClipHasContent() then
-        if track ~= nav_fx_clip_last_hover_track then return false end
-        if nav_fx_clipboard and nav_fx_clipboard.source_track == track then return false end
-        return true
-    end
     return false
 end
 
@@ -429,10 +408,9 @@ FxClipExecutePendingPaste = function()
     if track then FxClipPaste(track, at) end
 end
 
--- Render clipboard-mode hover visuals at end of frame: dashed destination
--- outline on whichever card the cursor is over, and insert indicator line
--- inside that card at the computed paste position. Suppressed while a drag
--- is active (drag visuals take precedence).
+-- Render clipboard-mode hover visuals at end of frame: insert indicator line
+-- inside the hovered card at the computed paste position. Suppressed while a
+-- drag is active (drag visuals take precedence).
 --
 -- v20.408: also owns the single fx_drop_targets clear per frame (previously
 -- done inside FxDragResolveDrop, which ran first and wiped the registry
@@ -447,7 +425,7 @@ FxClipResolveHover = function()
     -- must run before the clear at end.
     FxClipExecutePendingPaste()
 
-    -- v20.414: Drop-target indicators (dashed outline + insert line) require
+    -- v20.414: Drop-target indicators require
     -- Reflex focused, so users get consistent feedback that maps to whether
     -- Cmd+V will actually be received by Reflex vs REAPER. Carry pill,
     -- chip, and source-row outlines remain on regardless of focus — they're
@@ -457,7 +435,7 @@ FxClipResolveHover = function()
     -- Reset hover-track cache at top of frame; it's repopulated below when
     -- clip is active, focused, and a card is hovered. Without this, a cached
     -- track from a previous carry/focus session would persist across Esc/clear
-    -- or focus loss, causing stale stroke suppression.
+    -- or focus loss.
     if not FxClipHasContent() or fx_drag.active or not nav_focused then
         nav_fx_clip_last_hover_track = nil
     end
@@ -466,41 +444,24 @@ FxClipResolveHover = function()
     -- when the hover render is skipped.
     if FxClipHasContent() and not fx_drag.active and nav_focused then
         local hit = FxClipFindHoveredCard()
-        -- Cache last-frame hover target for next frame's stroke-suppression
-        -- decisions (stroke rendering happens during render, before this
-        -- function runs at end-of-frame). v20.411.
+        -- Cache last-frame hover target for legacy readers.
         nav_fx_clip_last_hover_track = (hit and hit.track) or nil
-        -- v20.423: split the source-card gate. Source card skips the dashed
-        -- outline (visually noisy/redundant — green source-row strokes already
-        -- mark the card; mirrors drag pipeline) but still gets the insert
-        -- indicator so users can paste back into the source chain at a
-        -- specific row position.
-        local is_source = (hit and nav_fx_clipboard and nav_fx_clipboard.source_track
-                          and hit.track == nav_fx_clipboard.source_track
-                          and r.ValidatePtr(nav_fx_clipboard.source_track, "MediaTrack*"))
         if hit and hit.entry and hit.entry.body_rect then
             local entry = hit.entry
             local mx, my = r.ImGui_GetMousePos(ctx)
             -- v20.421: suppress foreground decorations while any popup is open
             -- (FX-row context menu, browser-action menu, etc.). dl_fg renders
-            -- above ImGui's popup layer, which would otherwise draw the dashed
-            -- outline + insert line on top of the menu. Hover-track caching
+            -- above ImGui's popup layer, which would otherwise draw the insert
+            -- line on top of the menu. Hover-track caching
             -- above stays active so source-stroke suppression doesn't flicker
             -- when the menu closes.
             local any_popup_open = r.ImGui_IsPopupOpen(ctx, "",
                 r.ImGui_PopupFlags_AnyPopupId() | r.ImGui_PopupFlags_AnyPopupLevel())
             if not any_popup_open then
             local dl_fg = r.ImGui_GetForegroundDrawList(ctx)
-            local col = C.fx_clip_carry or rgb(0x3FB950)
+            local col = C.fx_clip_carry or rgb(0x73A3F4)
 
-            -- Dashed outline around the target card (skipped on source — v20.423)
             local b = entry.body_rect
-            if not is_source then
-                DrawDashedRoundedRect(dl_fg,
-                    b.x, b.y, b.x + b.w, b.y + b.h,
-                    col, S(UI.card_r), math.max(1, S(1.5)),
-                    math.max(4, S(5)), math.max(2, S(3)))
-            end
 
             -- Insert indicator line at the computed paste row position
             local target_fi0, is_end = FxDropComputeTarget(entry, mx, my)
@@ -547,9 +508,10 @@ FxClipResolveHover = function()
         end
     end
 
-    -- Reset registry for next frame. Unconditional — both consumers have
-    -- used it by now, and leaving entries across frames would cause stale
-    -- hits from previously-rendered surfaces.
+    -- Snapshot current-frame targets for next frame's keyboard shortcuts, then
+    -- reset the live registry. Copy/cut/paste dispatch runs before render has
+    -- registered this frame's targets, so it consults this one-frame snapshot.
+    fx_drop_targets_prev = fx_drop_targets
     fx_drop_targets = {}
 
     -- v20.410: Cursor-following carry pill. Floats near cursor showing
@@ -573,7 +535,7 @@ FxClipResolveHover = function()
 end
 
 -- Floating "you are carrying N FX" pill rendered at cursor via BeginTooltip.
--- Green stroke matches carry color. Shows FX name for single-item clipboard
+-- Stroke matches carry color. Shows FX name for single-item clipboard
 -- (blue text if instrument, matching drag-preview convention); "N plugins"
 -- in muted text for multi.
 FxClipRenderCarryPill = function()
@@ -616,7 +578,7 @@ FxClipRenderCarryPill = function()
     local total_h = th + pad_y * 2
     local row_bg = C.fx_row_bg or C.btn_bg or rgb(0x1E2228)
     local row_r = math.max(3, S(3))
-    local stroke_col = C.fx_clip_carry or rgb(0x3FB950)
+    local stroke_col = C.fx_clip_carry or rgb(0x73A3F4)
     local hint_col = C.text_dim or rgb(0xB4B2A9)
 
     -- Same chrome/padding trick as drag preview: transparent popup bg + 2px

@@ -19,12 +19,18 @@ DrawDistantSendCollapsedCard = function(dentry, di, dl, cx, cy, w, h, content_h)
     else
         r.ImGui_DrawList_AddRectFilled(dl, rcx, rcy, rcx2, rcy2, 0x202227FF, col_r)
     end
+    if SendsOverviewSourcePinned and SendsOverviewSourcePinned() then
+        DrawSolidRoundedRectOutline(dl, rcx, rcy, rcx2, rcy2, C.source_stroke, col_r, SOURCE_STROKE_W)
+    end
 
     local dtrack = dentry and dentry.track or nil
+    if dtrack and r.ValidatePtr(dtrack, "MediaTrack*") and RouteDragRegisterCardTarget then
+        RouteDragRegisterCardTarget(dtrack, rcx, rcy, rcx2 - rcx, rcy2 - rcy, dl, col_r)
+    end
     if dtrack and r.ValidatePtr(dtrack, "MediaTrack*") then
         local _, dname = r.GetTrackName(dtrack)
         local dnum = math.floor(r.GetMediaTrackInfo_Value(dtrack, "IP_TRACKNUMBER"))
-        local dnum_label = ((dnum == 0) and "M" or tostring(dnum)) .. ":"
+        local dnum_label, dnum_slot_label = TrackTitleNumberLabels((dnum == 0) and "M" or tostring(dnum))
         local dcolor_raw = r.GetTrackColor(dtrack)
         local dnum_col = dcolor_raw ~= 0 and TrackColorToImGui(dcolor_raw) or C.text_muted
         local d_pad_x = S(UI.card_pad)
@@ -62,8 +68,12 @@ DrawDistantSendCollapsedCard = function(dentry, di, dl, cx, cy, w, h, content_h)
         local title_font = GetSteppedFont(UI.font_send_title)
         if title_font then r.ImGui_PushFont(ctx, title_font) end
         local title_h = r.ImGui_GetTextLineHeight(ctx)
-        local dnum_tw = r.ImGui_CalcTextSize(ctx, dnum_label)
+        if title_font then r.ImGui_PopFont(ctx) end
         local ty = content_y + Round((content_h - title_h) / 2)
+        local title_font_pushed = PushTrackTitleScaledFont(title_font)
+        local title_text_h = r.ImGui_GetTextLineHeight(ctx)
+        local title_text_y = ty + Round((title_h - title_text_h) / 2)
+        local dnum_tw = r.ImGui_CalcTextSize(ctx, dnum_slot_label)
         local name_avail = name_right - tx - dnum_tw - S(4)
         local display_name = dname
         local name_tw = r.ImGui_CalcTextSize(ctx, display_name)
@@ -75,19 +85,26 @@ DrawDistantSendCollapsedCard = function(dentry, di, dl, cx, cy, w, h, content_h)
                 name_tw = r.ImGui_CalcTextSize(ctx, display_name)
             end
             display_name = display_name .. ellipsis
+            name_tw = r.ImGui_CalcTextSize(ctx, display_name)
         end
-        r.ImGui_DrawList_AddText(dl, tx, ty, dnum_col, dnum_label)
-        r.ImGui_DrawList_AddText(dl, tx + dnum_tw + S(4), ty, C.text, display_name)
-        if title_font then r.ImGui_PopFont(ctx) end
+        r.ImGui_DrawList_AddText(dl, tx, title_text_y, dnum_col, dnum_label)
+        r.ImGui_DrawList_AddText(dl, tx + dnum_tw + S(4), title_text_y, C.text, display_name)
+        if title_font_pushed then r.ImGui_PopFont(ctx) end
 
         -- TitleLink claims the text region for locate; card button below
         -- remains additive for expand unless the gesture was Opt-peek.
         local d_link_w = math.min(dnum_tw + S(4) + name_tw, name_right - tx)
         local d_th_local = TitleLink(
-            "##dtitlelink" .. di, tx, content_y, d_link_w, content_h, dtrack, {})
+            "##dtitlelink" .. di, tx, title_text_y, d_link_w, title_text_h, dtrack, {})
         if d_th_local then
-            local d_underline_y = ty + r.ImGui_GetTextLineHeight(ctx)
-            r.ImGui_DrawList_AddLine(dl, tx, d_underline_y, tx + d_link_w, d_underline_y, C.text, 1)
+            local d_underline_y = title_text_y + title_text_h
+            local name_x = tx + dnum_tw + S(4)
+            local name_w = math.max(0, d_link_w - dnum_tw - S(4))
+            if DrawSolidUnderline then
+                DrawSolidUnderline(dl, name_x, d_underline_y, name_x + name_w, C.text, 1)
+            else
+                r.ImGui_DrawList_AddRectFilled(dl, name_x, d_underline_y, name_x + name_w, d_underline_y + 1, C.text)
+            end
         end
     end
 

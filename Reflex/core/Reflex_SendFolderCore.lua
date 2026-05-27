@@ -51,6 +51,12 @@ DrawSendFolderCard = function(track, dl, cx, cy, w, id_suffix)
     local col_r = opt_card_boxes and S(UI.card_r) or S(UI.corner_r)
     local rx1, ry1, rx2, ry2 = math.floor(cx), math.floor(cy), math.floor(cx + w), math.floor(cy + card_h)
     r.ImGui_DrawList_AddRectFilled(dl, rx1, ry1, rx2, ry2, C.bg, col_r)
+    if SendsOverviewSourcePinned and SendsOverviewSourcePinned() then
+        DrawSolidRoundedRectOutline(dl, rx1, ry1, rx2, ry2, C.source_stroke, col_r, SOURCE_STROKE_W)
+    end
+    if RouteDragRegisterCardTarget then
+        RouteDragRegisterCardTarget(track, rx1, ry1, rx2 - rx1, ry2 - ry1, dl, col_r)
+    end
 
     local x = cx + pad_x
     local y = cy + pad_top
@@ -59,7 +65,7 @@ DrawSendFolderCard = function(track, dl, cx, cy, w, id_suffix)
     local _, track_name = r.GetTrackName(track)
     local track_num = math.floor(r.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER"))
     local num_str = (track_num == 0) and "M" or tostring(track_num)
-    local num_label = num_str .. ":"
+    local num_label, num_slot_label = TrackTitleNumberLabels(num_str)
     local track_color_raw = r.GetTrackColor(track)
     local num_col = track_color_raw ~= 0 and TrackColorToImGui(track_color_raw) or C.text_muted
     local is_muted = r.GetMediaTrackInfo_Value(track, "B_MUTE") == 1
@@ -68,26 +74,37 @@ DrawSendFolderCard = function(track, dl, cx, cy, w, id_suffix)
     -- Row 1: Title (full width, left-aligned)
     local title_cy = y + Round((btn_h - text_h) / 2)
     local title_font = GetSteppedFont(UI.font_send_title)
-    if title_font then r.ImGui_PushFont(ctx, title_font) end
+    local send_title_scale = 1.25
+    local title_measure_pushed = PushTrackTitleScaledFont(title_font, send_title_scale)
     local title_h = r.ImGui_GetTextLineHeight(ctx)
-    local num_tw = r.ImGui_CalcTextSize(ctx, num_label)
+    if title_measure_pushed then r.ImGui_PopFont(ctx) end
+    local title_font_pushed = PushTrackTitleScaledFont(title_font, send_title_scale)
+    local title_text_h = r.ImGui_GetTextLineHeight(ctx)
+    local title_text_y = title_cy + Round((title_h - title_text_h) / 2)
+    local num_tw = r.ImGui_CalcTextSize(ctx, num_slot_label)
     local num_gap = S(4)
     local name_tw_raw = r.ImGui_CalcTextSize(ctx, track_name)
     r.ImGui_DrawList_PushClipRect(dl, x, title_cy, x + inner_w, title_cy + title_h + 2, true)
-    r.ImGui_DrawList_AddText(dl, x, title_cy, num_col, num_label)
-    r.ImGui_DrawList_AddText(dl, x + num_tw + num_gap, title_cy, C.text, track_name)
+    r.ImGui_DrawList_AddText(dl, x, title_text_y, num_col, num_label)
+    r.ImGui_DrawList_AddText(dl, x + num_tw + num_gap, title_text_y, C.text, track_name)
     r.ImGui_DrawList_PopClipRect(dl)
-    if title_font then r.ImGui_PopFont(ctx) end
+    if title_font_pushed then r.ImGui_PopFont(ctx) end
 
     -- v20.441: TitleLink over the actual text bounds. Manual hit-test
     -- claims the title-text region for locate; the broader ##fctitle
     -- button below covers the rest of the row for caller-side expand.
     local fc_title_link_w = math.min(num_tw + num_gap + name_tw_raw, inner_w)
     local fc_title_link_hov, fc_title_link_clk = TitleLink(
-        "##fctitlelink" .. (id_suffix or ""), x, title_cy, fc_title_link_w, title_h, track, {})
+        "##fctitlelink" .. (id_suffix or ""), x, title_text_y, fc_title_link_w, title_text_h, track, {})
     local dl_outer = r.ImGui_GetWindowDrawList(ctx)
     if fc_title_link_hov then
-        r.ImGui_DrawList_AddLine(dl_outer, x, title_cy + title_h, x + fc_title_link_w, title_cy + title_h, C.text, 1)
+        local name_x = x + num_tw + num_gap
+        local name_w = math.max(0, fc_title_link_w - num_tw - num_gap)
+        if DrawSolidUnderline then
+            DrawSolidUnderline(dl_outer, name_x, title_text_y + title_text_h, name_x + name_w, C.text, 1)
+        else
+            r.ImGui_DrawList_AddRectFilled(dl_outer, name_x, title_text_y + title_text_h, name_x + name_w, title_text_y + title_text_h + 1, C.text)
+        end
     end
 
     local title_btn_w = math.max(1, inner_w)

@@ -1345,6 +1345,14 @@ RecordInputCurrentMeterDiameter = function()
     return math.max(4, S(12.5)) -- 20px Retina target per PK retina-px convention.
 end
 
+RecordInputArmedGap = function()
+    return S(11.25) -- 18px Retina gap.
+end
+
+RecordInputMeterHeight = function()
+    return S(11.25) -- 18px Retina height.
+end
+
 DrawRecordInputMenuMeter = function(dl, meter, cx, cy, dot_r)
     r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, dot_r, C.input_meter_bg, 24)
     if not meter then return end
@@ -1370,6 +1378,37 @@ DrawRecordInputMenuMeter = function(dl, meter, cx, cy, dot_r)
     end
 end
 
+DrawRecordInputActivityMeter = function(dl, meter, x1, y1, x2, y2)
+    local h = y2 - y1
+    local w = x2 - x1
+    if w <= 0 or h <= 0 then return end
+    local rds = h / 2
+    r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y2, C.vol_slider_bg, rds)
+    if not meter then return end
+
+    if meter.kind == "audio" then
+        local raw = RecordInputAudioActivityLevel(meter.channel, meter.stereo, meter.nchan)
+        local key = "audio-row:" .. tostring(meter.nchan or (meter.stereo and "st" or "mo")) .. ":" .. tostring(meter.channel or 0)
+        local peak = SmoothPeak(record_input_activity_peak, key, raw, 0.85)
+        if peak <= 0.00001 then return end
+        local fill = math.min(1, peak ^ 0.25)
+        local meter_right = x1 + math.floor(fill * w)
+        if meter_right <= x1 then return end
+        local db = 20 * math.log(math.max(peak, 0.00001), 10)
+        r.ImGui_DrawList_PushClipRect(dl, x1, y1, meter_right, y2, true)
+        r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y2, MeterColor(db), rds)
+        r.ImGui_DrawList_PopClipRect(dl)
+    elseif meter.kind == "midi" then
+        local device = meter.device or 63
+        local key = "midi-row:" .. tostring(device)
+        if RecordInputRecentMidiActive(device)
+            or RecordInputMidiFlashActive(key, RecordInputMidiActivityLevel(device))
+        then
+            r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y2, C.midi_activity, rds)
+        end
+    end
+end
+
 RecordInputMeterForValue = function(value, track)
     local info = RecordInputInfo(value)
     if info.kind == "mono" then
@@ -1390,7 +1429,7 @@ RecordInputRowHeight = function()
 end
 
 RecordInputRowGap = function()
-    return S(12.5) -- 20px Retina gap from HDR.row2 to HDR.input.
+    return RecordInputArmedGap()
 end
 
 RecordInputAudioName = function(channel)

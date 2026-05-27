@@ -4,7 +4,7 @@
 
 Reflex is a standalone ReaImGui script for REAPER providing track visibility/collapse management, a track inspector with FX chain display, A/B compare system, volume/pan controls, envelope management, inline routing panel, FX plugin browser, routing view, sends view, flow view, send topology view, view history, noise floor detection, and a configurable macro pad (Remote) with pages. It is a companion to the Realist live performance system for Tycho.
 
-**Current version: v20.673** (~10,700-line main script; I/O Manager split into shared core modules)
+**Current version: v20.674** (~10,700-line main script; I/O Manager split into shared core modules)
 
 **Dependencies:** REAPER's built-in Lua 5.4, ReaImGui 0.10+. SWS still exists in some Reflex-only legacy paths (`BR_GetMediaTrackSendInfo_Track` in routing panels/send topology and `BR_GetMediaTrackSendInfo_Envelope` for send envelope matching), but standalone Navigator's `NAV.R` no longer requires SWS as of v20.662 / Navigator v20.662; it uses native `GetTrackSendInfo_Value(..., "P_DESTTRACK"/"P_SRCTRACK")` only. Prefer native REAPER/Lua APIs over SWS wherever they can provide the same behavior.
 
@@ -21,7 +21,7 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - Package path: `Reflex/`
 - Package metadata: `Reflex/Reflex package.lua`
 - Main script: `Reflex/Reflex.lua`
-- Public version: `20.673`
+- Public version: `20.674`
 - Author metadata: `S.Hansen / Tycho`
 - Release package excludes generated/user-local state files such as `remote_buttons.txt`, `remote_pages.txt`, and `fx_browser_action.txt`.
 - The user's normal Reflex toolbar/action should run `/Applications/Reaper/Scripts/Tycho/reapack/Reflex/Reflex.lua`.
@@ -115,6 +115,10 @@ Scripts/Tycho/Reflex/
   Navigator.lua            Standalone Navigator action/window (NAV section only)
   Reflex_IOManager.lua      Standalone I/O Manager action/window
   Reflex_WindowToggle.lua   FX window toggle (v1.3) — bind as REAPER action
+  Reflex_AddFX.lua          REAPER-bindable action: launch configured FX browser for Reflex target
+  Reflex_FocusSearch.lua    REAPER-bindable action: focus embedded NAV search
+  Reflex_OpenFXBrowser.lua  REAPER-bindable action: launch configured FX browser for Reflex target
+  Reflex_ActionBridge.lua   Shared ExtState bridge for Reflex-specific REAPER actions
   Reflex_HistoryBack.lua    View history back (sets ExtState, bind as REAPER action)
   Reflex_HistoryForward.lua View history forward (sets ExtState, bind as REAPER action)
   Reflex_Navigator_ArmedViewToggle.lua       Navigator Armed View toggle action
@@ -218,7 +222,7 @@ Communication via `hdr` table returned from `InspDrawHeader` with layout, track 
 | Function | Purpose | Sites |
 |---|---|---|
 | `MuteOpts(bool)` / `SoloOpts(bool)` | NavRect opts for mute/solo buttons | 11+ |
-| `PushPopupStyle()` / `PopPopupStyle()` / `PushTooltipStyle()` / `PopTooltipStyle()` / `ReflexPushPopupLayout()` / `ReflexPopPopupLayout()` / `ReflexMenuItem(label, opts)` / `ReflexPopupLabel(label, opts)` / `ReflexPopupSeparator(w, opts)` / `ReflexPopupRule(w, opts)` / `ReflexPopupStackGap(h)` / `ReflexApplyKeyboardPassthrough(opts)` | v20.584 moved shared popup/menu/tooltip styling to `core/Reflex_StyleCore.lua`; v20.586 added shared popup row geometry/label/separator primitives; v20.587 added shared keyboard passthrough helpers; v20.588 briefly added optional `hard_focus_reaper`, superseded/removed in v20.598; v20.589 made NAV popup layout explicit; v20.590 made `ReflexMenuItem` suppress ImGui's square header fill and draw a nested rounded hover/active rect itself; v20.591 centered text by measured text bounds and put NAV popup controls into the same padded row rhythm as labels/menu rows; v20.592 split static popup labels from clickable hover rows so non-button text/controls align to the separator/content edge while menu-item text keeps hover-box padding; v20.594 reverted the v20.593 symmetric popup-padding experiment because it removed too much horizontal gutter and caused content clipping; v20.595 keeps the good horizontal popup gutter and makes vertical popup gutter match it with `WindowPadding(S(10), S(10))`; v20.596 removes default vertical padding from static popup labels so the visible top label edge matches the outer popup gutter; v20.597 adds explicit no-gap rule and stack-gap primitives, and applies them to the Navigator global popup so vertical rhythm is owned by one stack model instead of hidden inside each element helper; v20.598 adds Reflex-vs-standalone NAV global menu context and removes the hard-focus keyboard passthrough path. Popup menus use `C.bg`, dim resting text, `C.fx_ctrl_hover` row hover, and `C.fx_ctrl_active` active row. Tooltips keep compact padding/rounding. | NAV global + TLT context rows; popup/tooltip helpers; Reflex/Navigator keyboard policy |
+| `PushPopupStyle()` / `PopPopupStyle()` / `PushTooltipStyle()` / `PopTooltipStyle()` / `ReflexPushPopupLayout()` / `ReflexPopPopupLayout()` / `ReflexMenuItem(label, opts)` / `ReflexPopupLabel(label, opts)` / `ReflexPopupSeparator(w, opts)` / `ReflexPopupRule(w, opts)` / `ReflexPopupStackGap(h)` / `ReflexApplyKeyboardPassthrough(opts)` | v20.584 moved shared popup/menu/tooltip styling to `core/Reflex_StyleCore.lua`; v20.586 added shared popup row geometry/label/separator primitives; v20.587 added shared keyboard passthrough helpers; v20.588 briefly added optional `hard_focus_reaper`, superseded/removed in v20.598; v20.589 made NAV popup layout explicit; v20.590 made `ReflexMenuItem` suppress ImGui's square header fill and draw a nested rounded hover/active rect itself; v20.591 centered text by measured text bounds and put NAV popup controls into the same padded row rhythm as labels/menu rows; v20.592 split static popup labels from clickable hover rows so non-button text/controls align to the separator/content edge while menu-item text keeps hover-box padding; v20.594 reverted the v20.593 symmetric popup-padding experiment because it removed too much horizontal gutter and caused content clipping; v20.595 keeps the good horizontal popup gutter and makes vertical popup gutter match it with `WindowPadding(S(10), S(10))`; v20.596 removes default vertical padding from static popup labels so the visible top label edge matches the outer popup gutter; v20.597 adds explicit no-gap rule and stack-gap primitives, and applies them to the Navigator global popup so vertical rhythm is owned by one stack model instead of hidden inside each element helper; v20.598 adds Reflex-vs-standalone NAV global menu context and removes the hard-focus keyboard passthrough path; current helper defaults to active-item capture but accepts `capture_keyboard=true` for focused Reflex shortcut ownership. Popup menus use `C.bg`, dim resting text, `C.fx_ctrl_hover` row hover, and `C.fx_ctrl_active` active row. Tooltips keep compact padding/rounding. | NAV global + TLT context rows; popup/tooltip helpers; Reflex/Navigator keyboard policy |
 | `FxStateColors(...)` | 35-line FX color cascade → 1 call | 3 |
 | `MeterColor(db)` | Meter threshold color | 5 |
 | `NoiseScanAllTracks()` | v20.520. Settings-panel noise-floor scan; returns `{ track, name, peak_db }` entries sorted by peak level, using live peaks and the existing `insp_meter_noise` variance cache. | Settings "Noisy Tracks" panel |
@@ -675,6 +679,16 @@ Latent bug fixed in passing: chain-card single-click on non-selected expanded ca
 ### FX Browser Cache
 Built lazily on first `FxBrowserRender` call, cached for session lifetime. Rebuild is ~20–50ms (iterates `EnumInstalledFX`) — too slow to re-run on every open. Manual refresh only: Settings gear menu → "Refresh FX list" sets `fx_browser_cache = nil`, next open rebuilds. Use after installing new plugins.
 
+### FX Browser Providers And External Sessions
+
+`InspOpenFXBrowser(track, opts)` now routes through a provider layer. Providers are `reflex`, `nvk`, `reaper`, and `custom`; the default is `nvk`. `nvk_SEARCH` launches via named command `_RS42ab70fd2ac65e9a003787709bb85f18c36dee52` and sets `ExtState("nvk_SEARCH", "FILTER", "fx")` before running the action. REAPER native uses action `40271`; custom uses the saved `fx_browser_action.txt` action ID. If an external provider is missing or fails to launch, Reflex falls back to the internal browser.
+
+External provider targeting is selection-based because no public nvk target-track API is available. `ExternalFxBrowserLaunch(track, provider, opts)` captures the current TCP selection, selects only the card's actual track, launches the provider, and stores an `external_fx_session` with target track GUID, starting FX count, insert target, and prior selection. While that session is active, `ExternalFxSessionUpdate()` guards the inspector polling path so Reflex view state does not follow the synthetic TCP selection. Manual TCP selection exits the session and is obeyed.
+
+SEND topology must also ignore the synthetic selection. `Reflex_SendTopologyCore.lua` receives `get_external_fx_guard`; while true, `SendsViewSourceTrack()` prefers the cached `sends_view_source` or inspected track over TCP selection. This prevents clicking Add FX on a return module from making the SEND section re-anchor to the return track and disappear.
+
+Session completion rules: if target FX count increases, Reflex applies instruments-first and insert-position handling, marks FX caches dirty, and restores the previous TCP selection when the selected track is still the synthetic target. For nvk, when JS window APIs are available, Reflex watches for the `nvk_SEARCH` window; if the window was seen and then closes without adding FX, the session restores the prior selection. Reflex clicks, view-history actions, and app hotkeys cancel the external session first.
+
 ### Per-Track Cache Hygiene
 Six caches keyed by `MediaTrack*` pointers can accumulate dead entries over long sessions: `insp_meter_clip`, `insp_meter_peak`, `insp_meter_display`, `insp_meter_noise`, `flow_mini_peak`, `track_fx_cache` (added v20.432; absorbed `flow_fx_cache` in v20.437). `SweepDeadTrackCaches()` runs every ~300 frames (~10s at 30fps) from `Loop`, walks each cache and drops entries whose pointer no longer validates.
 
@@ -986,7 +1000,7 @@ Helpers (all global assignment, file-scope):
 | `FxChunkSplitLines/JoinLines/LineKind/FindFxchain/FxRanges/ExtractFxBlock/SpliceFxBlocks/RegenFxids` | Chunk parser primitives |
 | `FxClipCapture(track, fis, op, include_automation)` | Extract chunks; cut deletes originals atomically |
 | `FxClipPaste(track, insert_at_fi)` | Splice + restore wet + strip automation if `!include_automation`; bumps `paste_count`; captures landed guids for pulse animation |
-| `FxClipResolveHover()` | End-of-frame consumer: dashed destination outline + insert indicator on hovered card. Owns `fx_drop_targets` registry clear (moved out of drag pipeline) |
+| `FxClipResolveHover()` | End-of-frame consumer: dashed destination outline + insert indicator on hovered card. Snapshots `fx_drop_targets` to `fx_drop_targets_prev`, then owns the registry clear (moved out of drag pipeline) |
 | `FxClipExecutePendingPaste()` | Deferred-paste consumer for Cmd+V keystrokes (registry must be populated before paste-target resolves) |
 | `FxClipRenderCarryPill()` | Cursor-following pill via `BeginTooltip`. Auto-dismissed after first paste |
 | `FxClipDoCopyOrCut(op, include_automation)` | Resolves selection-or-hover, captures, clears guid set |
@@ -994,7 +1008,7 @@ Helpers (all global assignment, file-scope):
 | `FxClipCopyAllFX(track, include_automation)` | All FX from track |
 | `FxClipRemoveAllFX(track)` | Clear chain (Shift+Delete) |
 | `FxClipDeleteSelection()` | Delete on multi-select (Delete/Backspace) |
-| `FxClipFindHoveredRow/Card` | Hover resolution against `fx_drop_targets` |
+| `FxClipFindHoveredRow/Card` | Hover resolution against current `fx_drop_targets`, falling back to `fx_drop_targets_prev` for top-of-loop keyboard dispatch |
 | `FxClipResolvePasteTarget()` | Paste landing logic: hovered row → hovered card → inspected track |
 | `FxClipRebuildGuidSet/HasGuid` | Source-row outline matching |
 | `FxStripAutomation(track, fx_idx)` | API-only envelope strip (also used by drag pipeline) |
@@ -1075,6 +1089,16 @@ Rule: action shortcuts and drop-target indicators (dashed outline, insert line) 
 
 User-facing rule: *"if you see the dashed green outline, paste will land there. If you don't, click Reflex first."*
 
+Focused Reflex now explicitly requests keyboard capture through `ReflexApplyKeyboardPassthrough({ capture_keyboard = true })`. This is required for native edit chords (`Cmd+C/X/V`) because REAPER can consume them before ReaImGui reports `IsKeyPressed` when capture is false. REAPER shortcuts that should remain live while Reflex is focused must be added to `reflex_reaper_hotkey_allowlist` and mirrored manually.
+
+macOS modifier caveat: ReaImGui can report Command as raw modifier `0x1000` / `ImGui_Key_ModCtrl` rather than `ImGui_Mod_Super`. `TrackNavigatorModState()` already maps that alias; direct helper callers (`IsCmd()` / `IsCtrl()`, used by FX rows, drag, and clipboard shortcuts) must share the same normalization. Otherwise `Cmd+V` is decoded as Ctrl and never enters the paste branch.
+
+### App Hotkeys And REAPER Action Bridge
+
+Reflex app-level hotkeys are table-driven in `Reflex.lua`: default `Cmd+F` focuses NAV search, `A` opens the configured FX browser for the hovered Reflex card or inspected track, and `Cmd+[` / `Cmd+]` run view history. REAPER shortcut mirroring is also table-driven and intentionally narrow: Undo, Redo, previous track, next track, and Space play/stop.
+
+For user-defined hotkeys, expose Reflex-specific commands as normal REAPER actions instead of installing keyboard hooks. `Reflex_FocusSearch.lua` sends `focus_tlt_search`; `Reflex_AddFX.lua` and `Reflex_OpenFXBrowser.lua` send `open_fx_browser`; all route through `Reflex_ActionBridge.lua` and can launch Reflex if it is not already running. This keeps user key assignments in REAPER's action list while Reflex consumes the command through its ExtState bridge.
+
 ### Focus-Grab Click Suppression (v20.417, persistence fix v20.435)
 
 When carry-pill says "click to focus" and user's focus-grab click lands on an FX row, the row's normal action (open plugin UI, toggle bypass, M/S, etc.) would fire before user can press Cmd+V. Solution: detect `nav_focus_was = false → true` transition in carry mode at top of `if visible` block, set `nav_focus_grab_eat_click = true`, gate FX-row click branches (inspector + sends, plain + modifier dispatch + drag-begin) on `not nav_focus_grab_eat_click`.
@@ -1114,7 +1138,7 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 ### Key Architectural Decisions
 
 - **Drop target registry (`fx_drop_targets`) widened gate**: registers when `fx_drag.active OR FxClipHasContent()`. Both drag and clipboard consume from the same registry.
-- **Registry clearing ownership**: moved to `FxClipResolveHover` end (was inside `FxDragResolveDrop`, which wiped before clipboard could read).
+- **Registry clearing ownership**: moved to `FxClipResolveHover` end (was inside `FxDragResolveDrop`, which wiped before clipboard could read). Before clearing, it snapshots to `fx_drop_targets_prev` so top-of-loop clipboard hotkeys (`Cmd+C/X/V`, `Cmd+Shift+C`, `Shift+Delete`) can resolve the hovered card/row before the render pass rebuilds targets.
 - **Deferred paste pattern**: Cmd+V sets `nav_fx_clip_pending_paste`, consumed in `FxClipResolveHover` after registry populated.
 - **`body_rect` registers as card OUTER bounds** on both surfaces (for dashed outline geometry consistency). Inspector expansion at registration via `opt_card_boxes and S(UI.card_pad/pad_top/pad_bot)`; sends already registers outer bounds.
 - **Cross-card ID scoping**: secondary card (pinned mode) wrapped in `PushID("nav_secondary_card")` to prevent FX-row ID collision with primary.
@@ -1126,6 +1150,8 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 
 ### Immediate QA / Next Thread
 
+- **Unified Options UI refactor.** Current Reflex options are split between embedded NAV menus and the Reflex gear/settings panel, with different visual languages and too many feature rows accumulating in the gear menu. Next UI pass should make a single options window/panel modeled after nvk_SEARCH's preferences: left sidebar sections, right content pane, section headers, and a dedicated Keyboard Shortcuts section with reset/remove/add affordances. Keep the first implementation small: migrate existing Reflex/NAV preferences into sections before adding new option density. Do not keep jamming more controls into the current settings menu.
+- **FX provider runtime QA.** With `fx_browser_provider = nvk`, verify source card, secondary/flow card, and SEND return-module Add FX. Important regression flow: create a source track with a send, click Add FX on the return module, confirm the SEND section stays anchored to the source while nvk is open, close nvk without adding and confirm TCP selection/view restore, then repeat and add FX and confirm the return module refreshes.
 - **Runtime-test v20.656 I/O Manager in REAPER.** Static Lua parse via `luac`/`lua` is not available in the shell, so the manager still needs a full REAPER runtime pass. Verify: NAV global `I/O Manager` row; Reflex Settings `I/O Manager` row; `HDR.input` right-click context for mono/stereo/multichannel/MIDI/None/All MIDI; launch-page selection and auto-edit focus/select-all; inline audio and MIDI alias commit/cancel with visible fallback names selected on entry; blank audio alias commits remove the alias and fall back to the HW/default name; `HW Name` no longer echoes the alias; audio input/output alias refresh notices; `Audio Out` and `MIDI Out` page population; table column resize/sort without sort-comparator errors; MIDI pages show only favorite, `Device / Alias`, `Status`, and `ID` columns; no fake MIDI `In/Out`, `All`, or `Ctl` columns remain; statuses read `Present`, `Missing`, `Ignored`, `Disabled`, or `Built-in`; natural MIDI name sorting (`MIDI Input 9` before `MIDI Input 10`); subtle alternating row backgrounds; MIDI right-click filter `Hide unavailable, ignored, and disabled devices` on both MIDI pages keeps only `Present` and `Built-in` rows; enabled-but-absent MIDI devices showing `Missing` rather than green `Enabled`; input devices absent from all `midiins*`, `midiins_all*`, and `midiins_cs*` masks showing `Disabled` and disappearing when the hide option is checked; output devices whose bit is not set in `midiouts` / `_h` / `_x` / `_x_h` showing `Disabled` and disappearing when the hide option is checked; missing MIDI names `not present`, `<not present>`, and `<not found>` showing unavailable/offline; stale flag-only MIDI cache rows not appearing as fabricated `MIDI Input N` devices; taller first-open size and max resize; flat alias/star row styling; input favorites still populate the `HDR.input` popup without `Mono:`/`Stereo:`/`MIDI:` prefixes and with MIDI favorites in yellow; output favorites persist separately; unavailable or disabled MIDI inputs stay hidden from the actual `HDR.input` selector; `Source channel` rows keep the menu open and mark the current channel with blue text; selected `HDR.input` label reads at 75% opacity.
 - **Navigator release roadmap: Windows + keyboard passthrough.** Standalone `Navigator.lua` should get a release-focused pass before public use. Start with a diagnostic build, not a behavioral rewrite: add a temporary debug readout/log for `NAV.pill` / `NAV.dot` clicks showing OS (`GetOS()`), raw `ImGui_GetKeyMods()`, decoded modifiers, window focus, active item, popup state, and whether `SetNextFrameWantCaptureKeyboard` is being forced true/false. Test macOS + Windows, floating + docked, with REAPER arrange focused, Navigator focused, another ReaScript focused, a plugin window focused, and the `NAV` global/TLT popups open.
 
@@ -1146,7 +1172,7 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 ### Features
 
 - **NAV help / cheat sheet** — add a small circled `?` icon in the NAV global right-click menu that opens a concise explanation of the three visible NAV classes: natural TLTs, auto-promoted children from `Hide in Navigator - show children`, and manually selected custom shortcuts from `Show selected tracks in Navigator`.
-- **Configurable internal key bindings** — externalize hardcoded modifier-bit helpers into user-editable mappings.
+- **Configurable internal key bindings** — build this inside the unified Options UI keyboard section. Current code has table-driven defaults plus REAPER-bindable bridge actions; the UI layer still needs editable storage/reset/remove/add behavior.
 - **Button import from REAPER toolbars** (parse `reaper-menu.ini`).
 
 ### Completed since previous PK update (v20.438 → v20.672)
@@ -1300,7 +1326,7 @@ Favorite persistence remains semantic. `Audio In` and `MIDI In` share `record_in
 
 - ✅ **Custom NAV items + public ARCHIVE auto-ignore + hidden live mode gate (v20.599; refined v20.600).** Added `core/Reflex_NavInclusionCore.lua` for per-project GUID-keyed `nav_included` persistence and the shared `NavIncludeSelectedTracks()` action. The NAV global menu now exposes `Ignore ARCHIVE` (default on) and `Show selected tracks in Navigator`, plus a compact `Navigator items` management section using the explicit popup stack primitives. Custom leaf clicks reveal only the parent chain plus the target; custom folder clicks reveal the parent chain plus that folder/subtree. The Tycho/Realist `MONITORS`, `I/O`, and `SONGS` behavior is gated behind hidden persistent `tycho_live_mode` so normal projects treat those names as ordinary folders. With `tycho_live_mode` enabled, the existing subgroup/current-song behavior remains available. `Ignore ARCHIVE` uses the separate public pref `nav_ignore_archive` and applies to tracks named `ARCHIVE` and their descendants. v20.600 moved custom items from post-pass append into the main project-order scan and renamed the custom removal row to `Hide in Navigator`.
 
-- ✅ **NAV global menu context + focus-steal removal (v20.598).** Shared NAV renderer now accepts `menu_context`. In embedded Reflex, NAV global right-click removes the top `Navigator v...` title and first rule, and renames `UI size` to `Navigator size`; standalone `Navigator.lua` keeps its title/version and `UI size` label. Removed the aggressive keyboard passthrough focus handoff: `ReflexApplyKeyboardPassthrough()` no longer calls `JS_Window_SetFocus(GetMainHwnd())`, and standalone Navigator no longer passes `{ hard_focus_reaper = true }`. This stops Navigator from stealing focus away from REAPER floating windows and other ReaScripts. The remaining helper only uses `SetNextFrameWantCaptureKeyboard(active)` so ImGui requests keyboard capture only while an item is actively being edited/dragged.
+- ✅ **NAV global menu context + focus-steal removal (v20.598).** Shared NAV renderer now accepts `menu_context`. In embedded Reflex, NAV global right-click removes the top `Navigator v...` title and first rule, and renames `UI size` to `Navigator size`; standalone `Navigator.lua` keeps its title/version and `UI size` label. Removed the aggressive keyboard passthrough focus handoff: `ReflexApplyKeyboardPassthrough()` no longer calls `JS_Window_SetFocus(GetMainHwnd())`, and standalone Navigator no longer passes `{ hard_focus_reaper = true }`. This stops Navigator from stealing focus away from REAPER floating windows and other ReaScripts. The helper still avoids OS focus handoff; callers that omit `capture_keyboard` get the active-item-only capture policy.
 
 - ✅ **Navigator global popup explicit stack rhythm (v20.597).** Added `ReflexPopupStackGap()` and `ReflexPopupRule()` to separate layout rhythm from element rendering. The Navigator global popup now lays out `Navigator v...`, separators, `UI size`, scale controls, and `Mirror TLT buttons` as `element → shared stack gap → rule/element → shared stack gap`, instead of relying on each helper's private vertical gap. `NavDrawScaleControls()` no longer adds hidden top/bottom row padding in this menu. This makes Navigator the test case for the popup style-guide rule: helpers may draw an element, but the popup stack owns inter-element spacing.
 

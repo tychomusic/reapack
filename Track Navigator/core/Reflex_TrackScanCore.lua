@@ -301,6 +301,8 @@ ReflexInstallTrackScanCore = function(deps)
             }
         end
 
+        local tlt_expand_enabled = opt_nav_tlt_expand ~= false
+
         local function add_custom(entry, tree_depth, visible_parent_guid)
             if not entry or not entry.track or not r.ValidatePtr(entry.track, "MediaTrack*") then return end
             local guid = r.GetTrackGUID(entry.track)
@@ -320,6 +322,7 @@ ReflexInstallTrackScanCore = function(deps)
                     tree_depth = tree_depth or 0,
                     tree_parent_guid = visible_parent_guid,
                     tree_promoted = true,
+                    nav_flat_promoted = tlt_expand_enabled == false,
                 }
                 represented[guid] = true
             end
@@ -358,7 +361,6 @@ ReflexInstallTrackScanCore = function(deps)
             add_custom_range(last_emit_idx + 1, last_idx, tree_depth, visible_parent_guid)
         end
 
-        local tlt_expand_enabled = opt_nav_tlt_expand ~= false
         local search_query = tostring(nav_tlt_search_effective_query or ""):lower()
         local normalized_search_query = search_query:match("^%s*(.-)%s*$") or ""
         local operator_search = normalized_search_query:sub(1, 1) == "/"
@@ -422,6 +424,8 @@ ReflexInstallTrackScanCore = function(deps)
                 tree_search_result = opts.search_result == true,
                 tree_search_match = opts.search_match == true,
                 tree_custom_set = opts.custom_set == true,
+                nav_flat_promoted = opts.flat_promoted == true
+                    or (opts.search_result == true and (tree_depth or 0) == 0 and node.parent ~= nil),
             }
             represented[node.guid] = true
             return expanded
@@ -451,6 +455,8 @@ ReflexInstallTrackScanCore = function(deps)
                                         entry = child_entry,
                                         is_folder = child.is_folder,
                                         ghost_parent = root_entry,
+                                        tree_promoted = true,
+                                        nav_flat_promoted = true,
                                     }
                                 end
                                 represented[child.guid] = true

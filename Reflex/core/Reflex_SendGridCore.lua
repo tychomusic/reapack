@@ -69,9 +69,9 @@ SendsDrawSpanningAddRow = function(groups, bw, dl, sends_base_sx)
     r.ImGui_SetCursorPosX(ctx, sends_base_sx)
     local span_h = S(UI.btn_h) + S(UI.card_pad_top) + S(UI.card_pad_bot)
     local span_cx, span_cy = r.ImGui_GetCursorScreenPos(ctx)
-    local span_target = sends_view_source
+    local span_target = NavRoutingTargetTrack()
     if not (span_target and r.ValidatePtr(span_target, "MediaTrack*")) then
-        span_target = NavRoutingTargetTrack()
+        span_target = sends_view_source
     end
     DrawSendAddCard(dl, span_cx, span_cy, bw, span_h, span_target, span_folder,
         "##addsend_span", "##addsend_mode_span")
@@ -84,9 +84,10 @@ SendsMeasureGrid = function(bw, cols, col_gap)
     local col_pad_bot = S(UI.send_pad_bot)
 
     local title_font = GetSteppedFont(UI.font_send_title)
-    if title_font then r.ImGui_PushFont(ctx, title_font) end
+    local title_measure_pushed = PushTrackTitleScaledFont and PushTrackTitleScaledFont(title_font, 1.25)
+    if title_font and not title_measure_pushed then r.ImGui_PushFont(ctx, title_font) end
     local title_h = r.ImGui_GetTextLineHeight(ctx)
-    if title_font then r.ImGui_PopFont(ctx) end
+    if title_measure_pushed or title_font then r.ImGui_PopFont(ctx) end
 
     local btn_h = S(UI.btn_h)
     local row_gap = S(UI.pad_sm)
@@ -101,7 +102,7 @@ SendsMeasureGrid = function(bw, cols, col_gap)
     local knob_pair_h = knobs_wrap and (knob_unit * 2 + row_gap) or knob_unit
     local est_fx_btn_w = math.floor(InspCtrlW("FX") * 1.4)
     local est_arrow_w = btn_h + math.floor(row_gap / 2)
-    local est_route_w = S(10) * 2 + S(4) * 6 + S(7) * 2
+    local est_route_w = S(8) * 2 + S(4) * 6 + S(7) * 2
     -- v20.425: include + button width (added to compound in v20.420). Without
     -- this, parent under-estimates compound width at certain card widths,
     -- predicting no-wrap while the child renders wrap — card height is then
@@ -212,9 +213,9 @@ SendsDrawGroupColumns = function(group, gi, cols, col_w, col_gap, dl, sends_base
             -- No cards, no placeholders.
         elseif is_last_row_of_group and actual_cols < cols then
             last_conforming_last_row_full = false
-            local add_target = sends_view_source
+            local add_target = NavRoutingTargetTrack()
             if not (add_target and r.ValidatePtr(add_target, "MediaTrack*")) then
-                add_target = NavRoutingTargetTrack()
+                add_target = sends_view_source
             end
             for ci = actual_cols, cols - 1 do
                 local ccx = row_cx + ci * (col_w + col_gap)

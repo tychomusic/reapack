@@ -385,7 +385,11 @@ DrawRouteRow = function(prefix, idx, dl, track, category, name, name_col, src_nc
             local _link_y = cy + Round((btn_h - th) / 2)
             local _link_hov = TitleLink(prefix .. "namelink" .. idx, cx, _link_y, _link_w, th, _other, {})
             if _link_hov then
-                r.ImGui_DrawList_AddLine(dl, cx, _link_y + th, cx + _link_w, _link_y + th, draw_name_col, 1)
+                if DrawSolidUnderline then
+                    DrawSolidUnderline(dl, cx, _link_y + th, cx + _link_w, draw_name_col, 1)
+                else
+                    r.ImGui_DrawList_AddRectFilled(dl, cx, _link_y + th, cx + _link_w, _link_y + th + 1, draw_name_col)
+                end
             end
         end
     end

@@ -338,6 +338,31 @@ ReflexInstallNavActionCore = function(deps)
         return { track = root, name = name, idx = idx }
     end
 
+    local function NavTracksAncestryRelated(a, b)
+        if not a or not b then return false end
+        local parent = r.GetParentTrack(b)
+        while parent and r.ValidatePtr(parent, "MediaTrack*") do
+            if parent == a then return true end
+            parent = r.GetParentTrack(parent)
+        end
+        parent = r.GetParentTrack(a)
+        while parent and r.ValidatePtr(parent, "MediaTrack*") do
+            if parent == b then return true end
+            parent = r.GetParentTrack(parent)
+        end
+        return false
+    end
+
+    local function NavItemFlatPromoted(item)
+        return item
+            and item.kind == "folder"
+            and item.nav_flat_promoted == true
+    end
+
+    local function NavItemPromotedAlias(item)
+        return item and (item.custom == true or NavItemFlatPromoted(item))
+    end
+
     local function NavItemSoloWithinRoot(item, root_entry)
         if not item or not item.track or not root_entry then return false end
         if not IsFolderVisible(root_entry) or not IsItemVisible(item) then return false end
@@ -371,7 +396,54 @@ ReflexInstallNavActionCore = function(deps)
         return not item.is_folder or FolderSubtreeFullyShown({ track = item.track, idx = target_idx })
     end
 
+    local function NavFlatPromotedAloneVisible(item)
+        if not item or not item.track or not IsItemVisible(item) then return false end
+        local target = NavItemTrack(item)
+        if not target or not r.ValidatePtr(target, "MediaTrack*") then return false end
+        local root_entry = item.ghost_parent or NavTopRootEntry(target)
+        if not NavItemSoloWithinRoot(item, root_entry) then return false end
+        local root_guid = root_entry and root_entry.track and r.GetTrackGUID(root_entry.track) or nil
+        local visible_roots = 0
+        for _, entry in ipairs(top_folders) do
+            if not (NavTrackAutoIgnored and NavTrackAutoIgnored(entry.track))
+               and IsFolderVisible(entry) then
+                local entry_guid = r.GetTrackGUID(entry.track)
+                if not PinnedTrack(entry.track) or entry_guid == root_guid then
+                    visible_roots = visible_roots + 1
+                    if visible_roots > 1 then return false end
+                end
+            end
+        end
+        if visible_roots ~= 1 then return false end
+
+        local target_guid = r.GetTrackGUID(target)
+        if not target_guid then return false end
+        local visible_rows = 0
+        local counted = {}
+        for _, row in ipairs(render_list or {}) do
+            if row.kind == "folder" then
+                local row_track = NavItemTrack(row)
+                if row_track and r.ValidatePtr(row_track, "MediaTrack*") and IsItemVisible(row) then
+                    local row_guid = r.GetTrackGUID(row_track)
+                    if row_guid and not counted[row_guid] then
+                        local same_track = row_guid == target_guid
+                        local context_row = (not same_track) and NavTracksAncestryRelated(row_track, target)
+                        if same_track or (not context_row and not PinnedTrack(row_track)) then
+                            counted[row_guid] = true
+                            visible_rows = visible_rows + 1
+                            if visible_rows > 1 then return false end
+                        end
+                    end
+                end
+            end
+        end
+        return visible_rows == 1
+    end
+
     IsAloneVisible = function(item)
+        if NavItemFlatPromoted(item) then
+            return NavFlatPromotedAloneVisible(item)
+        end
         local uses_root_solo_scope = item.custom
             or item.tree_search_result
             or (item.kind == "folder" and (item.tree_depth or 0) > 0)
@@ -430,7 +502,7 @@ ReflexInstallNavActionCore = function(deps)
 
     HandleTracksSolo = function(ri, is_alt)
         local item = render_list[ri]; local vis = IsItemVisible(item)
-        if item.custom then
+        if NavItemPromotedAlias(item) then
             if vis and IsAloneVisible(item) then
                 if item.is_folder then
                     if is_alt then
@@ -485,7 +557,7 @@ ReflexInstallNavActionCore = function(deps)
 
     HandleTracksCmd = function(ri, is_alt)
         local item = render_list[ri]
-        if item.custom then
+        if NavItemPromotedAlias(item) then
             if IsItemVisible(item) then NavHideCustomItem(item)
             else NavShowCustomItem(item, is_alt) end
             return
@@ -568,7 +640,7 @@ ReflexInstallNavActionCore = function(deps)
             do_scroll = false
         elseif is_ctrl and not is_cmd then
             -- Child-expand chord: expand/collapse folder and all children.
-            if item.custom and item.is_folder then
+            if NavItemPromotedAlias(item) and item.is_folder then
                 local is_collapsed = r.GetMediaTrackInfo_Value(item.track, "I_FOLDERCOMPACT") ~= 0
                 if is_collapsed then
                     if not IsItemVisible(item) then NavShowCustomItem(item, true) end

@@ -110,11 +110,22 @@ ReflexInstallStyleCore = function(deps)
         r.ImGui_PopStyleVar(ctx, 2)
     end
 
+    PushTooltipFont = function()
+        if not PushFont or not GetScaledFont then return false end
+        return PushFont(GetScaledFont())
+    end
+
+    PopTooltipFont = function(pushed)
+        if PopFont then PopFont(pushed) end
+    end
+
     Tip = function(text)
         if not opt_tooltips or not text then return end
         if r.ImGui_IsItemHovered(ctx) then
             PushTooltipStyle()
+            local tip_fp = PushTooltipFont()
             r.ImGui_SetTooltip(ctx, text)
+            PopTooltipFont(tip_fp)
             PopTooltipStyle()
         end
     end
@@ -122,7 +133,9 @@ ReflexInstallStyleCore = function(deps)
     TipDirect = function(text)
         if not opt_tooltips or not text then return end
         PushTooltipStyle()
+        local tip_fp = PushTooltipFont()
         r.ImGui_SetTooltip(ctx, text)
+        PopTooltipFont(tip_fp)
         PopTooltipStyle()
     end
 
@@ -136,6 +149,7 @@ ReflexInstallStyleCore = function(deps)
         local primary = is_mac and "Cmd" or "Ctrl"
         local alt = is_mac and "Opt" or "Alt"
         PushTooltipStyle()
+        local tip_fp = PushTooltipFont()
         r.ImGui_BeginTooltip(ctx)
         r.ImGui_Text(ctx, "Click: toggle navigator")
         r.ImGui_Text(ctx, primary .. ": show all TLTs")
@@ -144,6 +158,7 @@ ReflexInstallStyleCore = function(deps)
         r.ImGui_Text(ctx, "Shift: toggle collapse TLTs")
         r.ImGui_Text(ctx, primary .. "+Shift: show all tracks")
         r.ImGui_EndTooltip(ctx)
+        PopTooltipFont(tip_fp)
         PopTooltipStyle()
     end
 
@@ -263,22 +278,23 @@ ReflexInstallStyleCore = function(deps)
     ReflexApplyKeyboardPassthrough = function(opts)
         opts = opts or {}
         local active = r.ImGui_IsAnyItemActive and r.ImGui_IsAnyItemActive(ctx) or false
+        local requested = active or opts.capture_keyboard == true
         local api = r.ImGui_SetNextFrameWantCaptureKeyboard ~= nil
         local applied = false
         if api then
-            local ok_apply = pcall(r.ImGui_SetNextFrameWantCaptureKeyboard, ctx, active)
+            local ok_apply = pcall(r.ImGui_SetNextFrameWantCaptureKeyboard, ctx, requested)
             applied = ok_apply
         end
         if opts.debug then
             opts.debug({
-                policy = "active_only",
+                policy = opts.capture_keyboard == nil and "active_only" or "requested_or_active",
                 api = api,
                 active = active,
-                requested = active,
+                requested = requested,
                 applied = applied,
             })
         end
-        return active, applied
+        return requested, applied
     end
 
     ReflexConfigureKeyboardPassthrough()
