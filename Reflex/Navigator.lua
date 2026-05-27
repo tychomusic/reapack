@@ -3,11 +3,11 @@
  * Description: Standalone Navigator section for Reflex.
  *              Top NAV visibility manager only.
  * Author:      S.Hansen / Tycho
- * Version:     20.673
+ * Version:     20.676
 --]]
 
 local r = reaper
-NAVIGATOR_VERSION = "20.673"
+NAVIGATOR_VERSION = "20.676"
 
 NavigatorDependencyError = function(detail)
     local msg = "Navigator requires ReaImGui 0.10 or newer."
@@ -1251,6 +1251,30 @@ TrackNavigatorSearchShortcutPressed = function()
     return nav_mods.cmd and not nav_mods.shift and not nav_mods.alt
 end
 
+TrackNavigatorPlainKeyPressed = function(key_name)
+    if not r.ImGui_IsKeyPressed then return false end
+    local key = NavigatorKeyValue(key_name)
+    if not key then return false end
+    local ok_pressed, pressed = pcall(r.ImGui_IsKeyPressed, ctx, key, false)
+    if not ok_pressed or pressed ~= true then return false end
+    local mods = 0
+    if r.ImGui_GetKeyMods then
+        local ok_mods, value = pcall(r.ImGui_GetKeyMods, ctx)
+        if ok_mods and type(value) == "number" then mods = value end
+    end
+    local nav_mods = TrackNavigatorModState(mods)
+    return not nav_mods.cmd and not nav_mods.shift and not nav_mods.alt and not nav_mods.ctrl
+end
+
+NavigatorToggleExpanded = function()
+    if NavToggleNavigatorExpandedPlain then
+        return NavToggleNavigatorExpandedPlain()
+    end
+    navigator_expanded = not (navigator_expanded == true)
+    SavePref("navigator_expanded", navigator_expanded)
+    return true
+end
+
 NavigatorRequestTltSearchFocus = function()
     current_page = "tracks"
     if not navigator_expanded then
@@ -1283,6 +1307,8 @@ ReflexNavigatorRunExternalCommand = function(command)
         return true
     elseif command == "armed_scroll" then
         return TrackNavigatorScrollToRecordArmed and TrackNavigatorScrollToRecordArmed() == true
+    elseif command == "toggle_navigator_expanded" then
+        return NavigatorToggleExpanded and NavigatorToggleExpanded() == true
     end
     return false
 end
@@ -1592,6 +1618,9 @@ NavigatorLoop = function()
         local nav_esc_pressed = opt_esc_key_to_close and raw_nav_esc_pressed
         if TrackNavigatorSearchShortcutPressed() then
             NavigatorRequestTltSearchFocus()
+        end
+        if TrackNavigatorPlainKeyPressed("ImGui_Key_N") then
+            NavigatorToggleExpanded()
         end
         if (nav_tlt_search_window_focus_requested_frames or 0) > 0 and r.ImGui_SetWindowFocus then
             pcall(r.ImGui_SetWindowFocus, ctx)

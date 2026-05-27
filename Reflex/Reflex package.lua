@@ -1,10 +1,10 @@
 -- @description Reflex
--- @version 20.675
+-- @version 20.676
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Refine FX row bypass controls, enabled-blue color tokens, and record/mute active states.
+--   Add a REAPER action and standalone Navigator hotkey for toggling Navigator expand.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua
@@ -18,6 +18,7 @@
 --   [main] Reflex_HistoryForward.lua
 --   [main] Reflex_Navigator_ArmedViewToggle.lua
 --   [main] Reflex_Navigator_ScrollToRecordArmed.lua
+--   [main] Reflex_Navigator_ToggleExpand.lua
 --   [nomain] Reflex_ActionBridge.lua
 --   [nomain] Reflex_NavigatorActionBridge.lua
 --   [nomain] core/*.lua

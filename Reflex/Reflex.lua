@@ -3,7 +3,7 @@
  * Description: Folder visibility and collapse manager for REAPER sessions.
  *              Companion to Realist. Realist-styled UI.
  * Author:      S.Hansen / Tycho
- * Version:     20.675
+ * Version:     20.676
  *
  * Click:       solo (if others visible) or toggle collapse (if alone)
  * CMD+click:   add/remove from visible set
@@ -20,7 +20,7 @@ local r = reaper
 
 -- Single source of truth for Reflex version. Update this when bumping
 -- the header comment; used by settings panel title.
-REFLEX_VERSION = "20.675"
+REFLEX_VERSION = "20.676"
 
 ReflexDependencyError = function(detail)
     local msg = "Reflex requires ReaImGui 0.10 or newer."
@@ -8181,6 +8181,8 @@ ReflexNavigatorRunExternalCommand = function(command)
     if command == "focus_tlt_search" then
         ReflexNavigatorRequestTltSearchFocus()
         return true
+    elseif command == "toggle_navigator_expanded" then
+        return ReflexToggleNavigatorExpanded and ReflexToggleNavigatorExpanded() == true
     elseif command == "armed_enable" then
         if not armed_view_active then ArmedViewToggle() end
         return true
