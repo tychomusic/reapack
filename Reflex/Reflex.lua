@@ -3,7 +3,7 @@
  * Description: Folder visibility and collapse manager for REAPER sessions.
  *              Companion to Realist. Realist-styled UI.
  * Author:      S.Hansen / Tycho
- * Version:     20.674
+ * Version:     20.675
  *
  * Click:       solo (if others visible) or toggle collapse (if alone)
  * CMD+click:   add/remove from visible set
@@ -20,7 +20,7 @@ local r = reaper
 
 -- Single source of truth for Reflex version. Update this when bumping
 -- the header comment; used by settings panel title.
-REFLEX_VERSION = "20.674"
+REFLEX_VERSION = "20.675"
 
 ReflexDependencyError = function(detail)
     local msg = "Reflex requires ReaImGui 0.10 or newer."
@@ -92,7 +92,7 @@ local nav_theme = {
     },
     colors = {
         fx_instr_txt = 0x324bd0,
-        vol_slider_fill = 0x08a5f7,
+        vol_slider_fill = 0x3d83ff,
         vol_slider_mark = 0x3e454b,
         vol_slider_mark_over = 0x82baf7,
         vol_slider_mark_intersect = 0xb9b9b9,
@@ -453,8 +453,16 @@ local C = {
     fx_ctrl_bg      = rgb(0x2A2F37),
     fx_ctrl_hover   = rgb(0x363C46),
     fx_ctrl_active  = rgb(0x424950),
+    fx_power_on     = rgb(0x3D83FF), -- Renders near sampled #5784FC in ReaImGui output.
+    fx_power_off    = rgb(0x636568),
+    fx_power_bg     = rgb(0x3B4048),
+    fx_power_hover  = rgb(0x464B54),
+    fx_power_byp_bg = rgb(0x282C31),
+    fx_power_byp_hover = rgb(0x30343A),
+    fx_byp_env_active = rgb(0x525357),
+    fx_byp_env_active_hov = rgb(0x727275),
     cmp_a           = rgb(0x3FB950),
-    cmp_b           = rgb(0x3B82F6),
+    cmp_b           = rgb(0x3D83FF),
     cmp_a_dim       = rgb(0x1A3D2A),
     cmp_b_dim       = rgb(0x1E3A5F),
     cmp_aware_bg    = rgb(0x363C46),
@@ -476,7 +484,7 @@ local C = {
     fx_row_bg       = nil,  -- falls back to btn_bg if nil
     fx_row_border   = nil,  -- no border if nil
     flow_source_bg  = rgb(0x1E2228),  -- flow view source track header bg (default = fx_row_bg)
-    route_parent    = rgb(0x58A6FF),
+    route_parent    = rgb(0x3D83FF),
     route_parent_dim= rgb(0x1E3050),
     route_send      = rgb(0xD29922),
     route_send_dim  = rgb(0x3D2E10),
@@ -489,8 +497,9 @@ local C = {
     flow_stroke     = rgb(0xC4C4C4),  -- selected flow-card outline
     -- Mute/Solo button state colors
     record_arm      = rgb(0xFF4A4A),
+    record_arm_act  = rgb(0xC25353),
     mute_hov        = rgb(0xD9453F),
-    mute_act        = rgb(0xB83A35),
+    mute_act        = rgb(0xC25353),
     solo_bg         = rgb(0xF1B70A),
     solo_hov        = rgb(0xF1B70A),
     solo_act        = rgb(0xF1B70A),
@@ -532,6 +541,10 @@ for key, hex in pairs(theme_colors) do
         C[key] = rgb(hex)
     end
 end
+C.vol_slider_fill = C.fx_power_on
+C.route_parent = C.fx_power_on
+C.cmp_b = C.fx_power_on
+C.mute_act = C.record_arm_act
 C.source_stroke = C.amber
 
 -- Icon primitives: draw +/-/× via DrawList rects/lines centered at (cx, cy).
@@ -1590,9 +1603,62 @@ DrawStaticRectButton = function(dl, rect, label, opts)
     NavDrawContent(dl, x, y, w, h, label, opts.fg, opts)
 end
 
+FXPowerCircleDiameter = function()
+    return 8 -- 16 Retina px.
+end
+
+FXPowerNamePad = function(row_h)
+    return row_h + math.max(0, row_h / 2 - FXPowerCircleDiameter() / 2)
+end
+
+FXPowerBgColor = function(enabled, hovered)
+    if enabled then return hovered and C.fx_power_hover or C.fx_power_bg end
+    return hovered and C.fx_power_byp_hover or C.fx_power_byp_bg
+end
+
+DrawFXPowerEndcap = function(dl, x, y, row_h, enabled, hovered, rounding)
+    local col = FXPowerBgColor(enabled, hovered)
+    local flags = r.ImGui_DrawFlags_RoundCornersTopLeft() | r.ImGui_DrawFlags_RoundCornersBottomLeft()
+    r.ImGui_DrawList_AddRectFilled(dl, x, y, x + row_h, y + row_h, col, rounding or 0, flags)
+end
+
+DrawFXRowBase = function(dl, x, y, w, row_h, total_h, body_col, power_col, radius)
+    local seam_x = x + row_h
+    if math.abs(total_h - row_h) < 0.01 then
+        local left_flags = r.ImGui_DrawFlags_RoundCornersTopLeft() | r.ImGui_DrawFlags_RoundCornersBottomLeft()
+        local right_flags = r.ImGui_DrawFlags_RoundCornersTopRight() | r.ImGui_DrawFlags_RoundCornersBottomRight()
+        r.ImGui_DrawList_AddRectFilled(dl, x, y, seam_x, y + row_h, power_col, radius, left_flags)
+        r.ImGui_DrawList_AddRectFilled(dl, seam_x, y, x + w, y + row_h, body_col, radius, right_flags)
+    else
+        DrawHighResRoundedRectFilled(dl, x, y, x + w, y + total_h, body_col, radius)
+        r.ImGui_DrawList_AddRectFilled(dl, x, y, seam_x, y + row_h, power_col, radius, r.ImGui_DrawFlags_RoundCornersTopLeft())
+    end
+end
+
+DrawFXPowerButton = function(id, x, y, row_h, enabled, payload)
+    local dl = r.ImGui_GetWindowDrawList(ctx)
+    r.ImGui_SetCursorScreenPos(ctx, x, y)
+    r.ImGui_InvisibleButton(ctx, id, row_h, row_h)
+    local hov = r.ImGui_IsItemHovered(ctx)
+    if hov then
+        r.ImGui_SetMouseCursor(ctx, r.ImGui_MouseCursor_Hand())
+        Tip("Click: bypass\nOpt: remove\nCmd: select\nCtrl: range\nCmd+Shift: offline")
+    end
+    if r.ImGui_IsItemClicked(ctx, 0) then
+        FxRowPowerClick(payload)
+    end
+    local d = FXPowerCircleDiameter()
+    local cx = x + row_h / 2
+    local cy = y + row_h / 2
+    local col = enabled and C.fx_power_on or C.fx_power_off
+    if hov then col = ScaleColor(col, 1.2) end
+    r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, d / 2, col, NAV_CIRCLE_SEGMENTS)
+    return hov
+end
+
 RecordArmColor = function(is_armed, hov, active)
+    if active then return C.record_arm_act end
     if is_armed then return C.record_arm end
-    if active then return C.fx_ctrl_active end
     if hov then return C.fx_ctrl_hover end
     return C.fx_ctrl_bg
 end
@@ -4048,7 +4114,8 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
     local gap = S(3)
     local ctrl_h = InspCtrlSz()
     local rpad = S(6)
-    local text_pad = S(10)
+    local power_hit_w = ibh
+    local text_pad = FXPowerNamePad(ibh)
     local pad_y = Round((ibh - ctrl_h) / 2)
     local row_r = S(4)
 
@@ -4066,10 +4133,8 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
     local is_instr = fx.is_instrument
     local instr_hover_overlay = 0xFFFFFF18  -- white overlay for hover on instrument buttons
     local instr_wet_col = is_instr and rgb(0x7EB5F7) or C.fx_drywet_txt
-    local instr_env_dim = C.fx_ctrl_bg
-    local instr_env_hov = is_instr and 0xFFFFFFAA or C.text_dim
-    local instr_arrow_dim = is_instr and 0xFFFFFF60 or C.text_dim
-    local instr_arrow_hov = is_instr and 0xFFFFFF90 or C.text_dim
+    local instr_env_dim = C.route_dim
+    local instr_env_hov = C.text_dim
 
     local start_x = r.ImGui_GetCursorPosX(ctx)
     local start_y = r.ImGui_GetCursorPosY(ctx)
@@ -4078,7 +4143,8 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
 
     -- Background (covers full height including extras)
     local row_bg = fx.is_instrument and bg or (C.fx_row_bg or bg)
-    DrawHighResRoundedRectFilled(dl, cx, cy, cx + bw, cy + total_h, row_bg, row_r)
+    local power_hovered_pre = r.ImGui_IsMouseHoveringRect(ctx, cx, cy, cx + power_hit_w, cy + ibh)
+    DrawFXRowBase(dl, cx, cy, bw, power_hit_w, total_h, row_bg, FXPowerBgColor(fx.enabled, power_hovered_pre), row_r)
     if C.fx_row_border then
         DrawSolidRoundedRectOutline(dl, cx, cy, cx + bw, cy + total_h, C.fx_row_border, row_r, 1)
     end
@@ -4105,14 +4171,17 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Header(), 0x00000000)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), 0x00000000)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderActive(), 0x00000000)
+    r.ImGui_SetCursorPos(ctx, start_x + power_hit_w, start_y)
+    local body_click_w = math.max(S(20), click_w - power_hit_w)
     local sel = r.ImGui_Selectable(ctx, "##fxsel", false,
-        r.ImGui_SelectableFlags_AllowOverlap(), click_w, total_h)
-    local hovered = r.ImGui_IsItemHovered(ctx)
+        r.ImGui_SelectableFlags_AllowOverlap(), body_click_w, total_h)
+    local body_hovered = r.ImGui_IsItemHovered(ctx)
+    local hovered = r.ImGui_IsMouseHoveringRect(ctx, cx + power_hit_w, cy, cx + bw, cy + total_h)
     r.ImGui_PopStyleColor(ctx, 3)
     -- v20.424: descriptive hover tooltip on FX row (parity with sends).
     -- "Click: open" omitted — self-explanatory. Suppressed during carry mode
     -- to avoid competing with insert-indicator visuals.
-    if not FxClipHasContent() then
+    if body_hovered and not FxClipHasContent() then
         Tip("Shift: bypass\nOpt: remove\nCmd+Shift: offline")
     end
 
@@ -4126,11 +4195,17 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
     FxRowInteract({
         track = fx.track, fi = fi0, guid = fx.guid, surface = "inspector",
         popup_id = "##fxctx" .. fi,
-        sel = sel, hovered = hovered,
+        sel = sel, hovered = hovered, item_hovered = body_hovered,
         dl = dl, cx = cx, cy = cy, w = bw, h = total_h, radius = row_r,
+        fill_x = cx + power_hit_w, fill_w = math.max(1, bw - power_hit_w),
         hover_col = hover, active_col = active,
         enabled = fx.enabled, offline = fx.offline,
         cmp_key = fx.cmp_key,
+    })
+
+    DrawFXPowerButton("##fxpower", cx, cy, ibh, fx.enabled, {
+        track = fx.track, fi = fi0, guid = fx.guid, surface = "inspector",
+        enabled = fx.enabled, offline = fx.offline, cmp_key = fx.cmp_key,
     })
 
     -- A/B assignment group detection (needed for dot before name)
@@ -4177,6 +4252,7 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
         local row_hovered = r.ImGui_IsMouseHoveringRect(ctx, cx, cy, cx + bw, cy + ibh)
         local name_right = row_hovered and (cx + click_w) or (cx + bw - rpad)
         local name_avail = name_right - (cx + text_pad + dot_offset)
+        local name_col = (not fx.enabled and not fx.offline and hovered) and C.fx_power_off or txt
         local display_name = fx.name
         local name_tw = r.ImGui_CalcTextSize(ctx, display_name)
         if name_tw > name_avail then
@@ -4189,7 +4265,7 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
             display_name = display_name .. ellipsis
             name_tw = r.ImGui_CalcTextSize(ctx, display_name)
         end
-        r.ImGui_DrawList_AddText(dl, cx + text_pad + dot_offset, name_y, txt, display_name)
+        r.ImGui_DrawList_AddText(dl, cx + text_pad + dot_offset, name_y, name_col, display_name)
     end
 
     -- A/B assignment dot (before name, vertically centered)
@@ -4279,7 +4355,13 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
         local env_hov = r.ImGui_IsItemHovered(ctx)
         fx_env_btn_hov = env_hov
         local env_clicked = r.ImGui_IsItemClicked(ctx, 0)
-        local fx_env_txt = fx_any_env_vis and 0xFFFFFFFF or (env_hov and instr_env_hov or instr_env_dim)
+        local bypassed_fx = not fx.enabled and not fx.offline
+        local fx_env_txt
+        if fx_any_env_vis then
+            fx_env_txt = bypassed_fx and (env_hov and C.fx_byp_env_active_hov or C.fx_byp_env_active) or 0xFFFFFFFF
+        else
+            fx_env_txt = env_hov and instr_env_hov or instr_env_dim
+        end
         local etw = r.ImGui_CalcTextSize(ctx, env_label)
         r.ImGui_DrawList_AddText(dl, env_cx + Round((env_w - etw) / 2),
             env_cy + Round((ctrl_h - r.ImGui_GetTextLineHeight(ctx)) / 2), fx_env_txt, env_label)
@@ -4328,12 +4410,14 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
     Tip("Opt: toggle all")
     local arrow_clicked = r.ImGui_IsItemClicked(ctx, 0)
     local arrow_hov = r.ImGui_IsItemHovered(ctx)
+    local arrow_active = r.ImGui_IsItemActive(ctx)
     local show_arrow = is_exp or ((hovered or arrow_hov or fx_env_btn_hov) and not FxClipHasContent())
     if show_arrow then
         local arrow_col
-        if is_exp then arrow_col = 0xFFFFFFFF
-        elseif arrow_hov then arrow_col = instr_arrow_hov
-        else arrow_col = instr_arrow_dim end
+        local bypassed_fx = not fx.enabled and not fx.offline
+        if is_exp or arrow_active then arrow_col = bypassed_fx and (arrow_hov and C.fx_byp_env_active_hov or C.fx_byp_env_active) or 0xFFFFFFFF
+        elseif arrow_hov then arrow_col = instr_env_hov
+        else arrow_col = instr_env_dim end
         DrawArrowIcon(dl, arrow_cx + ab_w * 0.5, arrow_cy + ctrl_h * 0.5,
             ctrl_h * 0.52, is_exp and "down" or "right", arrow_col)
     end
@@ -4516,12 +4600,12 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
         end
     end
 
-    -- Fade overlay for offline/bypassed/dry (covers full height) — skip for instruments (tint handled in bg)
+    -- Fade overlay for offline/dry (covers full height) — bypassed rows own their colors directly.
     if not fx.is_instrument then
         if fx.offline then
             local fade = (C.bg & 0xFFFFFF00) | 0x90
             DrawHighResRoundedRectFilled(dl, cx, cy, cx + bw, cy + total_h, fade, row_r)
-        elseif not fx.enabled or is_dry then
+        elseif is_dry then
             local fade = (C.bg & 0xFFFFFF00) | 0x60
             DrawHighResRoundedRectFilled(dl, cx, cy, cx + bw, cy + total_h, fade, row_r)
         end
@@ -4649,7 +4733,7 @@ DrawNavCircleButton = function(id, is_active, tooltip_on, tooltip_off)
     local dl = r.ImGui_GetWindowDrawList(ctx)
     local bcx = ix + rv
     local bcy = iy + rv
-    local bg = is_active and rgb(0x3B82F6) or (hov and C.btn_hover or C.btn_bg)
+    local bg = is_active and C.cmp_b or (hov and C.btn_hover or C.btn_bg)
     r.ImGui_DrawList_AddCircleFilled(dl, bcx, bcy, rv, bg, NAV_CIRCLE_SEGMENTS)
     if hov and tooltip_on then
         Tip(is_active and tooltip_on or (tooltip_off or tooltip_on))
@@ -5769,7 +5853,7 @@ DrawFXChainCompound = function(track, trk_sx, y, fx_btn_w, ctrl_row_h, min_btn_w
         local half_gap = math.floor(ctrl_gap / 2)
         local arrow_hit_w = min_btn_w + half_gap
         local arrow_label = is_fx_collapsed and "\xE2\x96\xB6" or "\xE2\x96\xBC"
-        local fx_txt_col = fx_enabled and 0x08A5F7FF or C.fx_offline_txt
+        local fx_txt_col = fx_enabled and C.fx_power_on or C.fx_offline_txt
 
         -- Arrow half (left): round left corners only
         r.ImGui_SetCursorPos(ctx, trk_sx, y)
@@ -5831,7 +5915,7 @@ DrawFXChainCompound = function(track, trk_sx, y, fx_btn_w, ctrl_row_h, min_btn_w
         r.ImGui_SetCursorPos(ctx, addfx_x, y)
         do
             local _, addfx_clk, addfx_act = NavRect("##addfx_btn", min_btn_w, ctrl_row_h, "+", {
-                hov = 0x08A5F7FF, active = (0x08A5F7 << 8) | 0xCC,
+                hov = C.fx_power_on, active = (C.fx_power_on & 0xFFFFFF00) | 0xCC,
                 rounding = {tl = 0, bl = 0, tr = 3, br = 3},
             })
             Tip("Click: FX browser\nDrag: insert at position")
@@ -5862,7 +5946,7 @@ DrawFXChainCompound = function(track, trk_sx, y, fx_btn_w, ctrl_row_h, min_btn_w
         r.ImGui_SetCursorPos(ctx, addfx_x, y)
         do
             local _, addfx_clk, addfx_act = NavRect("##addfx_btn", min_btn_w, ctrl_row_h, "+", {
-                hov = 0x08A5F7FF, active = (0x08A5F7 << 8) | 0xCC,
+                hov = C.fx_power_on, active = (C.fx_power_on & 0xFFFFFF00) | 0xCC,
                 rounding = {tl = 0, bl = 0, tr = 3, br = 3},
             })
             Tip("Click: FX browser\nDrag: insert at position")
@@ -8171,7 +8255,7 @@ RoutingViewDrawButton = function(dl, cx, cy, radius)
 
     local btn_cx = scx + radius + S(3)
     local btn_cy = scy + radius + S(3)
-    local bg_col = routing_view_active and rgb(0x3B82F6) or (hov and C.btn_hover or C.btn_bg)
+    local bg_col = routing_view_active and C.cmp_b or (hov and C.btn_hover or C.btn_bg)
     r.ImGui_DrawList_AddCircleFilled(dl, btn_cx, btn_cy, radius, bg_col, 0)
 
     -- Bold "R" text
@@ -8543,9 +8627,9 @@ SendsViewDrawButton = function()
     local label = "Sends"
     local label_w = r.ImGui_CalcTextSize(ctx, label)
     local pill_w = label_w + pill_pad_x * 2
-    local bg = sends_view_active and rgb(0x3B82F6) or C.fx_ctrl_bg
-    local hov_bg = sends_view_active and rgb(0x4A90F8) or C.fx_ctrl_hover
-    local act_bg = sends_view_active and rgb(0x2D6FD4) or C.fx_ctrl_active
+    local bg = sends_view_active and C.cmp_b or C.fx_ctrl_bg
+    local hov_bg = sends_view_active and C.cmp_b or C.fx_ctrl_hover
+    local act_bg = sends_view_active and ((C.cmp_b & 0xFFFFFF00) | 0xCC) or C.fx_ctrl_active
     local txt = sends_view_active and 0xFFFFFFFF or C.text_dim
     local _, sv_clk = NavPill("##sends_view", pill_w, pill_h, label, {
         bg = bg, hov = hov_bg, active = act_bg, fg = txt,
@@ -8850,7 +8934,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
         local fx_btn_w = math.floor(InspCtrlW("FX") * 1.4)
         local fx_enabled = r.GetMediaTrackInfo_Value(track, "I_FXEN") == 1
         local has_any_fx = r.TrackFX_GetCount(track) > 0
-        local fx_txt = (fx_enabled and has_any_fx) and 0x08A5F7FF or (has_any_fx and C.fx_offline_txt or C.text_muted)
+        local fx_txt = (fx_enabled and has_any_fx) and C.fx_power_on or (has_any_fx and C.fx_offline_txt or C.text_muted)
 
         local route_dot_r = S(4)
         local route_dot_gap = S(7)
@@ -8924,7 +9008,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             r.ImGui_SetCursorScreenPos(ctx, addfx_x, y)
             do
                 local _, addfx_clk, addfx_act = NavRect("##snd_addfx_btn", btn_h, btn_h, "+", {
-                    hov = 0x08A5F7FF, active = (0x08A5F7 << 8) | 0xCC,
+                    hov = C.fx_power_on, active = (C.fx_power_on & 0xFFFFFF00) | 0xCC,
                     rounding = {tl = 0, bl = 0, tr = 3, br = 3},
                 })
                 Tip("Click: FX browser\nDrag: insert at position")
@@ -8957,7 +9041,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             r.ImGui_SetCursorScreenPos(ctx, addfx_x, y)
             do
                 local _, addfx_clk, addfx_act = NavRect("##snd_addfx_btn", btn_h, btn_h, "+", {
-                    hov = 0x08A5F7FF, active = (0x08A5F7 << 8) | 0xCC,
+                    hov = C.fx_power_on, active = (C.fx_power_on & 0xFFFFFF00) | 0xCC,
                     rounding = {tl = 0, bl = 0, tr = 3, br = 3},
                 })
                 Tip("Click: FX browser\nDrag: insert at position")
@@ -9085,7 +9169,8 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
     local fx_h = S(UI.btn_h)  -- match inspector row height
     local fx_gap_v = S(UI.fx_gap)
     local fx_r = S(UI.corner_r)
-    local fx_pad = S(UI.pad_sm)
+    local fx_pad = FXPowerNamePad(fx_h)
+    local fx_power_hit_w = fx_h
     local fxth = r.ImGui_GetTextLineHeight(ctx)
 
     local fc = sends_fx_cache[track]
@@ -9124,7 +9209,8 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             local bg, hover_c, active_c, txt = FxStateColors(is_cont, is_instr, fx_off, fx_en, is_dry, false, wet_val)
 
             local row_bg = is_instr and bg or (C.fx_row_bg or bg)
-            DrawHighResRoundedRectFilled(dl, x, fy, x + inner_w, fy + fx_h, row_bg, fx_r)
+            local power_hovered_pre = r.ImGui_IsMouseHoveringRect(ctx, x, fy, x + fx_power_hit_w, fy + fx_h)
+            DrawFXRowBase(dl, x, fy, inner_w, fx_power_hit_w, fx_h, row_bg, FXPowerBgColor(fx_en, power_hovered_pre), fx_r)
             if C.fx_row_border then
                 DrawSolidRoundedRectOutline(dl, x, fy, x + inner_w, fy + fx_h, C.fx_row_border, fx_r, 1)
             end
@@ -9135,14 +9221,16 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Header(), 0x00000000)
             r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), 0x00000000)
             r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderActive(), 0x00000000)
+            r.ImGui_SetCursorScreenPos(ctx, x + fx_power_hit_w, fy)
             local sel = r.ImGui_Selectable(ctx, "##sfxi" .. fi, false,
-                r.ImGui_SelectableFlags_AllowOverlap(), inner_w, fx_h)
-            local hovered = r.ImGui_IsItemHovered(ctx)
+                r.ImGui_SelectableFlags_AllowOverlap(), math.max(S(20), inner_w - fx_power_hit_w), fx_h)
+            local body_hovered = r.ImGui_IsItemHovered(ctx)
+            local hovered = r.ImGui_IsMouseHoveringRect(ctx, x + fx_power_hit_w, fy, x + inner_w, fy + fx_h)
             r.ImGui_PopStyleColor(ctx, 3)
             -- v20.424: drop "Click: open" (self-explanatory). Suppress during
             -- carry mode — competes with insert-indicator
             -- visuals and pill messaging. Descriptive category, opt_tooltips-gated.
-            if not FxClipHasContent() then
+            if body_hovered and not FxClipHasContent() then
                 Tip("Shift: bypass\nOpt: remove\nCmd+Shift: offline")
             end
 
@@ -9153,9 +9241,15 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             FxRowInteract({
                 track = track, fi = fi, guid = fx_guid, surface = "sends",
                 popup_id = "##sfx_ctx" .. fi,
-                sel = sel, hovered = hovered,
+                sel = sel, hovered = hovered, item_hovered = body_hovered,
                 dl = dl, cx = x, cy = fy, w = inner_w, h = fx_h, radius = fx_r,
+                fill_x = x + fx_power_hit_w, fill_w = math.max(1, inner_w - fx_power_hit_w),
                 hover_col = hover_c, active_col = active_c,
+                enabled = fx_en, offline = fx_off,
+            })
+
+            DrawFXPowerButton("##sfxpower" .. fi, x, fy, fx_h, fx_en, {
+                track = track, fi = fi, guid = fx_guid, surface = "sends",
                 enabled = fx_en, offline = fx_off,
             })
 
@@ -9172,7 +9266,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
                 r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
                 r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FrameRounding(), 3)
                 r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FramePadding(), S(4), 0)
-                r.ImGui_SetNextItemWidth(ctx, inner_w - fx_pad * 2)
+                r.ImGui_SetNextItemWidth(ctx, inner_w - fx_pad - S(UI.pad_sm))
                 if not insp_rename_focus then
                     r.ImGui_SetKeyboardFocusHere(ctx); insp_rename_focus = true
                 end
@@ -9190,16 +9284,17 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
                     insp_rename_type = nil
                 end
             else
-                r.ImGui_DrawList_PushClipRect(dl, x + fx_pad, fy, x + inner_w - fx_pad, fy + fx_h, true)
-                r.ImGui_DrawList_AddText(dl, x + fx_pad, fy + Round((fx_h - fxth) / 2), txt, fx_name)
+                local name_col = (not fx_en and not fx_off and hovered) and C.fx_power_off or txt
+                r.ImGui_DrawList_PushClipRect(dl, x + fx_pad, fy, x + inner_w - S(UI.pad_sm), fy + fx_h, true)
+                r.ImGui_DrawList_AddText(dl, x + fx_pad, fy + Round((fx_h - fxth) / 2), name_col, fx_name)
                 r.ImGui_DrawList_PopClipRect(dl)
             end
 
-            -- Fade overlay for offline/bypassed/dry (matching InspDrawFXRow)
+            -- Fade overlay for offline/dry (matching InspDrawFXRow)
             if not is_instr then
                 if fx_off then
                     DrawHighResRoundedRectFilled(dl, x, fy, x + inner_w, fy + fx_h, (C.bg & 0xFFFFFF00) | 0x90, fx_r)
-                elseif not fx_en or is_dry then
+                elseif is_dry then
                     DrawHighResRoundedRectFilled(dl, x, fy, x + inner_w, fy + fx_h, (C.bg & 0xFFFFFF00) | 0x60, fx_r)
                 end
             end
@@ -10154,12 +10249,12 @@ reflex_reaper_hotkey_allowlist = {
     {
         id = "reaper_previous_track",
         key = "ImGui_Key_UpArrow",
-        action = 40285,
+        action = 40286,
     },
     {
         id = "reaper_next_track",
         key = "ImGui_Key_DownArrow",
-        action = 40286,
+        action = 40285,
     },
     {
         id = "reaper_play_stop",

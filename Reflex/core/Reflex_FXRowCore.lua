@@ -240,6 +240,41 @@ FxRowOutlineColor = function(track, fi, guid, surface)
     return nil
 end
 
+FxRowPowerClick = function(p)
+    if not p or not p.track or not r.ValidatePtr(p.track, "MediaTrack*") then return end
+    local track, fi, guid = p.track, p.fi, p.guid
+    local mods = r.ImGui_GetKeyMods(ctx)
+    if IsAlt(mods) then
+        InspFxSelClear()
+        r.Undo_BeginBlock()
+        r.TrackFX_Delete(track, fi)
+        r.Undo_EndBlock("Reflex: Remove FX", -1)
+        InspMarkTrackFxDirty(track)
+    elseif IsCmd(mods) and IsShift(mods) then
+        InspFxSelClear()
+        local going_offline = not p.offline
+        r.Undo_BeginBlock()
+        r.TrackFX_SetOffline(track, fi, going_offline)
+        if p.surface == "inspector" and going_offline and p.cmp_key and p.cmp_key ~= "" then
+            r.SetProjExtState(0, CMP_EXT_SECTION, p.cmp_key, "")
+            setCmpCheckTime(0)
+        end
+        r.Undo_EndBlock("Reflex: FX offline", -1)
+    elseif IsCmd(mods) then
+        InspFxSelBindTrack(track)
+        InspFxSelToggle(guid)
+    elseif IsCtrl(mods) then
+        InspFxSelBindTrack(track)
+        InspFxSelRangeSet(track, guid)
+    else
+        InspFxSelClear()
+        r.Undo_BeginBlock()
+        r.TrackFX_SetEnabled(track, fi, not p.enabled)
+        r.Undo_EndBlock("Reflex: FX bypass", -1)
+        InspMarkTrackFxDirty(track)
+    end
+end
+
 -- =====================================================================================
 -- FxRowInteract — shared FX.row interaction kernel (v20.427, Phase 3 unification)
 -- =====================================================================================
@@ -268,8 +303,10 @@ end
 -- Args (single table — many fields):
 --   p.track, p.fi (0-based), p.guid, p.surface ("inspector"|"sends")
 --   p.popup_id                              for FxRowContextMenu
---   p.sel, p.hovered                        caller's Selectable result
+--   p.sel, p.hovered                        caller's Selectable result + visual row hover
+--   p.item_hovered                          optional raw Selectable hover for row-only tips
 --   p.dl, p.cx, p.cy, p.w, p.h, p.radius    geometry for hover/active fill
+--   p.fill_x, p.fill_w                      optional body-only fill geometry
 --   p.hover_col, p.active_col               state colors for fill
 --   p.enabled, p.offline                    FX state for bypass/offline branches
 --   p.cmp_key                               inspector-only; nil/"" on sends
@@ -291,20 +328,31 @@ FxRowInteract = function(p)
 
     -- Hover/active fill + pre-drag legend tip. Suppressed during active drag.
     if not fx_drag.active and not FxClipHasContent() then
+        local fill_x = p.fill_x or p.cx
+        local fill_w = p.fill_w or p.w
+        local body_only_fill = p.fill_x ~= nil
+        local body_fill_flags = r.ImGui_DrawFlags_RoundCornersTopRight() | r.ImGui_DrawFlags_RoundCornersBottomRight()
         if p.hovered and not p.sel then
-            if DrawHighResRoundedRectFilled then
-                DrawHighResRoundedRectFilled(p.dl, p.cx, p.cy, p.cx + p.w, p.cy + p.h, p.hover_col, p.radius)
+            if body_only_fill then
+                r.ImGui_DrawList_AddRectFilled(p.dl, fill_x, p.cy, fill_x + fill_w, p.cy + p.h,
+                    p.hover_col, p.radius, body_fill_flags)
+            elseif DrawHighResRoundedRectFilled then
+                DrawHighResRoundedRectFilled(p.dl, fill_x, p.cy, fill_x + fill_w, p.cy + p.h, p.hover_col, p.radius)
             else
-                r.ImGui_DrawList_AddRectFilled(p.dl, p.cx, p.cy, p.cx + p.w, p.cy + p.h, p.hover_col, p.radius)
+                r.ImGui_DrawList_AddRectFilled(p.dl, fill_x, p.cy, fill_x + fill_w, p.cy + p.h, p.hover_col, p.radius)
             end
         elseif p.sel then
-            if DrawHighResRoundedRectFilled then
-                DrawHighResRoundedRectFilled(p.dl, p.cx, p.cy, p.cx + p.w, p.cy + p.h, p.active_col, p.radius)
+            if body_only_fill then
+                r.ImGui_DrawList_AddRectFilled(p.dl, fill_x, p.cy, fill_x + fill_w, p.cy + p.h,
+                    p.active_col, p.radius, body_fill_flags)
+            elseif DrawHighResRoundedRectFilled then
+                DrawHighResRoundedRectFilled(p.dl, fill_x, p.cy, fill_x + fill_w, p.cy + p.h, p.active_col, p.radius)
             else
-                r.ImGui_DrawList_AddRectFilled(p.dl, p.cx, p.cy, p.cx + p.w, p.cy + p.h, p.active_col, p.radius)
+                r.ImGui_DrawList_AddRectFilled(p.dl, fill_x, p.cy, fill_x + fill_w, p.cy + p.h, p.active_col, p.radius)
             end
         end
-        if p.hovered then FxDragLegendTip() end
+        local legend_hovered = (p.item_hovered == nil) and p.hovered or p.item_hovered
+        if legend_hovered then FxDragLegendTip() end
     end
 
     -- Click dispatch — fires on release via Selectable. Gated on:

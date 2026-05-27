@@ -1,10 +1,10 @@
 -- @description Reflex
--- @version 20.674
+-- @version 20.675
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Refine FX row selection, routing/send card states, armed input controls, and FX browser actions.
+--   Refine FX row bypass controls, enabled-blue color tokens, and record/mute active states.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua

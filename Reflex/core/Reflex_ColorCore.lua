@@ -23,7 +23,9 @@ ReflexInstallColorCore = function(deps)
     -- Centralizes the color logic shared by InspDrawFXRow and DrawCompactTrackColumn.
     FxStateColors = function(is_cont, is_instr, is_offline, is_enabled, is_dry, has_bypass_env, wet_val)
         local bg, hover, active, txt
-        if is_cont then
+        if (not is_offline) and not is_enabled then
+            bg = rgb(0x22252A); hover = rgb(0x282B30); active = rgb(0x282B30); txt = rgb(0x43464A)
+        elseif is_cont then
             if is_offline then
                 bg = ScaleColor(C.pan_color, 0.2); hover = ScaleColor(C.pan_color, 0.25); active = ScaleColor(C.pan_color, 0.3)
             elseif not is_enabled or has_bypass_env then
@@ -48,11 +50,6 @@ ReflexInstallColorCore = function(deps)
                 bg = C.fx_instr_txt; hover = ScaleColor(C.fx_instr_txt, 1.2); active = ScaleColor(C.fx_instr_txt, 1.35)
                 txt = C.text
             end
-        elseif is_offline then
-            bg = C.btn_bg; hover = C.btn_hover; active = C.btn_active; txt = C.fx_offline_txt
-        elseif not is_enabled then
-            bg = C.btn_bg; hover = C.btn_hover; active = C.btn_active
-            txt = has_bypass_env and C.fx_bypass_env or C.fx_bypassed_txt
         elseif is_dry then
             bg = C.btn_hover; hover = C.btn_active; active = C.fx_row_active; txt = C.fx_drywet_txt
         elseif has_bypass_env then
