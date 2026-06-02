@@ -28,6 +28,7 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - `Reflex/Navigator.lua` is a NAV-only Reflex harness for isolating embedded Navigator behavior during development. It is not the public spin-off Track Navigator script; when the user says "Track Navigator", use `/Applications/Reaper/Scripts/Tycho/reapack/Track Navigator/Track Navigator.lua`.
 - Reflex no longer loads external theme files. The former tested `Reflex_Theme.lua` values are embedded in `Reflex.lua`, `Navigator.lua`, and `Reflex_IOManager.lua`; future user-facing UI customization belongs in an Options GUI.
 - Reflex user-local state files (`remote_buttons.txt`, `remote_pages.txt`, `fx_browser_action.txt`) now live in `/Applications/Reaper/Scripts/Tycho/reapack/Reflex` for local testing and are locally ignored via `.git/info/exclude`.
+- Quick send FX-chain presets live in `/Applications/Reaper/Scripts/Tycho/reapack/Reflex/quick_sends/` as user-local `.RfxChain` files and are locally ignored. Reflex scans this folder directly; each chain filename becomes a right-click `CTRL.add_send` quick-send menu item.
 - The older `/Applications/Reaper/Scripts/Tycho/Reflex` folder is no longer the source of truth for development. It was archived on 2026-05-24 under `/Applications/Reaper/Scripts/Tycho cleanup archive 2026-05-24/Reflex.stale-20.669` along with `Reflex.bak`; use that archive only when intentionally recovering a specific old/local file.
 
 ---
@@ -116,11 +117,17 @@ Scripts/Tycho/Reflex/
   Reflex_IOManager.lua      Standalone I/O Manager action/window
   Reflex_WindowToggle.lua   FX window toggle (v1.3) — bind as REAPER action
   Reflex_AddFX.lua          REAPER-bindable action: launch configured FX browser for Reflex target
+  Reflex_CloseAllFXWindows.lua REAPER-bindable action: close all track/take FX windows through Reflex
   Reflex_FocusSearch.lua    REAPER-bindable action: focus embedded NAV search
   Reflex_OpenFXBrowser.lua  REAPER-bindable action: launch configured FX browser for Reflex target
+  Reflex_FXWindowNext.lua   REAPER-bindable action: show next FX window for Reflex source track
+  Reflex_FXWindowPrevious.lua REAPER-bindable action: show previous FX window for Reflex source track
+  Reflex_FXWindowStackNext.lua REAPER-bindable action: show/raise next FX window without closing others
+  Reflex_FXWindowStackPrevious.lua REAPER-bindable action: show/raise previous FX window without closing others
   Reflex_ActionBridge.lua   Shared ExtState bridge for Reflex-specific REAPER actions
   Reflex_HistoryBack.lua    View history back (sets ExtState, bind as REAPER action)
   Reflex_HistoryForward.lua View history forward (sets ExtState, bind as REAPER action)
+  Reflex_TileFXWindows.lua  REAPER-bindable action: tile all open FX windows through Reflex
   Reflex_Navigator_ArmedViewToggle.lua       Navigator Armed View toggle action
   Reflex_Navigator_ScrollToRecordArmed.lua   Select/scroll to first record-armed track action
   Reflex_Navigator_ToggleExpand.lua          Navigator expand/collapse toggle action
@@ -170,6 +177,7 @@ Scripts/Tycho/Reflex/
   remote_buttons.txt           Remote macro pad persistence (auto-generated, not packaged)
   remote_pages.txt             Remote page definitions (auto-generated, not packaged)
   fx_browser_action.txt        Custom FX browser action ID (auto-generated, not packaged)
+  quick_sends/                 User-local `.RfxChain` quick send presets (auto-created, not packaged)
   icons/                       Remote button icon PNGs (3-state horizontal strips)
   icons/Nav.QuickSet.Q.png     NAV.Q label image
   icons/Nav.Active.A.png       NAV.A label image
@@ -251,7 +259,7 @@ Communication via `hdr` table returned from `InspDrawHeader` with layout, track 
 | `DrawDistantSendCollapsedCard(...)` / `SendsDrawDistantSection(...)` | v20.536 moved the collapsed `SEND.distant` spanning-card renderer to `core/Reflex_SendDistantCore.lua`; v20.540 moved the full distant section wrapper there too. Owns Distant Sends label/gap, collapsed/expanded card loop, expanded distant height calculation, SND-forced-open/collapse-request handling, SC badge/title link via the collapsed-card helper, and exclusive expand state. Uses `GetSteppedFont(UI.font_send_title)` rather than the local `scaled_fonts` table. | `SendsDrawSection` distant branch |
 | `DrawDashedRoundedRect(dl, x1, y1, x2, y2, col, rounding, thickness, dash_len, gap_len)` | v20.405. Traces full rounded-rect perimeter (arcs sampled by radius) as dense polyline + walks with dash-phase cursor. Use when dashes must follow a card's rounded corners. | 1 (dest card outline during FX drag) |
 | `FxRowContextMenu(track, fi, fx_guid, fx_en, fx_off, popup_id, surface)` | v20.419 (Phase 1 of FX-row unification); v20.526 moved to `core/Reflex_FXRowCore.lua`. Shared FX.row right-click menu body. REAPER-native order: Copy all FX → Copy/Cut variants → Paste → Remove → Bypass/Offline → Duplicate → Rename. Selection-aware: when clicked row is part of a live multi-selection bound to `track`, action items operate on the whole selection (pluralized labels). Wraps `PushPopupStyle`/`BeginPopup` internally. Rename uses a Reflex.lua bridge into the track-bound inline rename state. Caller still owns the `IsItemClicked(ctx, 1) → OpenPopup` line through `FxRowInteract`. | 2 (`InspDrawFXRow`, `DrawCompactTrackColumn` real-FX branch) |
-| `FxRowOutlineColor(track, fi, guid, surface)` | v20.422 (Phase 2 of FX-row unification); v20.526 moved to `core/Reflex_FXRowCore.lua`. Returns uint32 outline color or nil for the row's outline rect. Caller draws its own `AddRect` — only the priority logic is shared. 4-state cascade in priority order: drag-source (operation color, gated on `fx_drag.src_surface == surface`) / paste-landed pulse (animated green) / clipboard carry (`C.fx_clip_carry`) / multi-select (`C.fx_sel_outline`). Empty-guid guard on all guid-based branches. | 2 (same call sites as `FxRowContextMenu`) |
+| `FxRowOutlineColor(track, fi, guid, surface)` | v20.422 (Phase 2 of FX-row unification); v20.526 moved to `core/Reflex_FXRowCore.lua`. Returns uint32 outline color or nil for the row's outline rect. Caller draws its own `AddRect` — only the priority logic is shared. Cascade priority: drag-source (operation color, gated on `fx_drag.src_surface == surface`) / paste-landed pulse / clipboard carry (`C.fx_clip_carry`) / focused floating FX window (`C.fx_focus_outline`) / multi-select (`C.fx_sel_outline`). Empty-guid guard on guid-based branches. | 2 (same call sites as `FxRowContextMenu`) |
 | `FxRowInteract(p)` | v20.427 (Phase 3 of FX-row unification, plan complete); v20.526 moved to `core/Reflex_FXRowCore.lua`. Shared FX.row interaction kernel. Caller still owns row sizing, Selectable allocation, tooltip, text/widgets, fade, outline. Helper handles: drag begin (`FxDragBegin`) + activate (`FxDragTryActivate` w/ `src_track` + `src_surface` gate), hover/active fill + `FxDragLegendTip`, full click dispatch (Opt remove / Cmd+Shift offline / Cmd toggle / Ctrl range / Shift bypass / plain show), focus-grab suppression, `FxDragClear` on release-without-drag, right-click open + `FxRowContextMenu`. Post-action FX cache invalidation routes through `InspMarkTrackFxDirty(track)`. Two surface-gated side effects remain (different reasons): `cmp_key` ProjExtState clear (compare state is inspector-context only) and `InspPositionFXWindow` on `opt_fx_float` plain-click (geometry math against inspector card). Single table arg (~14 fields). | 2 (`InspDrawFXRow`, `DrawCompactTrackColumn` real-FX branch) |
 | `InspGetFxList(track)` | v20.432. Returns `track_fx_cache[track].list`, lazily scanning via `InspScanTrack` on cache miss or count mismatch. Returns empty table for invalid tracks. The takes-a-track-arg rule (v20.406) — caller specifies track explicitly, no implicit "current inspected track." | All FX-record reader sites (post-Stage C migration) |
 | `InspGetFxCount(track)` | v20.432. Lightweight: returns live `r.TrackFX_GetCount(track)` without touching the cache. Use for "do I have any FX here" gates where records aren't needed (e.g. `DrawFXChainCompound`'s `has_fx` check). | 1+ |
@@ -377,10 +385,13 @@ Every button must use one. **Forbidden:** raw `InvisibleButton + AddRectFilled +
 
 **Stroke colors:** `C.source_stroke` on pinned/source track cards must match the pin indicator amber (`C.amber`, `#d29922`) exactly and uses `SOURCE_STROKE_W = 1.5` raw logical px for a 3 Retina-px stroke. Do not run this source stroke width through `S()`. `C.flow_stroke` (`#c4c4c4`) follows whichever flow view card is currently inspected (`is_selected` / `chain_track == insp_track`) and uses `FLOW_STROKE_W = 1.5` raw logical px for a 3 Retina-px stroke. Send modules, folder spanners, and distant sends have **no stroke**.
 
-**FX row strokes (v20.403+):** three additional tokens for multi-select + drag state:
+**FX row strokes (v20.403+):** row-outline tokens for multi-select, drag, carry, and floating-window focus state:
 - `C.fx_drag_move` (washed red `0xE57373`) — move-operation source rows and destination dashed outline
 - `C.fx_drag_copy` (blue `0x58A6FF`) — copy-operation source rows and destination dashed outline
 - `C.fx_sel_outline` (white `0xFFFFFF`) — multi-selected FX rows when no drag is active
+- `C.fx_focus_outline` (`0x4B5059`) — row outline when the matching floating FX window has OS focus
+
+Linked outlines must intersect the current draw-list clip rect. `DrawSolidRoundedRectOutline` uses `PushClipRect(..., true)` so pinned/source card strokes, Flow strokes, SEND module strokes, route-hover strokes, FX selection/carry/focus outlines, and paste-landed outlines clip to their owning child/window while scrolling. Do not switch this helper back to a replacement clip (`false`), or outlines can float above NAV, master track, footer, and other child boundaries.
 
 These colors are currently script-owned constants. Future user-facing overrides should be exposed through the Options GUI rather than an external theme file.
 
@@ -407,6 +418,12 @@ Inactive rest `HDR.ENV`, track ENV expand arrow, FX-row `ENV`, and FX-row ENV ex
 **`RoutingAddSendTrack(track, send_mode, target_folder)`** — in `Reflex_SendCreateCore.lua` as of v20.533. Inserts inside folder by walking subtree and stealing target/outer fold-depth closures from the previous last child. `target_folder` is accepted only when it passes `IsConformingReturnsFolderForSource`; stale/nonconforming folder targets fall back to normal/conform placement.
 
 **`DrawSendAddCard` / `DrawSendDimPlaceholder` / `SendsDrawSpanningAddRow` / `DrawSendsColumn` / `SendsDrawSection` / `SendsMeasureGrid` / `SendsDrawGroups` / `SendsDrawGroupColumns`** — in `Reflex_SendGridCore.lua` as of v20.543/v20.544/v20.545/v20.547/v20.548/v20.549. Own the side-by-side SEND column wrapper, full SEND section wrapper, SEND blank-cell renderers, shared measurement pass, and grouped `SEND.col` block: activation refresh, side-column responsive column count, empty SEND add placeholder, activation scroll-to, top margin, fallback flat group creation, column width/padding/title-height/control-height measurements, ungrouped label drawing, folder-chain delegation through `SendsDrawFolderChain`, inter-group spacing, row max-FX/SND-expanded height calculation, `DrawCompactTrackColumn` calls, per-column SEND FX-name cache refresh, conforming add-card blanks, non-final dim placeholders, row cursor advancement, spanning add-row rendering/gating, and distant-section delegation through `SendsDrawDistantSection`. `SendsMeasureGrid` uses `GetSteppedFont(UI.font_send_title)` rather than the local `scaled_fonts` table.
+
+**Two-column SEND placement.** In two-column view, SEND modules stay inline below the full associated inspector card stack (primary card plus secondary selected card and/or Flow cards) when the previous-frame height estimate fits without creating extra scroll. They move to the side column only when inline placement would overflow or the side column has enough width and inline does not fit. NAV side layout still keeps NAV in the side column while allowing SENDS to remain inline under the inspector stack. If inline SENDS overflow, keep that overflow state while rendering in the side column and require a small retry margin before moving them inline again; clearing the overflow flag from the side-column frame causes per-frame left/right flicker after a quick-send add crosses the scroll threshold.
+
+When the master strip is visible in two-column NAV side layout, the strip height is an offset above the left stack, not part of the NAV split height budget. `NavDrawSection` receives `nav_body_top_extra_preserves_body_h = true` from Reflex so expanding/collapsing the master strip pushes the NAV+SENDS stack down together instead of compressing the NAV body against the user-set split handle.
+
+**SEND module width floor.** `ReflexSendModuleInlineMinWidth()` is the hard module-width floor: it is the exact outer width where `DrawCompactTrackColumn` can keep the send volume and pan knobs on one row (`card_pad * 2 + knob_d * 2 + knob_gap`). SEND grids must reduce column count before allowing a module to become narrower than this threshold.
 
 **`SendsEnsureFxNameCache` / `SendsFxCachedCount`** — in `Reflex_SendFxCacheCore.lua` as of v20.538. Centralizes the SEND-surface `sends_fx_cache` freshness pattern used before rendering expanded `SEND.folder`, normal `SEND.col`, and expanded `SEND.distant`. `DrawCompactTrackColumn` still consumes `sends_fx_cache` directly for row names.
 
@@ -717,6 +734,10 @@ ImGui `AddImage` scaling is nearest-neighbor — unusable at small sizes. Provid
 ### Flow View Stroke
 Light gray outline (`C.flow_stroke`, `#c4c4c4`) follows `is_selected` (`chain_track == insp_track`), not `is_focus`. The stroke moves to whichever flow view card is currently being inspected. Expanded and minimal flow cards both use raw `FLOW_STROKE_W = 1.5` for a 3 Retina-px stroke and `CARD_STROKE_TESSELLATION_MAX_ERROR = 0.005` for smoother rounded corners. Send modules never get stroke.
 
+Collapsed master strip is not a Flow card. `ReflexDrawMasterTrackMini` must always use normal card fill `C.bg`; do not use Flow's collapsed rest fill (`0x202227FF`) or hover-dependent background switching for the master strip.
+
+Default REAPER master-track titles omit the synthetic `M` number slot in both collapsed and expanded master strip renderers, so `MASTER` starts at the left title edge. User-defined master tracks are normal tracks and keep their real track number.
+
 ### MuteOpts / SoloOpts Field Names
 Return tables use `fg` / `fg_hov` for text color, not `txt`. Consistent with NavRect opts convention. The mute overlay redraw in `InspDrawTrackBlock` must reference `mc.fg`.
 
@@ -800,15 +821,16 @@ GUID storage survives REAPER FX reorder naturally. Selection is per-track. Switc
 
 ### Outline Render (both surfaces)
 
-Unified via `FxRowOutlineColor` helper (v20.422, Phase 2 of FX-row unification; moved to `core/Reflex_FXRowCore.lua` in v20.526). 4-state cascade in priority order (mutually exclusive):
+Unified via `FxRowOutlineColor` helper (v20.422, Phase 2 of FX-row unification; moved to `core/Reflex_FXRowCore.lua` in v20.526). Cascade priority is mutually exclusive:
 
 1. **Drag active + row in `fx_drag.src_fis` + `fx_drag.src_surface == surface`** → operation color from live `FxDragReadMode()` (washed red for move, blue for copy)
 2. **Drag inactive + `NavPasteLandedHas(track, guid)` and alpha > 0** → animated green (paste-landing pulse)
 3. **Drag inactive + `FxClipHasGuid(guid)`** → carry green `C.fx_clip_carry`
-4. **Drag inactive + `InspFxSelHas(guid)`** → white `C.fx_sel_outline`
-5. Otherwise → nil
+4. **Drag inactive + matching floating FX window has OS focus** → focused-window grey `C.fx_focus_outline`
+5. **Drag inactive + `InspFxSelHas(guid)`** → white `C.fx_sel_outline`
+6. Otherwise → nil
 
-Empty-guid guard on all guid-based branches (defensive, near-zero cost). Caller draws its own `AddRect` — only the color/priority logic is unified, since the row rect geometry differs between surfaces. Inspector call site at end of `InspDrawFXRow`. Sends call site at end of the real-FX branch in `DrawCompactTrackColumn`. Both use `AddRect` with `math.max(1, S(1))` thickness on a row-radius matching the row bg.
+Empty-guid guard on guid-based branches (defensive, near-zero cost). Floating-window focus uses JS_ReaScript focus detection and walks the parent chain so child controls inside plugin UIs still resolve to the FX floating window. Caller draws its own `AddRect` — only the color/priority logic is unified, since the row rect geometry differs between surfaces. Inspector call site at end of `InspDrawFXRow`. Sends call site at end of the real-FX branch in `DrawCompactTrackColumn`. Both use `AddRect` with `math.max(1, S(1))` thickness on a row-radius matching the row bg.
 
 **v20.422 surface gate fix.** The drag-source branch now requires `fx_drag.src_surface == surface`. Previously inspector didn't gate on surface, only on `src_track == fx.track` — in self-send edge case (an inspected track that's also a sends-view return), dragging from a sends column would falsely light up the inspector's matching rows. Fix is purely defensive; observable only in unusual self-send setups.
 
@@ -1096,9 +1118,11 @@ macOS modifier caveat: ReaImGui can report Command as raw modifier `0x1000` / `I
 
 ### App Hotkeys And REAPER Action Bridge
 
-Reflex app-level hotkeys are table-driven in `Reflex.lua`: default `Cmd+F` focuses NAV search, `A` opens the configured FX browser for the hovered Reflex card or inspected track, and `Cmd+[` / `Cmd+]` run view history. REAPER shortcut mirroring is also table-driven and intentionally narrow: Undo, Redo, previous track, next track, and Space play/stop.
+Reflex app-level hotkeys are table-driven in `Reflex.lua`: default `Cmd+F` focuses NAV search, `A` opens the configured FX browser for the hovered Reflex card or inspected track, `Opt+Up` / `Opt+Down` cycle FX floating windows for the Reflex source track while hiding the previous Reflex-cycled FX, `Opt+Shift+Up` / `Opt+Shift+Down` cycle and raise FX windows without closing any already-open FX windows, `Shift+Esc` closes all track/take FX windows and chain windows, and `Cmd+[` / `Cmd+]` run view history. REAPER shortcut mirroring is also table-driven and intentionally narrow: Undo, Redo, previous track, next track, Space play/stop, and `?` for the Action List. Mirrored REAPER shortcuts can run native numeric command IDs or named/script command IDs via `NamedCommandLookup`.
 
-For user-defined hotkeys, expose Reflex-specific commands as normal REAPER actions instead of installing keyboard hooks. `Reflex_FocusSearch.lua` sends `focus_tlt_search`; `Reflex_AddFX.lua` and `Reflex_OpenFXBrowser.lua` send `open_fx_browser`; all route through `Reflex_ActionBridge.lua` and can launch Reflex if it is not already running. This keeps user key assignments in REAPER's action list while Reflex consumes the command through its ExtState bridge.
+For user-defined hotkeys, expose Reflex-specific commands as normal REAPER actions instead of installing keyboard hooks. `Reflex_FocusSearch.lua` sends `focus_tlt_search`; `Reflex_AddFX.lua` and `Reflex_OpenFXBrowser.lua` send `open_fx_browser`; `Reflex_FXWindowNext.lua` and `Reflex_FXWindowPrevious.lua` send `fx_window_next` / `fx_window_previous`; `Reflex_FXWindowStackNext.lua` and `Reflex_FXWindowStackPrevious.lua` send `fx_window_stack_next` / `fx_window_stack_previous`; `Reflex_CloseAllFXWindows.lua` sends `close_all_fx_windows`; `Reflex_TileFXWindows.lua` sends `tile_fx_windows`; all route through `Reflex_ActionBridge.lua` and can launch Reflex if it is not already running. This keeps user key assignments in REAPER's action list while Reflex consumes the command through its ExtState bridge.
+
+Reflex-owned FX window cycling snapshots pre-existing floating track FX windows as protected, then marks windows opened by Reflex's cycle commands as managed. Protected windows are skipped as cycle destinations, so pre-existing windows on the same source track are not centered, raised, hidden, or added to the managed close group. Solo cycling (`Opt+Up/Down`) only hides prior managed windows. `Shift+Esc` / `Reflex_CloseAllFXWindows.lua` is a per-project-tab, session-only toggle: if floating FX windows are visible, Reflex snapshots the current track/take FX window set, closes all track/take FX windows and chain windows, and overwrites the remembered set; if no floating FX windows are visible, it restores the remembered set for the current project tab and raises larger windows first so smaller windows remain on top. The snapshot is in-memory only and is intentionally replaced the next time the close action runs while any plugin windows are visible. FX cycling always centers the requested floating FX window after opening it by retrying across several defer ticks after `TrackFX_Show` until the floating window handle and size are available, then moving it to screen center. `Reflex_TileFXWindows.lua` tiles all currently open track/take FX windows inside the screen work area with position-only `JS_Window_Move` calls, preserving each plugin's current size. The tiler sorts by area, greedily chooses top/bottom/edge and adjacent-to-window candidates across the whole work area, allows overlap only as needed, and raises smaller windows after larger windows so small plugins remain visible. If no FX windows are open, the tile command opens every FX on the Reflex source track, waits for the expected floating handles to appear, then tiles only those newly opened track FX windows.
 
 ### Focus-Grab Click Suppression (v20.417, persistence fix v20.435)
 

@@ -6,6 +6,239 @@ ReflexInstallSendCreateCore = function(deps)
     local r = deps.r
     local ctx = deps.ctx
     local C = deps.colors
+    local script_dir = deps.script_dir or ""
+
+QuickSendFolderPath = function()
+    return script_dir .. "quick_sends"
+end
+
+QuickSendEnsureFolder = function()
+    local dir = QuickSendFolderPath()
+    if r.RecursiveCreateDirectory then
+        r.RecursiveCreateDirectory(dir, 0)
+    else
+        local safe = dir:gsub('"', '\\"')
+        os.execute('mkdir -p "' .. safe .. '"')
+    end
+    return dir
+end
+
+QuickSendOpenFolder = function()
+    local dir = QuickSendEnsureFolder()
+    local safe = dir:gsub('"', '\\"')
+    os.execute('open "' .. safe .. '"')
+end
+
+QuickSendLabelFromFilename = function(filename)
+    local label = tostring(filename or "")
+    label = label:gsub("%.[Rr][Ff][Xx][Cc][Hh][Aa][Ii][Nn]$", "")
+    label = label:gsub("^%s+", ""):gsub("%s+$", "")
+    return label ~= "" and label or tostring(filename or "Quick Send")
+end
+
+QuickSendScan = function()
+    local dir = QuickSendEnsureFolder()
+    local presets = {}
+    if not r.EnumerateFiles then return presets end
+    local i = 0
+    while true do
+        local filename = r.EnumerateFiles(dir, i)
+        if not filename then break end
+        if tostring(filename):lower():match("%.rfxchain$") then
+            presets[#presets + 1] = {
+                label = QuickSendLabelFromFilename(filename),
+                filename = filename,
+                path = dir .. "/" .. filename,
+            }
+        end
+        i = i + 1
+    end
+    table.sort(presets, function(a, b)
+        return tostring(a.label):lower() < tostring(b.label):lower()
+    end)
+    return presets
+end
+
+QuickSendReadFile = function(path)
+    local f = io.open(path, "rb")
+    if not f then return nil, "Could not open FX chain file." end
+    local data = f:read("*a")
+    f:close()
+    if not data or data == "" then return nil, "FX chain file is empty." end
+    if data:sub(-1) ~= "\n" then data = data .. "\n" end
+    return data
+end
+
+QuickSendFindFxChainClose = function(chunk)
+    local search = 1
+    local depth = 0
+    local fx_depth = nil
+    while search <= #chunk do
+        local line_start = search
+        local line_end = chunk:find("\n", search, true)
+        local line
+        if line_end then
+            line = chunk:sub(line_start, line_end - 1)
+            search = line_end + 1
+        else
+            line = chunk:sub(line_start)
+            search = #chunk + 1
+        end
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed == ">" then
+            if fx_depth and depth == fx_depth then return line_start end
+            depth = math.max(0, depth - 1)
+        elseif trimmed:sub(1, 1) == "<" then
+            depth = depth + 1
+            if trimmed:match("^<FXCHAIN") then fx_depth = depth end
+        end
+    end
+    return nil
+end
+
+QuickSendFindTrackClose = function(chunk)
+    local search = 1
+    local depth = 0
+    while search <= #chunk do
+        local line_start = search
+        local line_end = chunk:find("\n", search, true)
+        local line
+        if line_end then
+            line = chunk:sub(line_start, line_end - 1)
+            search = line_end + 1
+        else
+            line = chunk:sub(line_start)
+            search = #chunk + 1
+        end
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed == ">" then
+            if depth == 1 then return line_start end
+            depth = math.max(0, depth - 1)
+        elseif trimmed:sub(1, 1) == "<" then
+            depth = depth + 1
+        end
+    end
+    return nil
+end
+
+QuickSendInsertFxChain = function(track, chain_path)
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return false, "Destination track is invalid." end
+    local chain, read_err = QuickSendReadFile(chain_path)
+    if not chain then return false, read_err end
+    local ok, chunk = r.GetTrackStateChunk(track, "", false)
+    if not ok or type(chunk) ~= "string" or chunk == "" then
+        return false, "Could not read destination track state."
+    end
+    local insert_pos = QuickSendFindFxChainClose(chunk)
+    local new_chunk
+    if insert_pos then
+        new_chunk = chunk:sub(1, insert_pos - 1) .. chain .. chunk:sub(insert_pos)
+    else
+        local track_close_pos = QuickSendFindTrackClose(chunk)
+        if not track_close_pos then return false, "Destination track has no writable state block." end
+        local fxchain = "<FXCHAIN\nSHOW 0\n" .. chain .. "LASTSEL 0\nDOCKED 0\n>\n"
+        new_chunk = chunk:sub(1, track_close_pos - 1) .. fxchain .. chunk:sub(track_close_pos)
+    end
+    local set_ok = r.SetTrackStateChunk(track, new_chunk, false)
+    if not set_ok then return false, "Could not write destination track FX chain." end
+    if InspMarkTrackFxDirty then InspMarkTrackFxDirty(track) end
+    return true
+end
+
+QuickSendSanitizeFilename = function(name)
+    local filename = tostring(name or "")
+    filename = filename:gsub("[/\\:%*%?\"<>|]", "-")
+    filename = filename:gsub("^%s+", ""):gsub("%s+$", "")
+    filename = filename:gsub("%s+", " ")
+    if filename == "" then filename = "Quick Send" end
+    if not filename:lower():match("%.rfxchain$") then filename = filename .. ".RfxChain" end
+    return filename
+end
+
+QuickSendExtractFxChain = function(track)
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return nil, "Track is invalid." end
+    local ok, chunk = r.GetTrackStateChunk(track, "", false)
+    if not ok or type(chunk) ~= "string" or chunk == "" then return nil, "Could not read track FX chain." end
+
+    local search = 1
+    local depth = 0
+    local fx_depth = nil
+    local collect = false
+    local out = {}
+    while search <= #chunk do
+        local line_end = chunk:find("\n", search, true)
+        local line
+        if line_end then
+            line = chunk:sub(search, line_end - 1)
+            search = line_end + 1
+        else
+            line = chunk:sub(search)
+            search = #chunk + 1
+        end
+
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed == ">" then
+            if fx_depth and depth == fx_depth then break end
+            if collect then out[#out + 1] = line end
+            depth = math.max(0, depth - 1)
+        elseif trimmed:sub(1, 1) == "<" then
+            depth = depth + 1
+            if trimmed:match("^<FXCHAIN") then
+                fx_depth = depth
+                collect = true
+            elseif collect then
+                out[#out + 1] = line
+            end
+        elseif collect then
+            if trimmed ~= "SHOW 0" and trimmed ~= "SHOW 1"
+                and not trimmed:match("^LASTSEL%s+")
+                and not trimmed:match("^DOCKED%s+") then
+                out[#out + 1] = line
+            end
+        end
+    end
+
+    local chain = table.concat(out, "\n")
+    chain = chain:gsub("^%s+", ""):gsub("%s+$", "")
+    if chain == "" then return nil, "This track has no FX to save." end
+    return chain .. "\n"
+end
+
+QuickSendSaveTrackFxChain = function(track)
+    local chain, extract_err = QuickSendExtractFxChain(track)
+    if not chain then
+        if r.MB then r.MB(extract_err or "Could not save FX chain.", "Reflex: Quick Send", 0) end
+        return false
+    end
+
+    local dir = QuickSendEnsureFolder()
+    local _, track_name = r.GetTrackName(track)
+    local default_name = QuickSendSanitizeFilename(track_name or "Quick Send")
+    local ok, path
+    if r.JS_Dialog_BrowseForSaveFile then
+        ok, path = r.JS_Dialog_BrowseForSaveFile(
+            "Save FX Chain as Quick Send",
+            dir,
+            default_name,
+            "FX Chain (*.RfxChain)\0*.RfxChain\0All files (*.*)\0*.*\0")
+    elseif r.GetUserFileNameForRead then
+        ok, path = r.GetUserFileNameForRead(dir .. "/" .. default_name, "Save FX Chain as Quick Send", ".RfxChain")
+    else
+        if r.MB then r.MB("No file save dialog API is available.", "Reflex: Quick Send", 0) end
+        return false
+    end
+    if not ok or not path or path == "" then return false end
+    if not path:lower():match("%.rfxchain$") then path = path .. ".RfxChain" end
+
+    local f = io.open(path, "wb")
+    if not f then
+        if r.MB then r.MB("Could not write FX chain file.", "Reflex: Quick Send", 0) end
+        return false
+    end
+    f:write(chain)
+    f:close()
+    return true
+end
 
 -- Returns the color to inherit for a newly-created send-destination track.
 -- Rule: inherit from source's parent folder; fall back to source's own color if top-level.
@@ -114,8 +347,9 @@ end
 --   Rule 1: no existing local sends → normal placement
 --   Rule 2: loose sibling returns exist → wrap them in a new "Returns" folder
 --   Rule 3: sibling "Returns*" folder exists → place inside it
-RoutingAddSendTrack = function(track, send_mode, target_folder)
+RoutingAddSendTrack = function(track, send_mode, target_folder, opts)
     if not track or not r.ValidatePtr(track, "MediaTrack*") then return end
+    opts = opts or {}
     send_mode = send_mode or 0  -- 0=Post-Fader/Post-Pan, 1=Pre-Fader/Post-FX, 3=Pre-Fader/Pre-FX
     if target_folder and not IsConformingReturnsFolderForSource(track, target_folder) then
         target_folder = nil
@@ -160,13 +394,14 @@ RoutingAddSendTrack = function(track, send_mode, target_folder)
             r.InsertTrackAtIndex(new_insert_idx, true)
             local new_track = r.GetTrack(0, new_insert_idx)
             local created_si = -1
+            local chain_ok, chain_err
             if new_track then
                 -- Close Returns folder + carry any outer closures the old last_existing held.
                 -- last_fd_orig was e.g. -1 if last_existing closed outer parent; new_track takes over.
                 local new_depth = last_fd_orig - 1
                 r.SetMediaTrackInfo_Value(new_track, "I_FOLDERDEPTH", new_depth)
                 local send_num = r.GetTrackNumSends(track, 0) + 1
-                r.GetSetMediaTrackInfo_String(new_track, "P_NAME", "Return " .. send_num, true)
+                r.GetSetMediaTrackInfo_String(new_track, "P_NAME", opts.name or ("Return " .. send_num), true)
                 if inherit_col ~= 0 then r.SetMediaTrackInfo_Value(new_track, "I_CUSTOMCOLOR", inherit_col | 0x1000000) end
                 local si = r.CreateTrackSend(track, new_track)
                 if si >= 0 then
@@ -174,12 +409,15 @@ RoutingAddSendTrack = function(track, send_mode, target_folder)
                     if send_mode ~= 0 then r.SetTrackSendInfo_Value(track, 0, si, "I_SENDMODE", send_mode) end
                     created_si = si
                 end
+                if opts.fx_chain_path then
+                    chain_ok, chain_err = QuickSendInsertFxChain(new_track, opts.fx_chain_path)
+                end
             end
 
             r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
             if created_si >= 0 then SendEnvSetVisible(track, 0, created_si, 0, true) end
-            r.Undo_EndBlock("Reflex: Add send track (conform: wrap Returns)", -1)
-            return
+            r.Undo_EndBlock(opts.undo_label or "Reflex: Add send track (conform: wrap Returns)", -1)
+            return { track = new_track, send_idx = created_si, fx_chain_ok = chain_ok, fx_chain_err = chain_err }
         end
         -- rule1: fall through to normal placement below.
     end
@@ -283,12 +521,13 @@ RoutingAddSendTrack = function(track, send_mode, target_folder)
     r.InsertTrackAtIndex(insert_idx, true)
     local new_track = r.GetTrack(0, insert_idx)
     local created_si = -1
+    local chain_ok, chain_err
     if new_track then
         if new_depth ~= 0 then
             r.SetMediaTrackInfo_Value(new_track, "I_FOLDERDEPTH", new_depth)
         end
         local send_num = r.GetTrackNumSends(track, 0) + 1
-        r.GetSetMediaTrackInfo_String(new_track, "P_NAME", "Return " .. send_num, true)
+        r.GetSetMediaTrackInfo_String(new_track, "P_NAME", opts.name or ("Return " .. send_num), true)
         local inherit_col = GetInheritedSendColor(track)
         if inherit_col ~= 0 then r.SetMediaTrackInfo_Value(new_track, "I_CUSTOMCOLOR", inherit_col | 0x1000000) end
         local si = r.CreateTrackSend(track, new_track)
@@ -297,6 +536,9 @@ RoutingAddSendTrack = function(track, send_mode, target_folder)
             if send_mode ~= 0 then r.SetTrackSendInfo_Value(track, 0, si, "I_SENDMODE", send_mode) end
             created_si = si
         end
+        if opts.fx_chain_path then
+            chain_ok, chain_err = QuickSendInsertFxChain(new_track, opts.fx_chain_path)
+        end
     end
     r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
     -- Envelope visibility must be set outside PreventUIRefresh block, otherwise
@@ -304,7 +546,44 @@ RoutingAddSendTrack = function(track, send_mode, target_folder)
     if created_si >= 0 then
         SendEnvSetVisible(track, 0, created_si, 0, true)
     end
-    r.Undo_EndBlock("Reflex: Add send track", -1)
+    r.Undo_EndBlock(opts.undo_label or "Reflex: Add send track", -1)
+    return { track = new_track, send_idx = created_si, fx_chain_ok = chain_ok, fx_chain_err = chain_err }
+end
+
+QuickSendAdd = function(track, preset, send_mode, target_folder)
+    if not preset or not preset.path then return end
+    local result = RoutingAddSendTrack(track, send_mode or 0, target_folder, {
+        name = preset.label,
+        fx_chain_path = preset.path,
+        undo_label = "Reflex: Add quick send",
+    })
+    if result and result.fx_chain_ok == false and result.fx_chain_err and r.MB then
+        r.MB(result.fx_chain_err, "Reflex: Quick Send", 0)
+    end
+    return result
+end
+
+QuickSendMenuItems = function(track, target_folder)
+    r.ImGui_Separator(ctx)
+    r.ImGui_TextColored(ctx, C.text_muted, "Quick sends:")
+    r.ImGui_Spacing(ctx)
+    local presets = QuickSendScan()
+    if #presets == 0 then
+        r.ImGui_TextColored(ctx, C.text_muted, "No .RfxChain files")
+    else
+        for _, preset in ipairs(presets) do
+            if r.ImGui_MenuItem(ctx, preset.label) then
+                QuickSendAdd(track, preset, 0, target_folder)
+            end
+        end
+    end
+    r.ImGui_Separator(ctx)
+    if r.ImGui_MenuItem(ctx, "Save FX Chain as Quick Send...") then
+        QuickSendSaveTrackFxChain(track)
+    end
+    if r.ImGui_MenuItem(ctx, "Open Quick Sends Folder") then
+        QuickSendOpenFolder()
+    end
 end
 
 -- Right-click popup for send mode selection on + buttons.
@@ -320,6 +599,7 @@ AddSendModePopup = function(popup_id, track, target_folder)
         if r.ImGui_MenuItem(ctx, "Post-Fader (Post-Pan)") then RoutingAddSendTrack(track, 0, target_folder) end
         if r.ImGui_MenuItem(ctx, "Pre-Fader (Post-FX)") then RoutingAddSendTrack(track, 1, target_folder) end
         if r.ImGui_MenuItem(ctx, "Pre-Fader (Pre-FX)") then RoutingAddSendTrack(track, 3, target_folder) end
+        if QuickSendMenuItems then QuickSendMenuItems(track, target_folder) end
         r.ImGui_PopStyleColor(ctx, 2)
         r.ImGui_EndPopup(ctx)
     end

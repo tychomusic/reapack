@@ -140,7 +140,7 @@ SendsDrawDistantSection = function(bw, dl, sends_base_sx, title_h, btn_h, row_ga
 
     -- Expanded height vars for full-width distant cards
     local d_inner_w = bw - S(UI.card_pad) * 2
-    local d_knobs_wrap = d_inner_w < (knob_d * 2 + row_gap)
+    local d_knobs_wrap = d_inner_w < (knob_d * 2 + S(20 / 1.44))
     local d_knob_pair_h = d_knobs_wrap and (knob_unit * 2 + row_gap) or knob_unit
     local d_ctrl_wrap = (est_arrow_w + est_fx_btn_w + est_addfx_w + row_gap + est_route_w) > d_inner_w
     local d_ctrl_h = btn_h + (d_ctrl_wrap and (row_gap + btn_h) or 0)

@@ -199,13 +199,43 @@ RouteAddMenuList = function(items, on_commit)
     end
 end
 
-RouteSectionHeader = function(add_btn_id, popup_id, title, section_col, trk_sx, row_h, dl, popup_contents_fn)
+RouteSectionHeader = function(add_btn_id, popup_id, title, section_col, trk_sx, row_h, dl, popup_contents_fn, full_hit, bw)
     r.ImGui_SetCursorPos(ctx, trk_sx, r.ImGui_GetCursorPosY(ctx))
     local sec_sx, sec_ssy = r.ImGui_GetCursorScreenPos(ctx)
-    local _, dd_clk = NavRect(add_btn_id, row_h, row_h, "+", { rounding = S(3) })
-    local add_gap = S(UI.pad_sm)
+    local title_font = GetScaledFont and GetScaledFont()
+    local title_size = r.ImGui_GetFontSize and r.ImGui_GetFontSize(ctx) * 1.17 or nil
+    if title_font and title_size then r.ImGui_PushFont(ctx, title_font, title_size) end
     local sec_th = r.ImGui_GetTextLineHeight(ctx)
-    r.ImGui_DrawList_AddText(dl, sec_sx + row_h + add_gap, sec_ssy + Round((row_h - sec_th) / 2), section_col, title)
+    local title_w = r.ImGui_CalcTextSize(ctx, title)
+    local dot_r = S(5)
+    local segment_gap = 11 * 0.5
+    local plus_arm = row_h * 0.22
+    local plus_w = plus_arm * 2
+    local add_w = segment_gap + plus_w + segment_gap + dot_r * 2 + segment_gap
+    local header_w = bw or (row_h + S(14 / 1.44) + title_w + add_w)
+    local add_x = sec_sx + header_w - add_w
+    local dd_clk = false
+    local header_hov = false
+    local header_active = false
+    local active_col = (section_col & 0xFFFFFF00) | 0xCC
+
+    r.ImGui_SetCursorScreenPos(ctx, add_x, sec_ssy)
+    r.ImGui_InvisibleButton(ctx, add_btn_id, add_w, row_h)
+    header_hov = r.ImGui_IsItemHovered(ctx)
+    header_active = r.ImGui_IsItemActive(ctx)
+    dd_clk = r.ImGui_IsItemClicked(ctx, 0)
+    local add_bg = header_active and active_col or (header_hov and section_col or C.fx_ctrl_bg)
+    local add_fg = (header_hov or header_active) and 0xFFFFFFFF or C.text_dim
+    local add_dot_col = (header_hov or header_active) and 0xFFFFFFFF or section_col
+    r.ImGui_DrawList_AddRectFilled(dl, add_x, sec_ssy, add_x + add_w, sec_ssy + row_h, add_bg, S(3))
+    DrawIcon(dl, add_x + segment_gap + plus_w * 0.5, sec_ssy + row_h * 0.5, row_h, "+", add_fg)
+    r.ImGui_DrawList_AddCircleFilled(dl, add_x + segment_gap + plus_w + segment_gap + dot_r,
+        sec_ssy + row_h * 0.5, dot_r, add_dot_col, 24)
+
+    local title_col = C.text
+    r.ImGui_DrawList_AddText(dl, sec_sx,
+        sec_ssy + Round((row_h - sec_th) / 2), title_col, title)
+    if title_font and title_size then r.ImGui_PopFont(ctx) end
     if dd_clk then r.ImGui_OpenPopup(ctx, popup_id) end
     -- Detect closed→open transition for this popup so the Add-menu state resets.
     local now_open = r.ImGui_IsPopupOpen(ctx, popup_id)

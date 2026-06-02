@@ -9,17 +9,17 @@ ReflexInstallNoiseCore = function(deps)
     NoiseScanAllTracks = function()
         local results = {}
         local noise_cache = get_noise_cache()
-        local threshold_upper = 0.00001  -- -100dB (meter display threshold)
-        local threshold_lower = 1e-9     -- -180dB (above true zero, catches most plugin noise)
+        local threshold_upper = 10 ^ (-50 / 20)   -- low-level-noise ceiling
+        local threshold_lower = 10 ^ (-120 / 20)  -- ignore digital-floor residue
+        local reliable_noise = 10 ^ (-100 / 20)
         local nt = r.CountTracks(0)
         for ti = 0, nt - 1 do
             local t = r.GetTrack(0, ti)
             local peak = math.max(r.Track_GetPeakInfo(t, 0), r.Track_GetPeakInfo(t, 1))
             if peak > threshold_lower and peak < threshold_upper then
-                -- Check variance: read peak again and compare (crude single-frame check)
-                local mn = noise_cache[t]
-                local has_variance = mn and mn.active
-                if has_variance or peak > 1e-7 then  -- either variance-confirmed or clearly above FP
+                local tn = noise_cache[t]
+                local has_variance = (tn and tn.L and tn.L.active) or (tn and tn.R and tn.R.active)
+                if has_variance or peak > reliable_noise then
                     local _, name = r.GetTrackName(t)
                     local num = math.floor(r.GetMediaTrackInfo_Value(t, "IP_TRACKNUMBER"))
                     local db = 20 * math.log(math.max(peak, 1e-30), 10)

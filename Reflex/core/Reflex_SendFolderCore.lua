@@ -18,6 +18,7 @@ DrawSendFolderCard = function(track, dl, cx, cy, w, id_suffix)
     local pad_top = S(UI.send_pad_top)
     local pad_bot = S(UI.send_folder_pad_bot)
     local gap = S(UI.pad_sm)
+    local knob_gap = S(20 / 1.44)
     local btn_h = S(UI.btn_h)
     local knob_d = Round(btn_h * 1.5)
     local text_h = r.ImGui_GetTextLineHeight(ctx)
@@ -27,7 +28,7 @@ DrawSendFolderCard = function(track, dl, cx, cy, w, id_suffix)
 
     -- Layout decision: can knobs fit on the M/S row?
     local ms_w = btn_h + gap + btn_h
-    local knobs_w = knob_d + gap + knob_d
+    local knobs_w = knob_d + knob_gap + knob_d
     local knobs_on_ms_row = (ms_w + gap * 2 + knobs_w) <= inner_w
 
     -- Compute card height
@@ -122,7 +123,7 @@ DrawSendFolderCard = function(track, dl, cx, cy, w, id_suffix)
         local knobs_total = knobs_w
         local knobs_start = x + Round((inner_w - knobs_total) / 2)
         local vkx = knobs_start
-        local pkx = knobs_start + knob_d + gap
+        local pkx = knobs_start + knob_d + knob_gap
 
         NavParamKnob(dl, "##fcvol" .. (id_suffix or ""), vkx, y, knob_d, "vol",
                      track, nil, fcvol_state, "Reflex: Folder volume", "Volume")
@@ -133,9 +134,8 @@ DrawSendFolderCard = function(track, dl, cx, cy, w, id_suffix)
         y = y + knob_row_h + gap
     end
 
-    -- Final row: [M][S] left-aligned, knobs right-aligned (wide) or M/S only (narrow)
-    -- When knobs on same row: M/S top-aligned with knob tops (not centered)
-    local btn_cy = y
+    -- Final row: [M][S] lower-left, knobs right-aligned (wide) or M/S only (narrow)
+    local btn_cy = y + ms_row_h - btn_h
 
     -- M button
     r.ImGui_SetCursorScreenPos(ctx, x, btn_cy)
@@ -163,7 +163,7 @@ DrawSendFolderCard = function(track, dl, cx, cy, w, id_suffix)
     -- Vol/Pan knobs right-aligned on M/S row (wide only)
     if knobs_on_ms_row then
         local pan_kx = x + inner_w - knob_d
-        local vol_kx = pan_kx - gap - knob_d
+        local vol_kx = pan_kx - knob_gap - knob_d
 
         NavParamKnob(dl, "##fcvol" .. (id_suffix or ""), vol_kx, y, knob_d, "vol",
                      track, nil, fcvol_state, "Reflex: Folder volume", "Volume")
@@ -181,6 +181,25 @@ SendsDrawFolderChain = function(group, gi, bw, dl, sends_base_sx, title_h, title
                                 col_pad_bot, fx_h, fx_gap_v, ms_row_h)
     if not group or group.is_ungrouped or not group.folder_chain then return end
 
+    local folder_spanner_h = function(folder, expanded)
+        local inner_w = bw - S(UI.card_pad) * 2
+        local fx_cache = SendsEnsureFxNameCache(folder)
+        local has_fx = fx_cache and fx_cache.count and fx_cache.count > 0
+        local fx_slots = expanded and has_fx and fx_cache.count or 0
+        local fx_area_h = fx_slots > 0 and (fx_slots * fx_h + (fx_slots - 1) * fx_gap_v) or 0
+        local title_row_h = math.max(title_h, knob_unit)
+        local route_w = est_route_w
+        local fx_compound_w = (has_fx and est_arrow_w or 0) + est_fx_btn_w + est_addfx_w
+        local ms_pair_w = btn_h + row_gap + btn_h
+        local ctrl_wrap = (fx_compound_w + row_gap + ms_pair_w + row_gap + route_w) > inner_w
+        local ctrl_h = btn_h + (ctrl_wrap and (row_gap + btn_h) or 0)
+        return col_pad_top
+            + title_row_h + title_gap
+            + ctrl_h + row_gap
+            + fx_area_h
+            + col_pad_bot
+    end
+
     for fi, folder in ipairs(group.folder_chain) do
         if r.ValidatePtr(folder, "MediaTrack*") then
             r.ImGui_SetCursorPosX(ctx, sends_base_sx)
@@ -189,50 +208,44 @@ SendsDrawFolderChain = function(group, gi, bw, dl, sends_base_sx, title_h, title
             r.ImGui_PushID(ctx, gi * 100 + fi + 5000)
 
             if sends_folder_expanded[folder] then
-                -- Expanded: full track column view.
-                local fc_fx_count = 0
-                local fc_fx_cache = SendsEnsureFxNameCache(folder)
-                local fc_fx_not_collapsed = not (insp_fx_collapsed[folder] == true)
-                if fc_fx_not_collapsed then
-                    fc_fx_count = fc_fx_cache and fc_fx_cache.count or 0
-                end
-                -- v20.420: trailing add-FX row removed from sends columns
-                -- (entry now in compound + button). Slots count = real FX only.
-                local fc_fx_slots = fc_fx_not_collapsed and fc_fx_count or 0
-                local fc_fx_area_h = fc_fx_slots > 0 and (fc_fx_slots * fx_h + (fc_fx_slots - 1) * fx_gap_v) or 0
-                -- Folder column height: no SND, no +3.
-                local fc_knobs_wrap_f = bw - S(UI.card_pad) * 2 < (knob_d * 2 + row_gap)
-                local fc_knob_pair = fc_knobs_wrap_f and (knob_unit * 2 + row_gap) or knob_unit
-                local fc_ctrl_wrap_f = (est_arrow_w + est_fx_btn_w + est_addfx_w + row_gap + est_route_w) > (bw - S(UI.card_pad) * 2)
-                local fc_ctrl_h_f = btn_h + (fc_ctrl_wrap_f and (row_gap + btn_h) or 0)
-                local fc_h = col_pad_top
-                    + title_h + title_gap
-                    + fc_ctrl_h_f + row_gap
-                    + fc_fx_area_h
-                    + S(UI.section_gap) + 2
-                    + fc_knob_pair
-                    + ms_row_h
-                    + col_pad_bot
-                local fc_exp_title_clk = DrawCompactTrackColumn(folder, dl, fc_sx, fc_sy, bw, fc_h, fc_fx_count, nil, nil)
+                insp_fx_collapsed[folder] = false
+                local fc_fx_count = SendsFxCachedCount(folder)
+                local fc_h = folder_spanner_h(folder, true)
+                sends_folder_collapse_request = false
+                sends_folder_expand_request = false
+                local fc_exp_title_clk = DrawCompactTrackColumn(folder, dl, fc_sx, fc_sy, bw, fc_h, fc_fx_count, nil, nil,
+                    { folder_spanner = true })
                 -- Click on blank space OR title to collapse.
                 local fc_blank_clk = r.ImGui_IsMouseHoveringRect(ctx, fc_sx, fc_sy, fc_sx + bw, fc_sy + fc_h)
                    and not r.ImGui_IsAnyItemHovered(ctx)
+                   and not r.ImGui_IsAnyItemActive(ctx)
                    and r.ImGui_IsMouseClicked(ctx, 0)
-                if fc_blank_clk or fc_exp_title_clk then
+                if fc_blank_clk or fc_exp_title_clk or sends_folder_collapse_request then
                     sends_folder_expanded[folder] = nil
+                    insp_fx_collapsed[folder] = true
                 end
+                sends_folder_collapse_request = false
+                sends_folder_expand_request = false
                 r.ImGui_SetCursorPosY(ctx, fc_cy_before + fc_h)
             else
-                -- Collapsed: normal folder card.
-                local fc_h, fc_title_clk = DrawSendFolderCard(folder, dl, fc_sx, fc_sy, bw, tostring(gi) .. "_" .. tostring(fi))
+                insp_fx_collapsed[folder] = true
+                local fc_h = folder_spanner_h(folder, false)
+                sends_folder_collapse_request = false
+                sends_folder_expand_request = false
+                local fc_title_clk = DrawCompactTrackColumn(folder, dl, fc_sx, fc_sy, bw, fc_h, 0, nil, nil,
+                    { folder_spanner = true })
                 -- Click on blank space OR title to expand.
                 local fc_blank_clk = r.ImGui_IsMouseHoveringRect(ctx, fc_sx, fc_sy, fc_sx + bw, fc_sy + fc_h)
                    and not r.ImGui_IsAnyItemHovered(ctx)
+                   and not r.ImGui_IsAnyItemActive(ctx)
                    and r.ImGui_IsMouseClicked(ctx, 0)
-                if fc_blank_clk or fc_title_clk then
+                if fc_blank_clk or fc_title_clk or sends_folder_expand_request then
                     sends_folder_expanded[folder] = true
+                    insp_fx_collapsed[folder] = false
                     sends_expand_scroll_cy = fc_cy_before
                 end
+                sends_folder_collapse_request = false
+                sends_folder_expand_request = false
                 r.ImGui_SetCursorPosY(ctx, fc_cy_before + fc_h)
             end
 

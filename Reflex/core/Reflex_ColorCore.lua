@@ -23,33 +23,8 @@ ReflexInstallColorCore = function(deps)
     -- Centralizes the color logic shared by InspDrawFXRow and DrawCompactTrackColumn.
     FxStateColors = function(is_cont, is_instr, is_offline, is_enabled, is_dry, has_bypass_env, wet_val)
         local bg, hover, active, txt
-        if (not is_offline) and not is_enabled then
+        if is_offline or not is_enabled then
             bg = rgb(0x22252A); hover = rgb(0x282B30); active = rgb(0x282B30); txt = rgb(0x43464A)
-        elseif is_cont then
-            if is_offline then
-                bg = ScaleColor(C.pan_color, 0.2); hover = ScaleColor(C.pan_color, 0.25); active = ScaleColor(C.pan_color, 0.3)
-            elseif not is_enabled or has_bypass_env then
-                bg = ScaleColor(C.pan_color, 0.25); hover = ScaleColor(C.pan_color, 0.3); active = ScaleColor(C.pan_color, 0.35)
-            elseif wet_val < 0.995 then
-                bg = ScaleColor(C.pan_color, 0.5); hover = ScaleColor(C.pan_color, 0.6); active = ScaleColor(C.pan_color, 0.7)
-            else
-                bg = C.pan_color; hover = ScaleColor(C.pan_color, 1.2); active = ScaleColor(C.pan_color, 1.35)
-            end
-            txt = 0xFFFFFFFF
-        elseif is_instr then
-            if is_offline then
-                bg = ScaleColor(C.fx_instr_txt, 0.2); hover = ScaleColor(C.fx_instr_txt, 0.25); active = ScaleColor(C.fx_instr_txt, 0.3)
-                txt = 0xFFFFFF50
-            elseif not is_enabled then
-                bg = ScaleColor(C.fx_instr_txt, 0.25); hover = ScaleColor(C.fx_instr_txt, 0.3); active = ScaleColor(C.fx_instr_txt, 0.35)
-                txt = 0xFFFFFF70
-            elseif is_dry then
-                bg = ScaleColor(C.fx_instr_txt, 0.5); hover = ScaleColor(C.fx_instr_txt, 0.6); active = ScaleColor(C.fx_instr_txt, 0.7)
-                txt = 0xFFFFFF90
-            else
-                bg = C.fx_instr_txt; hover = ScaleColor(C.fx_instr_txt, 1.2); active = ScaleColor(C.fx_instr_txt, 1.35)
-                txt = C.text
-            end
         elseif is_dry then
             bg = C.btn_hover; hover = C.btn_active; active = C.fx_row_active; txt = C.fx_drywet_txt
         elseif has_bypass_env then

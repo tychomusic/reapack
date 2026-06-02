@@ -12,10 +12,16 @@
 --   [main] Reflex_IOManager.lua
 --   [main] Reflex_WindowToggle.lua
 --   [main] Reflex_AddFX.lua
+--   [main] Reflex_CloseAllFXWindows.lua
 --   [main] Reflex_FocusSearch.lua
 --   [main] Reflex_OpenFXBrowser.lua
+--   [main] Reflex_FXWindowNext.lua
+--   [main] Reflex_FXWindowPrevious.lua
+--   [main] Reflex_FXWindowStackNext.lua
+--   [main] Reflex_FXWindowStackPrevious.lua
 --   [main] Reflex_HistoryBack.lua
 --   [main] Reflex_HistoryForward.lua
+--   [main] Reflex_TileFXWindows.lua
 --   [main] Reflex_Navigator_ArmedViewToggle.lua
 --   [main] Reflex_Navigator_ScrollToRecordArmed.lua
 --   [main] Reflex_Navigator_ToggleExpand.lua

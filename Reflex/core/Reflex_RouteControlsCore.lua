@@ -12,11 +12,12 @@ ReflexInstallRouteControlsCore = function(deps)
 
     local function DrawRouteArrowIcon(dl, cx, cy, size, col)
         size = math.max(1, size or S(10))
+        cy = cy - 0.5
         local shaft = size * 0.45
         local head_w = size * 0.32
         local head_h = size * 0.34
-        local thick = math.max(1, size * 0.11)
-        r.ImGui_DrawList_AddLine(dl, cx - shaft, cy, cx + shaft - head_w, cy, col, thick)
+        local shaft_h = 2 -- 4 Retina px; filled rect avoids antialiased line blur.
+        r.ImGui_DrawList_AddRectFilled(dl, cx - shaft, cy - shaft_h * 0.5, cx + shaft - head_w, cy + shaft_h * 0.5, col)
         r.ImGui_DrawList_AddTriangleFilled(dl,
             cx + shaft, cy,
             cx + shaft - head_w, cy - head_h,
@@ -142,7 +143,7 @@ RouteMidiDropdown = function(id, dl, track, category, send_idx, x, y, w, h, show
     r.ImGui_InvisibleButton(ctx, id, w, h)
     local hov = r.ImGui_IsItemHovered(ctx)
     local clk = r.ImGui_IsItemClicked(ctx, 0)
-    local txt_col = hov and 0xFFFFFFFF or C.text_dim
+    local txt_col = hov and 0xFFFFFFFF or rgb(0x666B73)
     local tw = r.ImGui_CalcTextSize(ctx, display)
     r.ImGui_DrawList_AddText(dl, x + w - tw, y + Round((h - r.ImGui_GetTextLineHeight(ctx)) / 2), txt_col, display)
     if clk then r.ImGui_OpenPopup(ctx, id .. "_p") end
@@ -176,6 +177,29 @@ RouteMidiDropdown = function(id, dl, track, category, send_idx, x, y, w, h, show
         r.ImGui_EndPopup(ctx)
     end
     PopPopupStyle()
+end
+
+RouteHWOutputChannelName = function(ch_idx)
+    ch_idx = math.floor(ch_idx or 0)
+    local n
+    if RecordIOAudioName then
+        n = RecordIOAudioName("out", ch_idx)
+    elseif r.GetOutputChannelName then
+        n = r.GetOutputChannelName(ch_idx)
+    end
+    n = n or ""
+    local stripped = n:match("^Output%s+(.+)$")
+    if stripped then return stripped end
+    return n ~= "" and n or tostring(ch_idx + 1)
+end
+
+RouteHWOutputNameFromValue = function(val)
+    val = math.floor(val or 0)
+    local first_ch = (val & 0x3FF)
+    local num_ch = math.floor(val / 1024)
+    if num_ch < 1 then num_ch = 2 end
+    if num_ch == 1 then return RouteHWOutputChannelName(first_ch) end
+    return RouteHWOutputChannelName(first_ch) .. " / " .. RouteHWOutputChannelName(first_ch + 1)
 end
 
 -- Draw send mode dropdown for a routing row.
@@ -224,9 +248,10 @@ RouteChannelDropdown = function(id, dl, track, category, idx, param, max_chans, 
     if num_ch < 1 then num_ch = 2 end
     local display
     if num_ch == 1 then display = tostring(first_ch + 1)
-    else display = (first_ch + 1) .. "/" .. (first_ch + num_ch) end
+    elseif category == 1 then display = (first_ch + 1) .. "/" .. (first_ch + num_ch)
+    else display = (first_ch + 1) .. "-" .. (first_ch + num_ch) end
     local dtw = r.ImGui_CalcTextSize(ctx, display)
-    local txt_col = dd_hov and 0xFFFFFFFF or C.text_dim
+    local txt_col = dd_hov and 0xFFFFFFFF or rgb(0x666B73)
     local tx
     if is_src then
         tx = sx + w - dtw - S(2)  -- right-align src
@@ -242,7 +267,7 @@ RouteChannelDropdown = function(id, dl, track, category, idx, param, max_chans, 
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
         -- Stereo pairs
         for ch = 0, max_chans - 2, 2 do
-            local label = (ch + 1) .. "/" .. (ch + 2)
+            local label = (ch + 1) .. "-" .. (ch + 2)
             local is_sel = first_ch == ch and num_ch == 2
             if is_sel then label = "\xE2\x9C\x93 " .. label end
             if r.ImGui_MenuItem(ctx, label) then
@@ -257,7 +282,7 @@ RouteChannelDropdown = function(id, dl, track, category, idx, param, max_chans, 
             r.ImGui_Separator(ctx)
             if r.ImGui_BeginMenu(ctx, "New channels on receiving track") then
                 for ch = max_chans, max_chans + 6, 2 do
-                    local label = (ch + 1) .. "/" .. (ch + 2)
+                    local label = (ch + 1) .. "-" .. (ch + 2)
                     if r.ImGui_MenuItem(ctx, label) then
                         r.Undo_BeginBlock()
                         r.SetTrackSendInfo_Value(track, category, idx, param, ch + (2 * 1024))
@@ -274,9 +299,10 @@ RouteChannelDropdown = function(id, dl, track, category, idx, param, max_chans, 
 end
 
 -- Draw a complete routing item row (2-line layout)
--- Row 1: Name [src_ch]→[dst_ch] [MIDI]
+-- Row 1: Name [src_ch]→[dst_ch] [MIDI], or HW: Name [src_ch]
 -- Row 2: [VOL] [PAN] [mode][M][X]
 DrawRouteRow = function(prefix, idx, dl, track, category, name, name_col, src_nchan, dest_nchan, bw, trk_sx, hover_col)
+    local is_hw = category == 1
     local sc = 0.95  -- scale factor for content inside row card
     local btn_h = Round(S(UI.btn_h) * sc)
     local btn_gap = Round(S(UI.pad_sm) * sc)
@@ -324,7 +350,7 @@ DrawRouteRow = function(prefix, idx, dl, track, category, name, name_col, src_nc
     local mute_x_off = del_x_off - btn_gap - btn_h
     local mode_x_off = mute_x_off - btn_gap - mode_w
 
-    -- Row 1: Name [src_ch]→[dst_ch] [MIDI]
+    -- Row 1: Name [src_ch]→[dst_ch] [MIDI], or HW: Name [src_ch]
     local midi_w = Round(S(50) * sc)
     local arrow_w = r.ImGui_CalcTextSize(ctx, "\xE2\x86\x92")
     local arrow_gap = Round(S(3) * sc)
@@ -332,14 +358,21 @@ DrawRouteRow = function(prefix, idx, dl, track, category, name, name_col, src_nc
 
     -- Name (left-aligned), clipped before the channel group
     local r1_cx = math.floor(cx + inner_bw)
-    r1_cx = r1_cx - midi_w  -- reserve MIDI
-    local midi_x = r1_cx
-    r1_cx = r1_cx - btn_gap - dd_w2
-    local dst_x = r1_cx
-    r1_cx = r1_cx - arrow_gap - arrow_w
-    local arrow_x = r1_cx
-    r1_cx = r1_cx - arrow_gap - dd_w2
-    local src_x = r1_cx
+    local midi_x = nil
+    local src_x, arrow_x, dst_x
+    if is_hw then
+        r1_cx = r1_cx - dd_w2
+        src_x = r1_cx
+    else
+        r1_cx = r1_cx - midi_w  -- reserve MIDI
+        midi_x = r1_cx
+        r1_cx = r1_cx - btn_gap - dd_w2
+        dst_x = r1_cx
+        r1_cx = r1_cx - arrow_gap - arrow_w
+        arrow_x = r1_cx
+        r1_cx = r1_cx - arrow_gap - dd_w2
+        src_x = r1_cx
+    end
 
     local name_right = src_x - btn_gap
     -- Row hover: check mouse in full card area for color change
@@ -368,8 +401,22 @@ DrawRouteRow = function(prefix, idx, dl, track, category, name, name_col, src_nc
         r.ImGui_DrawList_AddRectFilled(dl, rx, rsy, rx + bw, rsy + card_total_h, C.route_row_bg_hov, card_r)
     end
     local draw_name_col = name_col
+    local route_num, route_title = name:match("^(%d+):%s*(.*)$")
+    local number_col = route_num and (hover_col or draw_name_col) or draw_name_col
+    local title_x = cx
+    local visible_name_w = r.ImGui_CalcTextSize(ctx, name)
     r.ImGui_DrawList_PushClipRect(dl, cx, cy, name_right, cy + btn_h, true)
-    r.ImGui_DrawList_AddText(dl, cx, cy + Round((btn_h - th) / 2), draw_name_col, name)
+    if route_num and not is_hw then
+        local num_w = r.ImGui_CalcTextSize(ctx, route_num)
+        local colon_gap_w = r.ImGui_CalcTextSize(ctx, ": ")
+        local name_y = cy + Round((btn_h - th) / 2)
+        r.ImGui_DrawList_AddText(dl, cx, name_y, number_col, route_num)
+        title_x = cx + num_w + colon_gap_w
+        visible_name_w = num_w + colon_gap_w + r.ImGui_CalcTextSize(ctx, route_title)
+        r.ImGui_DrawList_AddText(dl, title_x, name_y, draw_name_col, route_title)
+    else
+        r.ImGui_DrawList_AddText(dl, cx, cy + Round((btn_h - th) / 2), draw_name_col, name)
+    end
     r.ImGui_DrawList_PopClipRect(dl)
     -- v20.486: track-name link follows global locate convention — hand cursor +
     -- underline on hover, hyperlink-tight hit area (text width only, not the full
@@ -380,13 +427,23 @@ DrawRouteRow = function(prefix, idx, dl, track, category, name, name_col, src_nc
         local _ref_idx = (category == -1) and 0 or 1
         local _other = r.BR_GetMediaTrackSendInfo_Track(track, category, idx, _ref_idx)
         if _other and r.ValidatePtr(_other, "MediaTrack*") then
-            local _name_tw = r.ImGui_CalcTextSize(ctx, name)
+            local _name_tw = visible_name_w
             local _link_w = math.min(_name_tw, math.max(1, name_right - cx))
             local _link_y = cy + Round((btn_h - th) / 2)
             local _link_hov = TitleLink(prefix .. "namelink" .. idx, cx, _link_y, _link_w, th, _other, {})
             if _link_hov then
                 if DrawSolidUnderline then
-                    DrawSolidUnderline(dl, cx, _link_y + th, cx + _link_w, draw_name_col, 1)
+                    if route_num then
+                        local num_w = r.ImGui_CalcTextSize(ctx, route_num)
+                        local colon_gap_w = r.ImGui_CalcTextSize(ctx, ": ")
+                        local title_w = math.max(0, _link_w - num_w - colon_gap_w)
+                        DrawSolidUnderline(dl, cx, _link_y + th, cx + math.min(num_w, _link_w), number_col, 1)
+                        if title_w > 0 then
+                            DrawSolidUnderline(dl, title_x, _link_y + th, title_x + title_w, draw_name_col, 1)
+                        end
+                    else
+                        DrawSolidUnderline(dl, cx, _link_y + th, cx + _link_w, draw_name_col, 1)
+                    end
                 else
                     r.ImGui_DrawList_AddRectFilled(dl, cx, _link_y + th, cx + _link_w, _link_y + th + 1, draw_name_col)
                 end
@@ -394,13 +451,15 @@ DrawRouteRow = function(prefix, idx, dl, track, category, name, name_col, src_nc
         end
     end
 
-    -- src_ch, arrow, dst_ch, MIDI on Row 1
+    -- src_ch, arrow, dst_ch/MIDI or HW source channel on Row 1
     RouteChannelDropdown(prefix .. "sch" .. idx, dl, track, category, idx, "I_SRCCHAN", src_nchan,
         src_x, cy, dd_w2, btn_h, false, true)
-    DrawRouteArrowIcon(dl, arrow_x + S(5), cy + btn_h * 0.5, S(10), C.text_muted)
-    RouteChannelDropdown(prefix .. "dch" .. idx, dl, track, category, idx, "I_DSTCHAN", dest_nchan,
-        dst_x, cy, dd_w2, btn_h, true, false)
-    RouteMidiDropdown(prefix .. "midi" .. idx, dl, track, category, idx, midi_x, cy, midi_w, btn_h, false)
+    if not is_hw then
+        DrawRouteArrowIcon(dl, arrow_x + S(5) + 1, cy + btn_h * 0.5, S(10), C.text_muted)
+        RouteChannelDropdown(prefix .. "dch" .. idx, dl, track, category, idx, "I_DSTCHAN", dest_nchan,
+            dst_x, cy, dd_w2, btn_h, true, false)
+        RouteMidiDropdown(prefix .. "midi" .. idx, dl, track, category, idx, midi_x, cy, midi_w, btn_h, false)
+    end
 
     -- Row 2: [VOL] [PAN] ... [mode][M][X]
     local vol_val_w = math.max(btn_h, r.ImGui_CalcTextSize(ctx, "-00.0") + Round(S(24) * sc))
@@ -408,9 +467,9 @@ DrawRouteRow = function(prefix, idx, dl, track, category, name, name_col, src_nc
     local vol_pan_gap = Round(S(UI.pad_sm) * sc)
 
     -- Route row button colors
-    local rr_bg = C.route_row_btn
-    local rr_hov = C.route_row_btn_hov
-    local rr_act = C.route_row_btn_act
+    local rr_bg = row_hov and (C.route_row_btn_row_hov or C.route_row_btn) or C.route_row_btn
+    local rr_hov = row_hov and (C.route_row_btn_hov_row_hov or C.route_row_btn_hov) or C.route_row_btn_hov
+    local rr_act = row_hov and (C.route_row_btn_act_row_hov or C.route_row_btn_act) or C.route_row_btn_act
 
     -- Left-aligned: [VOL] [PAN]
     RouteVolValue(prefix .. "vol" .. idx, dl, track, category, idx, cx, r2y, vol_val_w, btn_h, rr_bg, rr_hov, rr_act)
@@ -442,8 +501,10 @@ DrawRouteRow = function(prefix, idx, dl, track, category, name, name_col, src_nc
     -- Delete
     r.ImGui_SetCursorScreenPos(ctx, cx + del_x_off, r2y)
     local _, x_clk = NavSquare(prefix .. "del" .. idx, btn_h, btn_h, "x", {
-        bg = rr_bg, fg = C.text_muted,
-        hov = C.fx_offline_txt, fg_hov = 0xFFFFFFFF,
+        bg = rr_bg, hov = C.mute_act, active = C.mute_act,
+        fg = (C.text_dim & 0xFFFFFF00) | math.floor((C.text_dim & 0xFF) * 0.4),
+        fg_hov = 0xFFFFFFFF,
+        icon_size_mult = 0.865, icon_dx = -0.5, icon_dy = -0.5,
     })
     if x_clk then
         r.Undo_BeginBlock(); r.RemoveTrackSend(track, category, idx)

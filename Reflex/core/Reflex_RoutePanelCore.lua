@@ -9,9 +9,10 @@ ReflexInstallRoutePanelCore = function(deps)
 
 DrawRoutePanel = function(track, bw, hdr)
     local row_h = S(UI.btn_h)
-    local row_gap = S(UI.pad_sm)
-    local section_gap = row_gap
-    r.ImGui_SetCursorPosY(ctx, hdr.ctrl_row_y)
+    local row_gap = S(5 / 1.44)
+    local header_row_gap = S(18 / 1.44)
+    local section_gap = S(22 / 1.44)
+    r.ImGui_SetCursorPosY(ctx, (hdr.route_panel_y or r.ImGui_GetCursorPosY(ctx)) + section_gap)
 
     local dl = r.ImGui_GetWindowDrawList(ctx)
 
@@ -43,10 +44,10 @@ DrawRoutePanel = function(track, bw, hdr)
             if si >= 0 then r.SetTrackSendInfo_Value(track, 0, si, "I_MIDIFLAGS", 31) end
             r.Undo_EndBlock("Reflex: Add send", -1)
         end)
-    end)
+    end, num_sends == 0, bw)
     r.ImGui_SetCursorPosY(ctx, sends_hdr_y + row_h)
     if num_sends > 0 then
-        r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + row_gap)
+        r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + header_row_gap)
         local send_list = RouteBuildSortedTrackList(track, 0)
         local src_nchan = math.floor(r.GetMediaTrackInfo_Value(track, "I_NCHAN"))
         for li, entry in ipairs(send_list) do
@@ -89,10 +90,10 @@ DrawRoutePanel = function(track, bw, hdr)
             if si >= 0 then r.SetTrackSendInfo_Value(t, 0, si, "I_MIDIFLAGS", 31) end
             r.Undo_EndBlock("Reflex: Add receive", -1)
         end)
-    end)
+    end, num_recvs == 0, bw)
     r.ImGui_SetCursorPosY(ctx, recvs_hdr_y + row_h)
     if num_recvs > 0 then
-        r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + row_gap)
+        r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + header_row_gap)
         local recv_list = RouteBuildSortedTrackList(track, -1)
         local dst_nchan = math.floor(r.GetMediaTrackInfo_Value(track, "I_NCHAN"))
         for li, entry in ipairs(recv_list) do
@@ -105,9 +106,10 @@ DrawRoutePanel = function(track, bw, hdr)
     -- Section: Hardware Outputs
     r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + section_gap)
     local hw_hdr_y = r.ImGui_GetCursorPosY(ctx)
-    RouteSectionHeader("##addhw_dd", "##route_add_hw", "Hardware Outputs", C.text_dim, hdr.trk_sx, row_h, dl, function()
+    RouteSectionHeader("##addhw_dd", "##route_add_hw", "HW", C.route_hw, hdr.trk_sx, row_h, dl, function()
         local num_outs = r.GetNumAudioOutputs()
         local function _hw_opt_name(ch_idx)
+            if RouteHWOutputChannelName then return RouteHWOutputChannelName(ch_idx) end
             local n = r.GetOutputChannelName(ch_idx) or ""
             local stripped = n:match("^Output%s+(.+)$")
             if stripped then return stripped end
@@ -128,31 +130,16 @@ DrawRoutePanel = function(track, bw, hdr)
             end
             r.Undo_EndBlock("Reflex: Add hardware output", -1)
         end)
-    end)
+    end, num_hw == 0, bw)
     r.ImGui_SetCursorPosY(ctx, hw_hdr_y + row_h)
     if num_hw > 0 then
-        r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + row_gap)
+        r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + header_row_gap)
         local src_nchan = math.floor(r.GetMediaTrackInfo_Value(track, "I_NCHAN"))
         local dst_nchan = r.GetNumAudioOutputs()
-        local function _hw_name(ch_idx)
-            local n = r.GetOutputChannelName(ch_idx) or ""
-            -- Strip default "Output " prefix — "Output 27" → "27"
-            local stripped = n:match("^Output%s+(.+)$")
-            if stripped then return stripped end
-            return n ~= "" and n or tostring(ch_idx + 1)
-        end
         for hi = 0, num_hw - 1 do
             local dst_val = math.floor(r.GetTrackSendInfo_Value(track, 1, hi, "I_DSTCHAN"))
-            local first_ch = (dst_val & 0x3FF)
-            local num_ch = math.floor(dst_val / 1024)
-            if num_ch < 1 then num_ch = 2 end
-            local hw_name
-            if num_ch == 1 then
-                hw_name = _hw_name(first_ch)
-            else
-                hw_name = _hw_name(first_ch) .. " / " .. _hw_name(first_ch + 1)
-            end
-            DrawRouteRow("##h", hi, dl, track, 1, hw_name, C.text, src_nchan, dst_nchan, bw, hdr.trk_sx, C.text_dim)
+            local hw_name = RouteHWOutputNameFromValue and RouteHWOutputNameFromValue(dst_val) or tostring(dst_val + 1)
+            DrawRouteRow("##h", hi, dl, track, 1, hw_name, C.text, src_nchan, dst_nchan, bw, hdr.trk_sx, C.route_hw)
             if hi < num_hw - 1 then r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + row_gap) end
         end
     end

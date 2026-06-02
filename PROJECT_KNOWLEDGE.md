@@ -48,6 +48,8 @@ The user's active REAPER install at `/Applications/Reaper` should run only these
 - Track Navigator: `/Applications/Reaper/Scripts/Tycho/reapack/Track Navigator/Track Navigator.lua`
 - Reflex: `/Applications/Reaper/Scripts/Tycho/reapack/Reflex/Reflex.lua`
 
+For development, testing, and runtime config inspection, `/Applications/Reaper/` is the only meaningful REAPER install unless the user explicitly says otherwise. Prefer this install for portable REAPER resource files such as `reaper.ini`, `reaper-fxfolders.ini`, `reaper-fxtags.ini`, action state, and local runtime behavior. Do not infer source-of-truth config from `~/Library/Application Support/REAPER` when `/Applications/Reaper/` contains the active portable config.
+
 `Reflex/Navigator.lua` exists inside the Reflex package as a NAV-only Reflex harness. It is useful for isolating Reflex's embedded Navigator behavior, but it is not the spin-off public Track Navigator script and should not be described to the user as the normal Navigator button/action. When the user says they want to run "Track Navigator", they mean `Track Navigator/Track Navigator.lua`.
 
 Stale duplicate folders were archived on 2026-05-24 under `/Applications/Reaper/Scripts/Tycho cleanup archive 2026-05-24`:

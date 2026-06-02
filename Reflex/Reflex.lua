@@ -93,9 +93,9 @@ local nav_theme = {
     colors = {
         fx_instr_txt = 0x324bd0,
         vol_slider_fill = 0x3d83ff,
-        vol_slider_mark = 0x3e454b,
-        vol_slider_mark_over = 0x82baf7,
-        vol_slider_mark_intersect = 0xb9b9b9,
+        vol_slider_mark = 0x171b22,
+        vol_slider_mark_over = 0x171b22,
+        vol_slider_mark_intersect = 0x171b22,
     },
     track_colors = {},
     remote_colors = {
@@ -295,6 +295,12 @@ LoadPref = function(key, default)
     return tonumber(v) or default
 end
 
+LoadPrefString = function(key, default)
+    local v = r.GetExtState(PREF, key)
+    if v == "" then return default end
+    return v
+end
+
 SavePref = function(key, val)
     r.SetExtState(PREF, key, type(val) == "boolean" and (val and "1" or "0") or tostring(val), true)
 end
@@ -353,6 +359,12 @@ nav_focus_done  = false
 opt_fx_float              = LoadPref("fx_float", true)      -- global: true=float, false=chain
 opt_vol_track_color       = LoadPref("vol_track_color", false) -- global: vol fill follows track color
 opt_show_sends            = LoadPref("show_sends", true)     -- global: always show sends section
+opt_show_master_track     = LoadPref("show_master_track", true)
+master_track_guid         = LoadPrefString("master_track_guid", "")
+master_track_expanded     = false
+opt_two_column_mode       = LoadPref("two_column_mode", false)
+opt_two_column_nav        = LoadPref("two_column_nav", true)
+two_column_left_w         = LoadPref("two_column_left_w", nil)
 opt_tooltips              = LoadPref("tooltips", true)       -- global: show hover tooltips
 opt_card_boxes            = true                                 -- always-on internal param (deprecated UI toggle removed v20.370)
 opt_conform_sends         = LoadPref("conform_sends", false)  -- global: auto-group returns into Returns folder
@@ -379,7 +391,7 @@ for step = 5, 20 do
     r.ImGui_Attach(ctx, f)
     scaled_fonts[step] = f
     if f then scaled_font_sizes[f] = sz end
-    local fi = CreateReflexFont(body_family, r.ImGui_FontFlags_Italic())
+    local fi = CreateReflexFont(body_family, r.ImGui_FontFlags_Bold() | r.ImGui_FontFlags_Italic())
     r.ImGui_Attach(ctx, fi)
     scaled_fonts_italic[step] = fi
     if fi then scaled_font_sizes[fi] = sz end
@@ -459,6 +471,13 @@ local C = {
     fx_power_hover  = rgb(0x464B54),
     fx_power_byp_bg = rgb(0x282C31),
     fx_power_byp_hover = rgb(0x30343A),
+    fx_power_offline = rgb(0x613335),
+    fx_cat_generic = rgb(0x7E7F81),
+    fx_cat_instrument = rgb(0x4B90FF),
+    fx_cat_container = rgb(0xCDA550),
+    fx_cat_harmonics = rgb(0xBC5348),
+    fx_cat_eq = rgb(0x69C2C1),
+    fx_cat_compression = rgb(0xD18A51),
     fx_byp_env_active = rgb(0x525357),
     fx_byp_env_active_hov = rgb(0x727275),
     cmp_a           = rgb(0x3FB950),
@@ -475,10 +494,11 @@ local C = {
     vol_slider_fill = rgb(0x858789),
     vol_slider_handle = rgb(0xE6EDF3),
     vol_slider_handle_active = rgb(0xFFFFFF),
-    vol_slider_mark = rgb(0x3B82F6),
-    vol_slider_mark_over = rgb(0xF85149),
-    vol_slider_mark_intersect = rgb(0xB9B9B9),
+    vol_slider_mark = rgb(0x171B22),
+    vol_slider_mark_over = rgb(0x171B22),
+    vol_slider_mark_intersect = rgb(0x171B22),
     pan_slider_fill = rgb(0xF8BE2E),
+    env_vol_dot     = rgb(0x6ABE74),
     pan_bar         = rgb(0xE8A657),
     env_row_bg      = rgb(0x363C46),
     fx_row_bg       = nil,  -- falls back to btn_bg if nil
@@ -490,6 +510,7 @@ local C = {
     route_send_dim  = rgb(0x3D2E10),
     route_recv      = rgb(0xF85149),
     route_recv_dim  = rgb(0x4A1A18),
+    route_hw        = rgb(0x8E959E),
     route_dim       = rgb(0x484F58),
     route_bg        = rgb(0x2A2F37),
     source_stroke   = rgb(0xD29922),  -- source track card outline; aliased to C.amber after overrides
@@ -508,11 +529,15 @@ local C = {
     -- Routing separator
     route_sep       = rgb(0x22252B),
     -- Route row cards
-    route_row_bg      = rgb(0x23262C),
-    route_row_bg_hov  = rgb(0x292B31),
+    route_section_text = rgb(0x5E626B),
+    route_row_bg      = rgb(0x2A2D34),
+    route_row_bg_hov  = rgb(0x32353C),
     route_row_btn     = rgb(0x3A4049),
+    route_row_btn_row_hov = rgb(0x424851),
     route_row_btn_hov = rgb(0x464D58),
+    route_row_btn_hov_row_hov = rgb(0x4E5560),
     route_row_btn_act = rgb(0x525A62),
+    route_row_btn_act_row_hov = rgb(0x5A626A),
     -- Distant sends
     distant_bg      = rgb(0x202227),
     sc_badge        = rgb(0x2775DE),
@@ -530,6 +555,7 @@ local C = {
     fx_drag_copy    = rgb(0x73A3F4),  -- muted blue: copy/clipboard destination/indicator
     fx_drag_source  = rgb(0xA4A4A4),  -- bright active source-row drag outline
     fx_sel_outline  = rgb(0xA4A4A4),  -- selected FX row outline
+    fx_focus_outline = rgb(0x4B5059), -- focused floating FX window row outline
     -- FX clipboard carry visuals (v20.407)
     fx_clip_carry   = rgb(0x73A3F4),  -- muted blue: clipboard carrying/source rows/indicator/chip
 }
@@ -596,6 +622,19 @@ DrawArrowIcon = function(dl, cx, cy, size, direction, col)
     local ty = Round(cy - th * 0.5 - S(1.375))
     r.ImGui_DrawList_AddText(dl, tx, ty, col, glyph)
     if font then r.ImGui_PopFont(ctx) end
+end
+
+DrawDownArrowGlyphMeasured = function(dl, center_x, tip_y, target_w, col)
+    local glyph = "\xE2\x96\xBC"
+    local font = GetScaledFont and GetScaledFont()
+    local font_size = ArrowFontSize(font, target_w, glyph)
+    if font then r.ImGui_PushFont(ctx, font, font_size) end
+    local gw, gh = r.ImGui_CalcTextSize(ctx, glyph)
+    local tx = center_x - gw * 0.5
+    local ty = tip_y - gh
+    r.ImGui_DrawList_AddText(dl, tx, ty, col, glyph)
+    if font then r.ImGui_PopFont(ctx) end
+    return tx, ty, tx + gw, ty + gh
 end
 
 ArrowDirFromContent = function(content)
@@ -694,6 +733,7 @@ end
 --   fg, fg_hov, fg_active          content colors — default C.text_dim → C.text
 --   arrow_size                     explicit arrow glyph target size; defaults to min(w,h)*0.52
 --   arrow_dx, arrow_dy             final arrow center offset in logical pixels
+--   icon_size_mult, icon_dx, icon_dy final drawn-icon size/center adjustments for +/-/x icons
 --   rounding                       number, or table {tl, tr, br, bl} with per-corner radii
 --                                  (only nonzero corners rounded; zero corners stay square)
 --   hit_w, hit_h                   override invisible hit-rect dims (used when hit area > visual)
@@ -796,7 +836,8 @@ NavDrawContent = function(dl, x, y, w, h, content, fg, opts)
         DrawArrowIcon(dl, x + w / 2 + (opts.arrow_dx or 0), y + h / 2 + (opts.arrow_dy or 0),
             opts.arrow_size or (math.min(w, h) * 0.52), arrow_dir, fg)
     elseif content == "+" or content == "-" or content == "x" or content == "×" then
-        DrawIcon(dl, x + w / 2, y + h / 2, math.min(w, h), content, fg)
+        DrawIcon(dl, x + w / 2 + (opts.icon_dx or 0), y + h / 2 + (opts.icon_dy or 0),
+            math.min(w, h) * (opts.icon_size_mult or 1), content, fg)
     else
         local tw, th = r.ImGui_CalcTextSize(ctx, content)
         local tx = Round(x + (w - tw) / 2)
@@ -886,7 +927,7 @@ DrawTrackNavigatorWindowOutline = function(dl, x, y, w, h, rounding, col)
     local straight_y1 = y1 + cr
     local straight_y2 = y2 - cr
 
-    r.ImGui_DrawList_PushClipRect(dl, x1, y1, x2, y2, false)
+    r.ImGui_DrawList_PushClipRect(dl, x1, y1, x2, y2, true)
     r.ImGui_DrawList_AddRectFilled(dl, straight_x1, y1, straight_x2, y1 + t, col)
     r.ImGui_DrawList_AddRectFilled(dl, straight_x1, y2 - t, straight_x2, y2, col)
     r.ImGui_DrawList_AddRectFilled(dl, x1, straight_y1, x1 + t, straight_y2, col)
@@ -954,7 +995,7 @@ DrawSolidRoundedRectOutline = function(dl, x1, y1, x2, y2, col, rounding, thickn
     local straight_y1 = y1 + cr
     local straight_y2 = y2 - cr
 
-    r.ImGui_DrawList_PushClipRect(dl, x1, y1, x2, y2, false)
+    r.ImGui_DrawList_PushClipRect(dl, x1, y1, x2, y2, true)
     r.ImGui_DrawList_AddRectFilled(dl, straight_x1, y1, straight_x2, y1 + t, col)
     r.ImGui_DrawList_AddRectFilled(dl, straight_x1, y2 - t, straight_x2, y2, col)
     r.ImGui_DrawList_AddRectFilled(dl, x1, straight_y1, x1 + t, straight_y2, col)
@@ -992,12 +1033,14 @@ end
 
 -- Draw a thick arc using PathStroke with round endpoint caps.
 -- Single continuous stroke — no sub-segment seams.
-DrawArcStroke = function(dl, cx, cy, radius, a_min, a_max, color, thickness)
+DrawArcStroke = function(dl, cx, cy, radius, a_min, a_max, color, thickness, opts)
     if a_max - a_min <= 0.001 then return end
+    opts = opts or {}
     local segs = math.max(32, math.floor(96 * (a_max - a_min) / (math.pi * 2)))
     r.ImGui_DrawList_PathClear(dl)
     r.ImGui_DrawList_PathArcTo(dl, cx, cy, radius, a_min, a_max, segs)
     r.ImGui_DrawList_PathStroke(dl, color, 0, thickness)
+    if opts.flat_caps then return end
     -- Round caps at endpoints (PathStroke produces flat butt caps)
     local cap_r = thickness / 2
     local cap_segs = 16
@@ -1010,31 +1053,34 @@ end
 DrawKnobVolume = function(dl, cx, cy, radius, t, hov, act)
     local thickness = radius * 0.28
     local arc_r = radius - thickness / 2
-    DrawArcStroke(dl, cx, cy, arc_r, KNOB_ANGLE_MIN, KNOB_ANGLE_MAX, C.vol_slider_bg, thickness)
+    DrawArcStroke(dl, cx, cy, arc_r, KNOB_ANGLE_MIN, KNOB_ANGLE_MAX, C.vol_slider_bg, thickness, { flat_caps = true })
     local a_cur = KNOB_ANGLE_MIN + clamp(t, 0, 1) * (KNOB_ANGLE_MAX - KNOB_ANGLE_MIN)
-    DrawArcStroke(dl, cx, cy, arc_r, KNOB_ANGLE_MIN, a_cur, C.vol_slider_fill, thickness)
+    DrawArcStroke(dl, cx, cy, arc_r, KNOB_ANGLE_MIN, a_cur, C.vol_slider_fill, thickness, { flat_caps = true })
 end
 
 -- Pan knob renderer: bidirectional from 12 o'clock center.
 -- Amber fill left of center, red fill right. t = 0..1 (0.5 = center).
-DrawKnobPan = function(dl, cx, cy, radius, t, hov, act)
+DrawKnobPan = function(dl, cx, cy, radius, t, hov, act, opts)
+    opts = opts or {}
     local thickness = radius * 0.28
     local arc_r = radius - thickness / 2
-    DrawArcStroke(dl, cx, cy, arc_r, KNOB_ANGLE_MIN, KNOB_ANGLE_MAX, C.vol_slider_bg, thickness)
-    -- Center tick at 12 o'clock (visible when near center)
+    DrawArcStroke(dl, cx, cy, arc_r, KNOB_ANGLE_MIN, KNOB_ANGLE_MAX, C.vol_slider_bg, thickness, { flat_caps = true })
+    -- Center notch at 12 o'clock (visible when near center)
     if t >= 0.495 and t <= 0.505 then
         local outer = arc_r + thickness / 2
         local inner = arc_r - thickness / 2
-        r.ImGui_DrawList_AddLine(dl,
-            cx + inner * math.cos(KNOB_ANGLE_MID), cy + inner * math.sin(KNOB_ANGLE_MID),
-            cx + outer * math.cos(KNOB_ANGLE_MID), cy + outer * math.sin(KNOB_ANGLE_MID),
-            C.text_muted, 1)
+        local bar_w = opts.center_notch_w or math.max(1, thickness * 0.6)
+        local x1 = Round(cx - bar_w * 0.5)
+        local x2 = Round(cx + bar_w * 0.5)
+        local y1 = Round(cy - outer - 1)
+        local y2 = Round(cy - inner + 1)
+        r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y2, C.bg)
     end
     local a_cur = KNOB_ANGLE_MIN + clamp(t, 0, 1) * (KNOB_ANGLE_MAX - KNOB_ANGLE_MIN)
     if t < 0.495 then
-        DrawArcStroke(dl, cx, cy, arc_r, a_cur, KNOB_ANGLE_MID, C.pan_slider_fill, thickness)
+        DrawArcStroke(dl, cx, cy, arc_r, a_cur, KNOB_ANGLE_MID, C.pan_slider_fill, thickness, { flat_caps = true })
     elseif t > 0.505 then
-        DrawArcStroke(dl, cx, cy, arc_r, KNOB_ANGLE_MID, a_cur, C.fx_offline_txt, thickness)
+        DrawArcStroke(dl, cx, cy, arc_r, KNOB_ANGLE_MID, a_cur, C.fx_offline_txt, thickness, { flat_caps = true })
     end
 end
 
@@ -1052,8 +1098,8 @@ NavKnob = function(id, diameter, t, draw_fn, val_str, val_col, opts)
     local ix, iy = r.ImGui_GetItemRectMin(ctx)
     local dl = r.ImGui_GetWindowDrawList(ctx)
     local rad = diameter / 2
-    draw_fn(dl, ix + rad, iy + rad, rad, t, hov, active)
-    if val_str then
+    draw_fn(dl, ix + rad, iy + rad, rad, t, hov, active, opts)
+    if val_str and not opts.hide_value then
         local tw = r.ImGui_CalcTextSize(ctx, val_str)
         r.ImGui_DrawList_AddText(dl, ix + rad - tw / 2, iy + diameter + S(2),
             val_col or C.text_dim, val_str)
@@ -1102,7 +1148,8 @@ end
 -- meter_send_vol,
 -- meter_send_idx     optional tail args for DrawKnobMeterDot on send knobs (vol only, ignored on pan)
 NavParamKnob = function(dl, id, kx, ky, knob_d, kind, track, si, state, undo_label, tip,
-                        meter_send_vol, meter_send_idx)
+                        meter_send_vol, meter_send_idx, opts)
+    opts = opts or {}
     local is_send = si ~= nil
     local param = (kind == "vol") and "D_VOL" or "D_PAN"
 
@@ -1133,7 +1180,13 @@ NavParamKnob = function(dl, id, kx, ky, knob_d, kind, track, si, state, undo_lab
 
     -- Render the knob + capture interaction
     r.ImGui_SetCursorScreenPos(ctx, kx, ky)
-    local _hov, act, clk, dbl, dy, deact = NavKnob(id, knob_d, t_val, draw_fn, val_str, val_col)
+    local _hov, act, clk, dbl, dy, deact = NavKnob(id, knob_d, t_val, draw_fn, val_str, val_col, opts)
+    state.active = act
+
+    if kind == "pan" and not is_send
+        and InspTrackPanEnvelopeActive and InspTrackPanEnvelopeActive(track) then
+        r.ImGui_DrawList_AddCircleFilled(dl, kx + knob_d / 2, ky + knob_d / 2, S(5), C.pan_slider_fill, 24)
+    end
 
     -- Meter dot (vol only)
     if kind == "vol" then
@@ -1145,14 +1198,25 @@ NavParamKnob = function(dl, id, kx, ky, knob_d, kind, track, si, state, undo_lab
         end
     end
 
-    -- Option C drag: capture pre-drag value on click
+    -- Option C reset: capture pre-click value so deactivate can commit atomically.
     if clk then
         state.before = val
         state.moved = false
+        state.resetting = false
+        if IsAlt(r.ImGui_GetKeyMods(ctx)) then
+            local reset_val = (kind == "vol") and 1.0 or 0
+            if is_send then
+                r.SetTrackSendInfo_Value(track, 0, si, param, reset_val)
+            else
+                r.SetMediaTrackInfo_Value(track, param, reset_val)
+            end
+            state.moved = true
+            state.resetting = true
+        end
     end
 
     -- Drag: raw writes, mark moved
-    if act and dy ~= 0 then
+    if act and dy ~= 0 and not state.resetting then
         if kind == "vol" then
             -- Clamp drag math to -60..+12 dB. VolToKnobT visually compresses < -60 dB
             -- into t=0, so letting internal db go below -60 creates a "stuck at -inf"
@@ -1187,6 +1251,7 @@ NavParamKnob = function(dl, id, kx, ky, knob_d, kind, track, si, state, undo_lab
             r.SetMediaTrackInfo_Value(track, param, reset_val)
         end
         state.moved = true
+        state.resetting = true
     end
 
     -- Deactivate: silent rollback then atomic commit inside undo block
@@ -1206,6 +1271,9 @@ NavParamKnob = function(dl, id, kx, ky, knob_d, kind, track, si, state, undo_lab
         r.Undo_EndBlock(undo_label, -1)
         state.before = nil
         state.moved = false
+        state.resetting = false
+    elseif deact then
+        state.resetting = false
     end
 
     Tip(tip)
@@ -1215,6 +1283,10 @@ end
 -- Load the inspect arrow icon (white on transparent PNG, tinted at render time).
 -- PNG must be pre-scaled to the desired rendered pixel size — rendered 1:1, no scaling.
 inspect_arrow_img = nil
+volume_fader_arrow_img = nil
+volume_fader_arrow_img_loaded = false
+record_input_chevron_imgs = {}
+record_input_chevron_imgs_loaded = {}
 
 GetInspectArrowImg = function()
     if inspect_arrow_img then return inspect_arrow_img end
@@ -1230,6 +1302,55 @@ GetInspectArrowImg = function()
         end
     end
     return nil
+end
+
+GetVolumeFaderArrowImg = function()
+    if volume_fader_arrow_img_loaded then return volume_fader_arrow_img end
+    volume_fader_arrow_img_loaded = true
+    local path = script_dir .. "icons/volume-fader-arrow.png"
+    local f = io.open(path, "rb")
+    if f then
+        f:close()
+        local ok, img = pcall(r.ImGui_CreateImage, path)
+        if ok and img then
+            r.ImGui_Attach(ctx, img)
+            volume_fader_arrow_img = img
+        end
+    end
+    return volume_fader_arrow_img
+end
+
+GetRecordInputChevronImg = function(which)
+    which = (which == "down") and "down" or "right"
+    if record_input_chevron_imgs_loaded[which] then return record_input_chevron_imgs[which] end
+    record_input_chevron_imgs_loaded[which] = true
+    local path = script_dir .. "icons/record-input-chevron-" .. which .. ".png"
+    local f = io.open(path, "rb")
+    if f then
+        f:close()
+        local ok, img = pcall(r.ImGui_CreateImage, path)
+        if ok and img then
+            r.ImGui_Attach(ctx, img)
+            record_input_chevron_imgs[which] = img
+        end
+    end
+    return record_input_chevron_imgs[which]
+end
+
+DrawRecordInputChevronImage = function(dl, cx, cy, dir, col)
+    local down = dir == "down"
+    local img = GetRecordInputChevronImg(down and "down" or "right")
+    if not img then return false end
+    local w = down and 8.5 or 5.0
+    local h = down and 5.0 or 8.5
+    local x1 = cx - w / 2
+    local y1 = cy - h / 2
+    if dir == "left" then
+        r.ImGui_DrawList_AddImage(dl, img, x1, y1, x1 + w, y1 + h, 1, 0, 0, 1, col)
+    else
+        r.ImGui_DrawList_AddImage(dl, img, x1, y1, x1 + w, y1 + h, 0, 0, 1, 1, col)
+    end
+    return true
 end
 
 -- Draw the inspect arrow icon scaled to target logical size, tinted to color.
@@ -1248,6 +1369,8 @@ end
 
 footer_settings_img = nil
 footer_settings_img_loaded = false
+footer_columns_img = nil
+footer_columns_img_loaded = false
 footer_label_images = {}
 footer_label_images_loaded = {}
 
@@ -1289,6 +1412,22 @@ GetFooterLabelImg = function(which)
     return footer_label_images[which]
 end
 
+GetFooterColumnsImg = function()
+    if footer_columns_img_loaded then return footer_columns_img end
+    footer_columns_img_loaded = true
+    local path = script_dir .. "icons/Nav.Columns.png"
+    local f = io.open(path, "rb")
+    if f then
+        f:close()
+        local ok, img = pcall(r.ImGui_CreateImage, path)
+        if ok and img then
+            r.ImGui_Attach(ctx, img)
+            footer_columns_img = img
+        end
+    end
+    return footer_columns_img
+end
+
 DrawFooterImageInBox = function(dl, img, cx, cy, box, col)
     if not img then return false end
     local iw, ih = r.ImGui_Image_GetSize(img)
@@ -1309,6 +1448,16 @@ DrawFooterImageInBox = function(dl, img, cx, cy, box, col)
     return true
 end
 
+DrawFooterImageFixed = function(dl, img, cx, cy, w, h, col)
+    if not img then return false end
+    local iw, ih = r.ImGui_Image_GetSize(img)
+    if not iw or not ih or iw < 1 or ih < 1 then return false end
+    local x = cx - w / 2
+    local y = cy - h / 2
+    r.ImGui_DrawList_AddImage(dl, img, x, y, x + w, y + h, 0, 0, 1, 1, col)
+    return true
+end
+
 DrawFooterLabel = function(dl, cx, cy, label, col, box)
     if DrawFooterImageInBox(dl, GetFooterLabelImg(label), cx, cy, box, col) then return end
     local font = GetSteppedFont(-1)
@@ -1323,6 +1472,21 @@ DrawFooterSettingsIcon = function(dl, cx, cy, col, box)
     local gear_box = 31 * 0.5 * ReflexRawUiScale()
     if DrawFooterImageInBox(dl, GetFooterSettingsImg(), cx, cy, gear_box, col) then return end
     DrawFooterLabel(dl, cx, cy, "\xE2\x9A\x99", col, gear_box)
+end
+
+DrawFooterColumnsIcon = function(dl, cx, cy, col, box)
+    if DrawFooterImageFixed(dl, GetFooterColumnsImg(), cx, cy, 12, 11, col) then return end
+    local w = box * 0.56
+    local h = box * 0.50
+    local gap = math.max(1, ReflexFooterRetinaPx(2))
+    local stroke = math.max(1, ReflexFooterRetinaPx(1.5))
+    local col_w = (w - gap) * 0.5
+    local x1 = Round(cx - w * 0.5)
+    local y1 = Round(cy - h * 0.5)
+    local y2 = Round(cy + h * 0.5)
+    local rct = math.max(1, ReflexFooterRetinaPx(1.5))
+    r.ImGui_DrawList_AddRect(dl, x1, y1, x1 + col_w, y2, col, rct, 0, stroke)
+    r.ImGui_DrawList_AddRect(dl, x1 + col_w + gap, y1, x1 + w, y2, col, rct, 0, stroke)
 end
 
 ReflexFooterRetinaPx = function(px)
@@ -1392,7 +1556,7 @@ CardBegin = function(bw, card_opts)
     scx = math.floor(scx)
     card_idx = card_idx + 1
     local ci = card_idx
-    local est_h = card_heights_prev[ci] or S(300)
+    local est_h = (card_opts and card_opts.est_h) or card_heights_prev[ci] or S(300)
     local dl = r.ImGui_GetWindowDrawList(ctx)
     local cr = S(UI.card_r)
     local x2 = math.floor(scx + bw)
@@ -1423,7 +1587,9 @@ CardEnd = function(card, opts)
     r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + py_bot)
     local _, ecy = r.ImGui_GetCursorScreenPos(ctx)
     local actual_h = ecy - card.scy
-    card_heights_cur[card.ci] = actual_h
+    if not (opts and opts.no_height_cache) then
+        card_heights_cur[card.ci] = actual_h
+    end
     r.ImGui_SetCursorPosX(ctx, card.sx)
 end
 
@@ -1611,28 +1777,146 @@ FXPowerNamePad = function(row_h)
     return row_h + math.max(0, row_h / 2 - FXPowerCircleDiameter() / 2)
 end
 
-FXPowerBgColor = function(enabled, hovered)
-    if enabled then return hovered and C.fx_power_hover or C.fx_power_bg end
+FXCategoryBarWidth = function()
+    return 18 * 0.5 * ReflexEffectiveUiScale()
+end
+
+FXPowerBgColor = function(enabled, hovered, bypass_forced)
+    if enabled and not bypass_forced then return hovered and C.fx_power_hover or C.fx_power_bg end
     return hovered and C.fx_power_byp_hover or C.fx_power_byp_bg
 end
 
-DrawFXPowerEndcap = function(dl, x, y, row_h, enabled, hovered, rounding)
-    local col = FXPowerBgColor(enabled, hovered)
+FXPowerEndcapBgColor = function(enabled, hovered, row_bg, offline, bypass_forced)
+    if offline and not enabled then return row_bg end
+    if offline and enabled then return FXPowerBgColor(false, hovered, true) end
+    return FXPowerBgColor(enabled, hovered, bypass_forced)
+end
+
+DrawFXPowerEndcap = function(dl, x, y, row_h, enabled, hovered, rounding, bypass_forced)
+    local col = FXPowerBgColor(enabled, hovered, bypass_forced)
     local flags = r.ImGui_DrawFlags_RoundCornersTopLeft() | r.ImGui_DrawFlags_RoundCornersBottomLeft()
     r.ImGui_DrawList_AddRectFilled(dl, x, y, x + row_h, y + row_h, col, rounding or 0, flags)
 end
 
-DrawFXRowBase = function(dl, x, y, w, row_h, total_h, body_col, power_col, radius)
-    local seam_x = x + row_h
-    if math.abs(total_h - row_h) < 0.01 then
-        local left_flags = r.ImGui_DrawFlags_RoundCornersTopLeft() | r.ImGui_DrawFlags_RoundCornersBottomLeft()
-        local right_flags = r.ImGui_DrawFlags_RoundCornersTopRight() | r.ImGui_DrawFlags_RoundCornersBottomRight()
-        r.ImGui_DrawList_AddRectFilled(dl, x, y, seam_x, y + row_h, power_col, radius, left_flags)
-        r.ImGui_DrawList_AddRectFilled(dl, seam_x, y, x + w, y + row_h, body_col, radius, right_flags)
-    else
-        DrawHighResRoundedRectFilled(dl, x, y, x + w, y + total_h, body_col, radius)
-        r.ImGui_DrawList_AddRectFilled(dl, x, y, seam_x, y + row_h, power_col, radius, r.ImGui_DrawFlags_RoundCornersTopLeft())
+FXRowDefaultCorners = function()
+    return { tr = true, br = true }
+end
+
+FXRowStackCorners = function(index, count)
+    if not index or not count or count <= 0 then return FXRowDefaultCorners() end
+    local first = index == 1
+    local last = index == count
+    return {
+        tl = first,
+        tr = first,
+        br = last,
+        bl = last,
+    }
+end
+
+FXRowCornerFlags = function(corners, names)
+    corners = corners or FXRowDefaultCorners()
+    local flags = 0
+    for _, name in ipairs(names or {}) do
+        if name == "tl" and corners.tl then
+            flags = flags | r.ImGui_DrawFlags_RoundCornersTopLeft()
+        elseif name == "tr" and corners.tr then
+            flags = flags | r.ImGui_DrawFlags_RoundCornersTopRight()
+        elseif name == "br" and corners.br then
+            flags = flags | r.ImGui_DrawFlags_RoundCornersBottomRight()
+        elseif name == "bl" and corners.bl then
+            flags = flags | r.ImGui_DrawFlags_RoundCornersBottomLeft()
+        end
     end
+    return flags
+end
+
+FXRowRadiusForFlags = function(radius, flags)
+    return (flags and flags ~= 0) and (radius or 0) or 0
+end
+
+FXRowBodyCornerFlags = function(corners, category_w)
+    local names = category_w and category_w > 0 and { "tr", "br" } or { "tl", "tr", "br", "bl" }
+    return FXRowCornerFlags(corners, names)
+end
+
+DrawFXRowBase = function(dl, x, y, w, row_h, total_h, body_col, power_col, radius, category_col, category_w, corners)
+    category_w = category_w or 0
+    local power_x = x + category_w
+    local body_x = power_x + row_h
+    local cat_flags = FXRowCornerFlags(corners, { "tl", "bl" })
+    local body_flags = FXRowBodyCornerFlags(corners, category_w)
+    if category_w > 0 then
+        r.ImGui_DrawList_AddRectFilled(dl, x, y, x + category_w, y + total_h,
+            category_col or C.fx_cat_generic, FXRowRadiusForFlags(radius, cat_flags), cat_flags)
+    end
+    r.ImGui_DrawList_AddRectFilled(dl, x + category_w, y, x + w, y + total_h, body_col,
+        FXRowRadiusForFlags(radius, body_flags), body_flags)
+    r.ImGui_DrawList_AddRectFilled(dl, power_x, y, body_x, y + row_h, power_col, 0)
+end
+
+DrawFXRowRightOutline = function(dl, x, y, w, h, col, radius, thickness, corners)
+    if not col then return end
+    local x1 = Round(x)
+    local y1 = Round(y)
+    local x2 = Round(x + w)
+    local y2 = Round(y + h)
+    local t = thickness or SOURCE_STROKE_W or 1
+    local rr = math.max(0, math.min(Round(radius or 0), math.floor(math.min(x2 - x1, y2 - y1) / 2)))
+    corners = corners or FXRowDefaultCorners()
+    local has_round = rr > t and (corners.tl or corners.tr or corners.br or corners.bl)
+
+    if not has_round then
+        r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, math.min(y2, y1 + t), col)
+        r.ImGui_DrawList_AddRectFilled(dl, x1, math.max(y1, y2 - t), x2, y2, col)
+        r.ImGui_DrawList_AddRectFilled(dl, x1, y1, math.min(x2, x1 + t), y2, col)
+        r.ImGui_DrawList_AddRectFilled(dl, math.max(x1, x2 - t), y1, x2, y2, col)
+        return
+    end
+
+    local top_l = corners.tl and rr or 0
+    local top_r = corners.tr and rr or 0
+    local bot_r = corners.br and rr or 0
+    local bot_l = corners.bl and rr or 0
+
+    r.ImGui_DrawList_PushClipRect(dl, x1, y1, x2, y2, true)
+    r.ImGui_DrawList_AddRectFilled(dl, x1 + top_l, y1, x2 - top_r, y1 + t, col)
+    r.ImGui_DrawList_AddRectFilled(dl, x1 + bot_l, y2 - t, x2 - bot_r, y2, col)
+    r.ImGui_DrawList_AddRectFilled(dl, x1, y1 + top_l, x1 + t, y2 - bot_l, col)
+    r.ImGui_DrawList_AddRectFilled(dl, x2 - t, y1 + top_r, x2, y2 - bot_r, col)
+
+    if r.ImGui_DrawList_PathClear and r.ImGui_DrawList_PathArcTo and r.ImGui_DrawList_PathStroke then
+        local pi = math.pi
+        local radius = math.max(0, rr - t * 0.5)
+        local segs = math.max(8, math.floor(rr * 3))
+        local function arc(cx, cy, a1, a2)
+            r.ImGui_DrawList_PathClear(dl)
+            r.ImGui_DrawList_PathArcTo(dl, cx, cy, radius, a1, a2, segs)
+            r.ImGui_DrawList_PathStroke(dl, col, 0, t)
+        end
+        if corners.tl then arc(x1 + rr, y1 + rr, pi, pi * 1.5) end
+        if corners.tr then arc(x2 - rr, y1 + rr, pi * 1.5, pi * 2) end
+        if corners.br then arc(x2 - rr, y2 - rr, 0, pi * 0.5) end
+        if corners.bl then arc(x1 + rr, y2 - rr, pi * 0.5, pi) end
+    else
+        if corners.tl then r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x1 + t, y1 + t, col) end
+        if corners.tr then r.ImGui_DrawList_AddRectFilled(dl, x2 - t, y1, x2, y1 + t, col) end
+        if corners.br then r.ImGui_DrawList_AddRectFilled(dl, x2 - t, y2 - t, x2, y2, col) end
+        if corners.bl then r.ImGui_DrawList_AddRectFilled(dl, x1, y2 - t, x1 + t, y2, col) end
+    end
+    r.ImGui_DrawList_PopClipRect(dl)
+end
+
+DrawFXRowOverlay = function(dl, x, y, w, row_h, total_h, category_w, col, radius, corners)
+    category_w = category_w or 0
+    local cat_flags = FXRowCornerFlags(corners, { "tl", "bl" })
+    local body_flags = FXRowBodyCornerFlags(corners, category_w)
+    if category_w > 0 then
+        r.ImGui_DrawList_AddRectFilled(dl, x, y, x + category_w, y + total_h, col,
+            FXRowRadiusForFlags(radius, cat_flags), cat_flags)
+    end
+    r.ImGui_DrawList_AddRectFilled(dl, x + category_w, y, x + w, y + total_h, col,
+        FXRowRadiusForFlags(radius, body_flags), body_flags)
 end
 
 DrawFXPowerButton = function(id, x, y, row_h, enabled, payload)
@@ -1640,20 +1924,452 @@ DrawFXPowerButton = function(id, x, y, row_h, enabled, payload)
     r.ImGui_SetCursorScreenPos(ctx, x, y)
     r.ImGui_InvisibleButton(ctx, id, row_h, row_h)
     local hov = r.ImGui_IsItemHovered(ctx)
-    if hov then
+    local offline = payload and payload.offline
+    local mods = r.ImGui_GetKeyMods(ctx)
+    local offline_toggle = IsCmd(mods) and IsShift(mods)
+    if hov and (not offline or offline_toggle) then
         r.ImGui_SetMouseCursor(ctx, r.ImGui_MouseCursor_Hand())
         Tip("Click: bypass\nOpt: remove\nCmd: select\nCtrl: range\nCmd+Shift: offline")
     end
-    if r.ImGui_IsItemClicked(ctx, 0) then
+    if r.ImGui_IsItemClicked(ctx, 0) and (not offline or offline_toggle) then
         FxRowPowerClick(payload)
     end
     local d = FXPowerCircleDiameter()
     local cx = x + row_h / 2
     local cy = y + row_h / 2
-    local col = enabled and C.fx_power_on or C.fx_power_off
-    if hov then col = ScaleColor(col, 1.2) end
+    local col
+    if offline then
+        col = C.fx_power_offline
+    else
+        col = enabled and C.fx_power_on or C.fx_power_off
+    end
+    if hov and not offline then col = ScaleColor(col, 1.2) end
     r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, d / 2, col, NAV_CIRCLE_SEGMENTS)
     return hov
+end
+
+ShowOfflineFxStateTooltip = function(enabled)
+    PushTooltipStyle()
+    local tip_fp = PushTooltipFont()
+    r.ImGui_BeginTooltip(ctx)
+    r.ImGui_Text(ctx, enabled and "Offline / enabled" or "Offline / bypassed")
+    r.ImGui_EndTooltip(ctx)
+    PopTooltipFont(tip_fp)
+    PopTooltipStyle()
+end
+
+fx_category_cache = nil
+
+FXFolderDefaults = {
+    "Favorites", "Adaptive", "Channel Strip", "Compression", "Delay", "Drum Machine",
+    "EQ", "Filter", "Guitar", "Harmonics", "Lofi", "Mastering", "Modulation",
+    "Rack", "Reverb", "Sampler", "Shape", "Synth", "Tape", "Analog Obsession",
+    "Korg Gadgets", "Width",
+}
+
+FXCategoryNormalize = function(s)
+    s = tostring(s or ""):lower()
+    s = s:gsub("^%s*[%w%+%-]+:%s*", "")
+    s = s:gsub("%b()", "")
+    return s:gsub("[^%w]+", "")
+end
+
+FXFolderItemNormalize = function(s)
+    s = tostring(s or "")
+    local base = s:match("([^/\\]+)$") or s
+    return FXCategoryNormalize(s) .. "|" .. FXCategoryNormalize(base)
+end
+
+FXCategorySplit = function(val)
+    local out = {}
+    for part in tostring(val or ""):gmatch("([^|]+)") do
+        part = part:gsub("^%s+", ""):gsub("%s+$", "")
+        if part ~= "" then out[#out + 1] = part end
+    end
+    return out
+end
+
+FXCategoryFirst = function(cats)
+    return cats and cats[1] or nil
+end
+
+FXCategoryAddKnown = function(cache, cat)
+    cat = tostring(cat or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if cat == "" then return end
+    local norm = FXCategoryNormalize(cat)
+    if norm == "" or cache.folder_seen[norm] then return end
+    cache.folder_seen[norm] = true
+    cache.folders[#cache.folders + 1] = cat
+end
+
+FXCategoryPutKey = function(cache, key, cats)
+    if not key or key == "" then return end
+    local first_cat = FXCategoryFirst(cats)
+    cache.by_key[key] = first_cat
+    cache.cats_by_key[key] = cats
+    for _, cat in ipairs(cats or {}) do FXCategoryAddKnown(cache, cat) end
+    local function put_norm(s)
+        local norm = FXCategoryNormalize(s)
+        if norm ~= "" then
+            cache.by_norm[norm] = first_cat
+            cache.cats_by_norm[norm] = cats
+            cache.key_by_norm[norm] = key
+        end
+    end
+    put_norm(key)
+    local base = key:match("([^/\\]+)$") or key
+    put_norm(base:gsub("%.[^.]+$", ""))
+end
+
+FXFolderFilePath = function()
+    local resource_path = r.GetResourcePath and r.GetResourcePath() or ""
+    local path = resource_path .. "/reaper-fxfolders.ini"
+    local f = io.open(path, "r")
+    if f then f:close(); return path end
+    local fallback = "/Applications/Reaper/reaper-fxfolders.ini"
+    f = io.open(fallback, "r")
+    if f then f:close(); return fallback end
+    return path
+end
+
+FXFolderPrimaryPath = function()
+    return script_dir .. "fx_folder_primary.txt"
+end
+
+fx_folder_primary_cache = nil
+
+FXFolderLoadPrimary = function()
+    if fx_folder_primary_cache then return fx_folder_primary_cache end
+    local map = {}
+    local f = io.open(FXFolderPrimaryPath(), "r")
+    if f then
+        for line in f:lines() do
+            local key, folder = line:match("^(.-)=(.*)$")
+            if key and key ~= "" and folder and folder ~= "" then map[key] = folder end
+        end
+        f:close()
+    end
+    fx_folder_primary_cache = map
+    return map
+end
+
+FXFolderSavePrimary = function(key, folder)
+    if not key or key == "" then return false end
+    local map = FXFolderLoadPrimary()
+    map[key] = folder
+    local keys = {}
+    for k in pairs(map) do keys[#keys + 1] = k end
+    table.sort(keys)
+    local f = io.open(FXFolderPrimaryPath(), "w")
+    if not f then return false end
+    for _, k in ipairs(keys) do f:write(k .. "=" .. tostring(map[k]) .. "\n") end
+    f:close()
+    return true
+end
+
+FXLoadCategoryCache = function()
+    if fx_category_cache then return fx_category_cache end
+    local cache = {
+        by_key = {}, by_norm = {},
+        cats_by_key = {}, cats_by_norm = {}, key_by_norm = {},
+        folders = {}, folder_seen = {},
+        folder_ids = {}, folder_names_by_id = {}, folder_items = {},
+    }
+    local path = FXFolderFilePath()
+    local f = io.open(path, "r")
+    if f then
+        local section = nil
+        local folder_names, folder_ids = {}, {}
+        local folder_items = {}
+        for line in f:lines() do
+            local new_section = line:match("^%s*%[([^%]]+)%]")
+            if new_section then
+                section = new_section
+            elseif section == "Folders" then
+                local name_i, name = line:match("^%s*Name(%d+)%s*=%s*(.-)%s*$")
+                if name_i then
+                    folder_names[tonumber(name_i)] = name
+                else
+                    local id_i, id = line:match("^%s*Id(%d+)%s*=%s*(%d+)%s*$")
+                    if id_i then folder_ids[tonumber(id_i)] = tonumber(id) end
+                end
+            else
+                local folder_id = section and tonumber(section:match("^Folder(%d+)$"))
+                if folder_id then
+                    local item_i, item = line:match("^%s*Item(%d+)%s*=%s*(.-)%s*$")
+                    if item_i and item and item ~= "" then
+                        folder_items[folder_id] = folder_items[folder_id] or {}
+                        folder_items[folder_id][#folder_items[folder_id] + 1] = item
+                    end
+                end
+            end
+        end
+        f:close()
+        local order = {}
+        for idx, name in pairs(folder_names) do order[#order + 1] = idx end
+        table.sort(order)
+        for _, idx in ipairs(order) do
+            local name = folder_names[idx]
+            local id = folder_ids[idx] or idx
+            FXCategoryAddKnown(cache, name)
+            cache.folder_ids[name] = id
+            cache.folder_names_by_id[id] = name
+            for _, item in ipairs(folder_items[id] or {}) do
+                cache.folder_items[id] = cache.folder_items[id] or {}
+                cache.folder_items[id][#cache.folder_items[id] + 1] = item
+                local cats = cache.cats_by_key[item]
+                if not cats then
+                    cats = {}
+                    cache.cats_by_key[item] = cats
+                    cache.cats_by_norm[FXFolderItemNormalize(item)] = cats
+                    cache.key_by_norm[FXFolderItemNormalize(item)] = item
+                end
+                cats[#cats + 1] = name
+            end
+        end
+    else
+        for _, cat in ipairs(FXFolderDefaults) do FXCategoryAddKnown(cache, cat) end
+    end
+    fx_category_cache = cache
+    return cache
+end
+
+FXPluginCategory = function(track, fx_idx, raw_name, display_name, is_container, is_instrument)
+    if is_container then return "Container" end
+    local cache = FXLoadCategoryCache()
+    local candidates = {}
+    if track and r.ValidatePtr(track, "MediaTrack*") and fx_idx then
+        local parms = { "fx_ident", "fx_name", "original_name", "renamed_name" }
+        for _, parm in ipairs(parms) do
+            local ok, val = r.TrackFX_GetNamedConfigParm(track, fx_idx, parm)
+            if ok and val and val ~= "" then candidates[#candidates + 1] = val end
+        end
+    end
+    candidates[#candidates + 1] = raw_name
+    candidates[#candidates + 1] = display_name
+    for _, candidate in ipairs(candidates) do
+        local cats = cache.cats_by_key[candidate] or cache.cats_by_norm[FXFolderItemNormalize(candidate)]
+        if cats then
+            local key = cache.cats_by_key[candidate] and candidate or cache.key_by_norm[FXFolderItemNormalize(candidate)]
+            local primary = FXFolderLoadPrimary()[key or candidate]
+            for _, cat in ipairs(cats) do if cat == primary then return primary end end
+            return cats[1]
+        end
+    end
+    if is_instrument then return "Instrument" end
+    return nil
+end
+
+FXPluginCategoryInfo = function(track, fx_idx)
+    local raw_name = ""
+    if track and r.ValidatePtr(track, "MediaTrack*") and fx_idx then
+        local _, nm = r.TrackFX_GetFXName(track, fx_idx, "")
+        raw_name = nm or ""
+    end
+    local display_name = InspStripName(raw_name)
+    local cache = FXLoadCategoryCache()
+    local candidates = {}
+    if track and r.ValidatePtr(track, "MediaTrack*") and fx_idx then
+        local parms = { "fx_ident", "fx_name", "original_name", "renamed_name" }
+        for _, parm in ipairs(parms) do
+            local ok, val = r.TrackFX_GetNamedConfigParm(track, fx_idx, parm)
+            if ok and val and val ~= "" then candidates[#candidates + 1] = val end
+        end
+    end
+    candidates[#candidates + 1] = raw_name
+    candidates[#candidates + 1] = display_name
+    local fallback_key
+    for _, candidate in ipairs(candidates) do
+        if candidate and candidate ~= "" then
+            fallback_key = fallback_key or candidate
+            local cats = cache.cats_by_key[candidate]
+            if cats then
+                local primary = FXFolderLoadPrimary()[candidate]
+                local active_primary = nil
+                for _, cat in ipairs(cats) do if cat == primary then active_primary = primary end end
+                return candidate, cats, cache.folders, active_primary
+            end
+            local norm = FXFolderItemNormalize(candidate)
+            cats = cache.cats_by_norm[norm]
+            if cats then
+                local key = cache.key_by_norm[norm] or candidate
+                local primary = FXFolderLoadPrimary()[key]
+                local active_primary = nil
+                for _, cat in ipairs(cats) do if cat == primary then active_primary = primary end end
+                return key, cats, cache.folders, active_primary
+            end
+        end
+    end
+    return fallback_key or display_name, {}, cache.folders, nil
+end
+
+FXSaveCategoryAssignment = function(key, cats)
+    if not key or key == "" then return false end
+    cats = cats or {}
+    local path = FXFolderFilePath()
+    local lines = {}
+    local f = io.open(path, "r")
+    if f then
+        for line in f:lines() do lines[#lines + 1] = line end
+        f:close()
+    end
+    local cache = FXLoadCategoryCache()
+    local target_folders = {}
+    for _, cat in ipairs(cats) do target_folders[cat] = true end
+    local touched_ids = {}
+    for _, folder in ipairs(cache.folders or {}) do
+        local id = cache.folder_ids[folder]
+        if id and target_folders[folder] then touched_ids[id] = true end
+    end
+    local key_norm = FXFolderItemNormalize(key)
+    local sections = {}
+    local order = {}
+    local current = { name = nil, body = {} }
+    local function push_section(sec)
+        order[#order + 1] = sec
+        if sec.name then sections[sec.name] = sec end
+    end
+    for _, line in ipairs(lines) do
+        local section = line:match("^%s*%[([^%]]+)%]")
+        if section then
+            push_section(current)
+            current = { name = section, body = {} }
+        else
+            current.body[#current.body + 1] = line
+        end
+    end
+    push_section(current)
+
+    local function folder_section_id(sec)
+        return sec and sec.name and tonumber(sec.name:match("^Folder(%d+)$")) or nil
+    end
+
+    local folder_ids = {}
+    for _, folder in ipairs(cache.folders or {}) do
+        local id = cache.folder_ids[folder]
+        if id then folder_ids[#folder_ids + 1] = id end
+    end
+    table.sort(folder_ids)
+
+    local existing_match_ids = {}
+    for _, sec in ipairs(order) do
+        local id = folder_section_id(sec)
+        if id then
+            for _, line in ipairs(sec.body) do
+                local item = line:match("^%s*Item%d+%s*=%s*(.-)%s*$")
+                if item and FXFolderItemNormalize(item) == key_norm then
+                    existing_match_ids[id] = true
+                    touched_ids[id] = true
+                end
+            end
+        end
+    end
+
+    for _, id in ipairs(folder_ids) do
+        local folder = cache.folder_names_by_id[id]
+        if target_folders[folder] then touched_ids[id] = true end
+        if touched_ids[id] and not sections["Folder" .. tostring(id)] then
+            local sec = { name = "Folder" .. tostring(id), body = {} }
+            sections[sec.name] = sec
+            order[#order + 1] = sec
+        end
+    end
+
+    for _, sec in ipairs(order) do
+        local id = folder_section_id(sec)
+        if id and touched_ids[id] then
+            local folder = cache.folder_names_by_id[id]
+            local items = {}
+            for _, line in ipairs(sec.body) do
+                local item = line:match("^%s*Item%d+%s*=%s*(.-)%s*$")
+                if item and item ~= "" and FXFolderItemNormalize(item) ~= key_norm then
+                    items[#items + 1] = item
+                end
+            end
+            if target_folders[folder] then items[#items + 1] = key end
+            local new_body = {}
+            for i, item in ipairs(items) do new_body[#new_body + 1] = "Item" .. (i - 1) .. "=" .. item end
+            new_body[#new_body + 1] = "Nb=" .. tostring(#items)
+            for i = 1, #items do new_body[#new_body + 1] = "Type" .. (i - 1) .. "=3" end
+            sec.body = new_body
+        end
+    end
+
+    local out = {}
+    for _, sec in ipairs(order) do
+        if sec.name then out[#out + 1] = "[" .. sec.name .. "]" end
+        for _, line in ipairs(sec.body) do out[#out + 1] = line end
+    end
+    local wf = io.open(path, "w")
+    if not wf then return false end
+    wf:write(table.concat(out, "\n"))
+    wf:write("\n")
+    wf:close()
+    fx_category_cache = nil
+    if InspMarkTrackFxDirty and insp_track then InspMarkTrackFxDirty(insp_track) end
+    return true
+end
+
+FXFolderMenu = function(track, fx_idx)
+    if not (track and r.ValidatePtr(track, "MediaTrack*")) then return end
+    local key, cats, folders, primary = FXPluginCategoryInfo(track, fx_idx)
+    if not key or key == "" then return end
+    local active = {}
+    for _, cat in ipairs(cats or {}) do active[cat] = true end
+    primary = primary or cats[1]
+    if r.ImGui_BeginMenu(ctx, "Folder") then
+        for _, folder in ipairs(folders or {}) do
+            local checked = active[folder] == true
+            local is_primary = primary == folder and checked
+            local label = is_primary and (folder .. " *") or folder
+            if r.ImGui_MenuItem(ctx, label, nil, checked) then
+                local mods = r.ImGui_GetKeyMods(ctx)
+                local next_cats = {}
+                local make_primary = IsAlt and IsAlt(mods)
+                if make_primary then
+                    next_cats[#next_cats + 1] = folder
+                    for _, cat in ipairs(cats) do if cat ~= folder then next_cats[#next_cats + 1] = cat end end
+                    FXFolderSavePrimary(key, folder)
+                elseif checked then
+                    for _, cat in ipairs(cats) do if cat ~= folder then next_cats[#next_cats + 1] = cat end end
+                else
+                    next_cats[#next_cats + 1] = folder
+                    for _, cat in ipairs(cats) do if cat ~= folder then next_cats[#next_cats + 1] = cat end end
+                end
+                if FXSaveCategoryAssignment(key, next_cats) then
+                    if InspMarkTrackFxDirty then InspMarkTrackFxDirty(track) end
+                    if sends_fx_cache then sends_fx_cache[track] = nil end
+                end
+            end
+        end
+        r.ImGui_EndMenu(ctx)
+    end
+end
+
+FXCategoryColor = function(category, is_container, is_instrument, is_offline, is_enabled)
+    local cat = tostring(category or ""):lower()
+    local col = C.fx_cat_generic
+    if is_container or cat:find("container", 1, true) or cat:find("rack", 1, true) then
+        col = C.fx_cat_container
+    elseif is_instrument
+        or cat:find("instrument", 1, true)
+        or cat:find("synth", 1, true)
+        or cat:find("sampler", 1, true)
+        or cat:find("drum", 1, true) then
+        col = C.fx_cat_instrument
+    elseif cat:find("harmonic", 1, true)
+        or cat:find("satur", 1, true)
+        or cat:find("distortion", 1, true)
+        or cat:find("tape", 1, true)
+        or cat:find("lofi", 1, true) then
+        col = C.fx_cat_harmonics
+    elseif cat == "eq" or cat:find("equal", 1, true) then
+        col = C.fx_cat_eq
+    elseif cat:find("compress", 1, true) or cat:find("dynamics", 1, true) then
+        col = C.fx_cat_compression
+    end
+    if is_offline or not is_enabled then col = ScaleColor(col, 0.45) end
+    return col
 end
 
 RecordArmColor = function(is_armed, hov, active)
@@ -1895,6 +2611,42 @@ InspVolumeMeterWidth = function(bw, row_h, wrapped)
     return math.max(1, bw - right_w - S(UI.pad_sm))
 end
 
+InspVolumeShouldWrap = function(bw, row_h)
+    local inline_meter_w = InspVolumeMeterWidth(bw, row_h, false)
+    local right_w = InspVolumeRightWidth(row_h)
+    local min_meter_w = math.max(row_h * 4, right_w)
+    return inline_meter_w < min_meter_w
+end
+
+InspHeaderPanInlineMinWidth = function()
+    local row_h = S(UI.btn_h)
+    local gap = S(UI.pad_sm)
+    local group_gap = S(UI.group_gap)
+    local pan_val_w = math.max(row_h, r.ImGui_CalcTextSize(ctx, "100R") + S(16))
+    local pan_knob_d = S(64 / 1.44)
+    local pan_knob_right_nudge = 5
+    local vol_value_w = row_h * 2 + gap
+    local rec_total = row_h + gap + RecordMonitorButtonWidth(row_h) + gap * 2
+    local solo_right = rec_total + row_h + gap + row_h
+    local left_end = solo_right + group_gap + vol_value_w
+    return left_end + group_gap + pan_val_w + gap * 2 + pan_knob_d - pan_knob_right_nudge
+end
+
+InspControlsInlineMinWidth = function()
+    local row_h = S(UI.btn_h)
+    local gap = S(UI.pad_sm)
+    local fx_btn_w = math.floor(InspCtrlW("FX") * 1.4)
+    local fx_compound_w = fx_btn_w + row_h + row_h + math.floor(gap / 2)
+    local route_w = InspRoutingPillWidth()
+    local env_compound_w = InspTrackEnvCompoundBaseWidth and InspTrackEnvCompoundBaseWidth(row_h)
+        or (r.ImGui_CalcTextSize(ctx, "ENV") + 18 + row_h)
+    return fx_compound_w + gap + env_compound_w + gap + route_w
+end
+
+InspCardMinWidth = function()
+    return math.max(InspHeaderPanInlineMinWidth(), InspControlsInlineMinWidth())
+end
+
 RecordInputChevronWidth = function()
     return S(9)
 end
@@ -1928,72 +2680,85 @@ RecordInputBoxWidth = function(track, geom_key, base_w, box_avail, desired_w)
 end
 
 InspDrawRecordInputRow = function(track, hdr, row_y, row_h, bw, text_pad, meter_row_h)
-    local gap = S(UI.pad_sm)
     local step_w = row_h
-    local button_total = step_w + gap + step_w
-    local box_avail = math.max(1, bw - button_total - gap)
     local current_value = math.floor(r.GetMediaTrackInfo_Value(track, "I_RECINPUT") or -1)
     local label = RecordInputValueLabel(current_value, track)
-    local pad_x = S(10)
-    local chev_gap = S(8)
-    local chev_w = RecordInputChevronWidth()
-    local box_w = box_avail
+    local box_w = math.max(step_w, bw - step_w * 2)
     local x = hdr.trk_sx + text_pad
 
+    local sx = hdr.trk_cx + text_pad
+    local sy = hdr.trk_cy + row_y - hdr.trk_sy
+    local left_w = box_w
+    local prev_x = x + left_w
+    local next_x = prev_x + step_w
+    local dl = r.ImGui_GetWindowDrawList(ctx)
+    local row_bg = C.fx_ctrl_bg
+    local hover_bg = C.fx_ctrl_hover
+    local active_bg = C.fx_ctrl_active
+    local chevron_rest = rgb(0x5C5E62)
+    local chevron_hover = rgb(0x8B8B8C)
+    local text_col = (C.text & 0xFFFFFF00) | 0xBF
+
+    r.ImGui_DrawList_AddRectFilled(dl, sx, sy, sx + bw, sy + row_h, row_bg, S(UI.corner_r))
+
     r.ImGui_SetCursorPos(ctx, x, row_y)
-    local input_hov, clk = NavRect("##recinput", box_w, row_h, nil, {
-        bg = C.fx_ctrl_bg,
-        hov = C.fx_ctrl_hover,
-        active = C.fx_ctrl_active,
-        rounding = S(UI.corner_r),
-    })
+    r.ImGui_InvisibleButton(ctx, "##recinput", left_w, row_h)
+    local input_hov = r.ImGui_IsItemHovered(ctx)
+    local input_act = r.ImGui_IsItemActive(ctx)
+    local clk = r.ImGui_IsItemClicked(ctx, 0)
     local rclk = r.ImGui_IsItemClicked(ctx, 1)
     Tip("Record input")
     if clk then r.ImGui_OpenPopup(ctx, "##recinput_popup") end
     if rclk then RecordInputOpenContext(track, current_value) end
 
-    local x1, y1 = r.ImGui_GetItemRectMin(ctx)
-    local x2, y2 = r.ImGui_GetItemRectMax(ctx)
-    local text_col = (C.text & 0xFFFFFF00) | 0xBF
-    local chev_col = (C.text & 0xFFFFFF00) | 0x80
+    if input_hov or input_act then
+        r.ImGui_DrawList_AddRectFilled(dl, sx, sy, sx + left_w, sy + row_h,
+            input_act and active_bg or hover_bg, S(UI.corner_r),
+            r.ImGui_DrawFlags_RoundCornersLeft())
+    end
+
+    local left_icon_col = (input_hov or input_act) and chevron_hover or chevron_rest
+    DrawRecordInputChevronImage(dl, sx + step_w / 2, sy + row_h / 2, "down", left_icon_col)
+
     local fp2 = PushFont(GetSteppedFont(UI.font_fx))
     local text_h = r.ImGui_GetTextLineHeight(ctx)
-    local text_x = x1 + pad_x
-    local label_avail = math.max(1, x2 - pad_x - chev_gap - chev_w - text_x)
+    local text_x = sx + step_w
+    local label_avail = math.max(1, sx + left_w - S(8) - text_x)
     local display = RecordInputClipLabel(label, label_avail)
-    local ty = y1 + Round((row_h - text_h) / 2)
-    local dl = r.ImGui_GetWindowDrawList(ctx)
+    local ty = sy + Round((row_h - text_h) / 2)
     r.ImGui_DrawList_AddText(dl, text_x, ty, text_col, display)
-    if input_hov then
-        DrawRecordInputChevron(dl, x2, y1, y2, pad_x, chev_col)
-    end
     PopFont(fp2)
 
     RecordInputPopup(track, "##recinput_popup", current_value)
     RecordInputContextPopup(track, true)
 
-    local arr_txt = (C.text_dim & 0xFFFFFF00) | math.floor((C.text_dim & 0xFF) * 0.4)
-    local btn_opts = {
-        bg = C.fx_ctrl_bg,
-        hov = C.fx_ctrl_hover,
-        active = C.fx_ctrl_active,
-        fg = arr_txt,
-        fg_hov = C.text,
-        fg_active = C.text,
-        arrow_size = (meter_row_h or S(UI.btn_h)) * 0.52,
-        arrow_dx = 1,
-        arrow_dy = 1,
-    }
-
-    local step_x = x + box_w + gap
-    r.ImGui_SetCursorPos(ctx, step_x, row_y)
-    local _, up_clk = NavSquare("##recinput_prev", step_w, row_h, "\xE2\x97\x80", btn_opts)
+    r.ImGui_SetCursorPos(ctx, prev_x, row_y)
+    r.ImGui_InvisibleButton(ctx, "##recinput_prev", step_w, row_h)
+    local prev_hov = r.ImGui_IsItemHovered(ctx)
+    local prev_act = r.ImGui_IsItemActive(ctx)
+    local up_clk = r.ImGui_IsItemClicked(ctx, 0)
     Tip("Previous input")
+    if prev_hov or prev_act then
+        r.ImGui_DrawList_AddRectFilled(dl, sx + left_w, sy, sx + left_w + step_w, sy + row_h,
+            prev_act and active_bg or hover_bg, 0)
+    end
+    DrawRecordInputChevronImage(dl, sx + left_w + step_w / 2, sy + row_h / 2, "left",
+        (prev_hov or prev_act) and chevron_hover or chevron_rest)
     if up_clk then RecordInputStep(track, -1) end
 
-    r.ImGui_SetCursorPos(ctx, step_x + step_w + gap, row_y)
-    local _, down_clk = NavSquare("##recinput_next", step_w, row_h, "\xE2\x96\xB6", btn_opts)
+    r.ImGui_SetCursorPos(ctx, next_x, row_y)
+    r.ImGui_InvisibleButton(ctx, "##recinput_next", step_w, row_h)
+    local next_hov = r.ImGui_IsItemHovered(ctx)
+    local next_act = r.ImGui_IsItemActive(ctx)
+    local down_clk = r.ImGui_IsItemClicked(ctx, 0)
     Tip("Next input")
+    if next_hov or next_act then
+        r.ImGui_DrawList_AddRectFilled(dl, sx + left_w + step_w, sy, sx + bw, sy + row_h,
+            next_act and active_bg or hover_bg, S(UI.corner_r),
+            r.ImGui_DrawFlags_RoundCornersRight())
+    end
+    DrawRecordInputChevronImage(dl, sx + left_w + step_w + step_w / 2, sy + row_h / 2, "right",
+        (next_hov or next_act) and chevron_hover or chevron_rest)
     if down_clk then RecordInputStep(track, 1) end
 end
 
@@ -2067,7 +2832,7 @@ UI = {
     hdr_row_gap = 14,  -- gap between header row 1 and row 2
     -- Per-boundary section-gap offsets (added to section_gap before scaling).
     -- Top-margin-only convention: each section owns S(section_gap + gap_xxx) above itself.
-    gap_hdr_vol    = 0,  -- HDR → VOL
+    gap_hdr_vol    = -(18 / 1.44),  -- HDR → VOL
     gap_vol_ctrl   = 10,  -- VOL → CTRL
     gap_ctrl_route = 0,  -- CTRL → ROUTE
     gap_ctrl_fx    = 0,  -- CTRL/ROUTE → FX
@@ -2076,9 +2841,9 @@ UI = {
     gap_sends      = 4,  -- above SENDS separator line
     card_r         = 12, -- card container corner radius
     card_stroke    = 3,  -- card border stroke width (legacy, kept for token compatibility)
-    card_pad       = 14, -- card horizontal (side) padding
-    card_pad_top   = 15, -- card top inner padding
-    card_pad_bot   = 14, -- card bottom inner padding (matches card_pad for symmetric gaps)
+    card_pad       = 18 / 1.44, -- card horizontal padding; 18 Retina px at 100%
+    card_pad_top   = 18 / 1.44, -- card top inner padding
+    card_pad_bot   = 18 / 1.44, -- card bottom inner padding
     card_gap       = 12, -- gap between independent cards (send rows)
     flow_gap       = 3,  -- gap between connected flow cards (tight, shows bg as separator)
     edge_pad       = 12, -- window border padding (main window + content margin)
@@ -2282,6 +3047,110 @@ local remote_dragging = false
 local nav_inspector_split_h = LoadPref("nav_inspector_split_h", nil)
 local nav_inspector_temp_split_h = LoadPref("nav_inspector_temp_split_h", nil)
 local nav_inspector_dragging = false
+local two_column_dragging = false
+local two_column_dragging_id = nil
+local nav_sends_left_overflow = false
+local nav_sends_left_content_h = nil
+local last_nav_side_layout = false
+
+ReflexDrawNavSplitHandle = function(handle_w, gap_hit_h, max_split_h)
+    if not (nav_visible and (navigator_expanded == true or nav_temporary_expanded == true)) then return end
+    if not gap_hit_h or gap_hit_h <= 0 then return end
+    handle_w = math.max(1, handle_w or 1)
+    local gap_cursor_x = r.ImGui_GetCursorPosX(ctx)
+    local gap_cursor_y = r.ImGui_GetCursorPosY(ctx)
+    local gap_screen_x, content_screen_y = r.ImGui_GetCursorScreenPos(ctx)
+    local hit_y = gap_cursor_y - gap_hit_h
+    local hit_screen_y = content_screen_y - gap_hit_h
+    local handle_h = 3.5 * nav_ui_scale
+    local handle_y = hit_screen_y + (gap_hit_h - handle_h) * 0.5
+    local handle_inset = math.min(S(UI.card_r), handle_w * 0.25)
+    local handle_x = gap_screen_x + handle_inset
+    local draw_w = math.max(1, handle_w - handle_inset * 2)
+    r.ImGui_SetCursorPosY(ctx, hit_y)
+    r.ImGui_InvisibleButton(ctx, "##nav_inspector_divider", handle_w, gap_hit_h)
+    local divider_hovered = r.ImGui_IsItemHovered(ctx)
+    local divider_active = r.ImGui_IsItemActive(ctx)
+    if divider_hovered or divider_active then
+        r.ImGui_SetMouseCursor(ctx, r.ImGui_MouseCursor_ResizeNS())
+        local dl = r.ImGui_GetWindowDrawList(ctx)
+        r.ImGui_DrawList_AddRectFilled(dl, handle_x, handle_y,
+            handle_x + draw_w, handle_y + handle_h, rgb(0x8B8B8C), handle_h * 0.5)
+    end
+    if divider_active then
+        local _, dy = r.ImGui_GetMouseDelta(ctx)
+        if dy ~= 0 then
+            local resizing_temp_nav = nav_temporary_expanded == true and navigator_expanded ~= true
+            local current_split_h = (resizing_temp_nav and nav_inspector_temp_split_h or nav_inspector_split_h)
+                or math.max(S(60), last_nav_h - (UI.nav_inspector_gap_px or 21) * 0.5 * nav_ui_scale)
+            local min_split_h = S(72)
+            max_split_h = math.max(min_split_h, max_split_h or min_split_h)
+            local next_split_h = math.max(min_split_h, math.min(max_split_h, current_split_h + dy))
+            if resizing_temp_nav then
+                nav_inspector_temp_split_h = next_split_h
+                SavePref("nav_inspector_temp_split_h", nav_inspector_temp_split_h)
+            else
+                nav_inspector_split_h = next_split_h
+                SavePref("nav_inspector_split_h", nav_inspector_split_h)
+            end
+        end
+        nav_inspector_dragging = true
+    elseif nav_inspector_dragging then
+        nav_inspector_dragging = false
+    end
+    r.ImGui_SetCursorPos(ctx, gap_cursor_x, gap_cursor_y)
+end
+
+ReflexTwoColumnLeftMinWidth = function()
+    return math.max(1, S(48))
+end
+
+ReflexTwoColumnDefaultLeftWidth = function()
+    local sends_min = ReflexSendsColumnMinWidth and ReflexSendsColumnMinWidth() or S(160)
+    return math.max(ReflexTwoColumnLeftMinWidth(), sends_min, S(220))
+end
+
+ReflexTwoColumnResolvedLeftWidth = function()
+    local w = tonumber(two_column_left_w) or ReflexTwoColumnDefaultLeftWidth()
+    return math.max(ReflexTwoColumnLeftMinWidth(), w)
+end
+
+ReflexDrawColumnSplitHandle = function(id, x, y1, gap_w, y2, total_w, side_gap, current_w)
+    if not id or gap_w <= 0 or y2 <= y1 then return end
+    local hit_w = math.min(gap_w, math.max(3.5 * nav_ui_scale, S(4)))
+    local hit_x = x + (gap_w - hit_w) * 0.5
+    local hovered = r.ImGui_IsMouseHoveringRect(ctx, hit_x, y1, hit_x + hit_w, y2)
+    if hovered and r.ImGui_IsMouseClicked(ctx, 0) then
+        two_column_dragging = true
+        two_column_dragging_id = id
+    end
+    local active = two_column_dragging == true
+        and two_column_dragging_id == id
+        and r.ImGui_IsMouseDown(ctx, 0)
+    if hovered or active then
+        local cursor = r.ImGui_MouseCursor_ResizeEW and r.ImGui_MouseCursor_ResizeEW()
+            or r.ImGui_MouseCursor_ResizeNS()
+        r.ImGui_SetMouseCursor(ctx, cursor)
+        local dl = r.ImGui_GetWindowDrawList(ctx)
+        local handle_w = math.max(1, 7 * 0.5 * nav_ui_scale)
+        local hx = x + gap_w * 0.5 - handle_w * 0.5
+        r.ImGui_DrawList_AddRectFilled(dl, hx, y1, hx + handle_w, y2, rgb(0x8B8B8C), handle_w * 0.5)
+    end
+    if active then
+        local dx = r.ImGui_GetMouseDelta(ctx)
+        if dx ~= 0 then
+            local min_w = ReflexTwoColumnLeftMinWidth()
+            local max_w = math.max(min_w, (total_w or 0) - (side_gap or 0) - ReflexInspectorColumnMinWidth())
+            local base_w = tonumber(current_w) or math.min(ReflexTwoColumnResolvedLeftWidth(), max_w)
+            two_column_left_w = math.max(min_w, math.min(max_w, base_w + dx))
+            SavePref("two_column_left_w", two_column_left_w)
+        end
+        two_column_dragging = true
+    elseif two_column_dragging_id == id then
+        two_column_dragging = false
+        two_column_dragging_id = nil
+    end
+end
 local settings_open = false
 local settings_win_pos_set = false   -- true after first open this session (position chosen)
 local settings_win_x = LoadPref("settings_win_x", nil)
@@ -2366,6 +3235,7 @@ end
 external_fx_session = nil
 external_fx_selection_guard = false
 reflex_open_fx_suppress_until = 0
+reflex_fx_window_cycle = { track_guid = nil, fx_guid = nil, managed = {}, protected = {} }
 reflex_keyboard_capture_requested = false
 remote_btn_rects = {}
 remote_pages = { { name = "Main", color = 0, height = 1 } }
@@ -2439,6 +3309,7 @@ sends_distant_expanded = {}        -- expanded distant pill indices: [di] = true
 sends_distant_rendering = false    -- flag: suppresses stroke in DrawCompactTrackColumn for distant cards
 sends_distant_collapse_request = false  -- flag: SND-header click in distant mode requests outer collapse
 sends_folder_expanded = {}         -- expanded folder cards: [track_ptr] = true
+reflex_focused_window_chain_cache = { focus = nil, chain = nil }
 
 -- Per-frame cache of FX row geometry for sends view columns, keyed by 0-based fi.
 -- (Historical: sends_fx_drag_* state migrated to unified fx_drag in v20.394.)
@@ -2462,10 +3333,15 @@ remote_ctx_tlf_track = nil            -- TLT track for shared NAV.dot context me
 remote_ctx_tlf_ghost_parent = nil     -- ignored parent for promoted NAV.dot context rows
 remote_ctx_tlf_custom = false         -- custom-included NAV.dot context row
 local last_content_used_h = 0         -- previous frame's content height for adaptive remote
+local last_inspector_cards_content_h = nil
+local last_inline_sends_content_h = nil
+local last_inline_sends_overflow = false
 last_nav_h = 0                        -- previous frame's nav height for adaptive remote
 last_nav_natural_h = 0                -- previous frame's NAV expanded-content natural height (drives BeginChild sizing)
 last_nav_collapsed_visible_h = 0      -- shared NAV renderer state
 last_nav_expanded_visible_h = 0
+last_nav_body_offset_y = 0
+last_nav_header_offset_y = 0
 local nav_screen_rect = { x = 0, y = 0, w = 300, h = 500 } -- Reflex window rect for FX positioning
 
 -- =========================================================================
@@ -2629,8 +3505,11 @@ local insp_vol_drag_track = nil
 local insp_vol_val_dragging = false
 local insp_vol_val_drag_track = nil
 local insp_vol_drag_moved = false
+local insp_vol_button_show_until = setmetatable({}, { __mode = "k" })
 local insp_pan_dragging = false
 local insp_pan_drag_moved = false
+local insp_pan_knob_state = { before = nil, moved = false }
+local insp_hdr_card_hovered = setmetatable({}, { __mode = "k" })
 local insp_vol_editing = false
 local insp_pan_editing = false
 local insp_vol_edit_buf = ""
@@ -2639,6 +3518,9 @@ local insp_vol_edit_focus = false
 local insp_pan_edit_focus = false
 local insp_vol_edit_frames = 0
 local insp_pan_edit_frames = 0
+local master_strip_rendering = false
+local master_strip_env_expanded = {}
+local master_strip_prev_h = nil
 insp_wet_dragging = false
 insp_wet_drag_moved = false
 insp_wet_drag_fi = nil
@@ -2647,7 +3529,7 @@ insp_wet_drag_fi = nil
 insp_meter_clip = {}      -- per-track clip hold: track_ptr → bool
 insp_meter_peak = {}      -- per-track smoothed peak: track_ptr → number (fast, for meter fill)
 insp_meter_display = {}   -- per-track smoothed peak: track_ptr → number (slow, for dB readout)
-insp_meter_noise = {}     -- per-track noise variance: track_ptr → { prev, variance, active }
+insp_meter_noise = {}     -- per-track stereo noise state: track_ptr → { L = state, R = state }
 insp_meter_last_play = -1 -- transport state for auto-reset (global, shared)
 
 package.loaded["Reflex_NoiseCore"] = nil
@@ -2954,6 +3836,30 @@ require("Reflex_EnvelopeCore")({
     get_fx_list = function(track) return InspGetFxList(track) end,
 })
 
+InspTrackPanEnvelopeActive = function(track)
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
+    if InspEnvelopeCacheStale(track) then InspBuildEnvCache(track) end
+    local details = InspGetAllTrackEnvelopeDetails(track)
+    for _, ed in ipairs(details) do
+        if (ed.fx_idx == -1 or ed.fx_idx == nil) and ed.name == "Pan" and not ed.bypassed then
+            return true
+        end
+    end
+    return false
+end
+
+InspTrackVolumeEnvelopeActive = function(track)
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
+    if InspEnvelopeCacheStale(track) then InspBuildEnvCache(track) end
+    local details = InspGetAllTrackEnvelopeDetails(track)
+    for _, ed in ipairs(details) do
+        if (ed.fx_idx == -1 or ed.fx_idx == nil) and ed.name == "Volume" and not ed.bypassed then
+            return true
+        end
+    end
+    return false
+end
+
 InspScanTrack = function(track)
     InspInvalidateEnvCache()
     if not track or not r.ValidatePtr(track, "MediaTrack*") then
@@ -2981,6 +3887,7 @@ InspScanTrack = function(track)
     local fx_list = {}
     for f = 0, r.TrackFX_GetCount(track) - 1 do
         local _, fx_name = r.TrackFX_GetFXName(track, f)
+        local display_name = InspStripName(fx_name)
         -- Find Wet parameter index (REAPER wrapper param, not internal plugin params)
         local wet_idx, wet_val = -1, 1.0
         local wp = r.TrackFX_GetParamFromIdent(track, f, ":wet")
@@ -2996,7 +3903,8 @@ InspScanTrack = function(track)
         if rv_cc and tonumber(cc_str) and tonumber(cc_str) > 0 then is_container = true end
         fx_list[#fx_list + 1] = {
             track = track, fx_idx = f,
-            name = InspStripName(fx_name),
+            name = display_name,
+            category = FXPluginCategory(track, f, fx_name, display_name, is_container, is_instr),
             enabled = r.TrackFX_GetEnabled(track, f),
             offline = r.TrackFX_GetOffline(track, f),
             env_count = InspCountFXEnvelopes(track, f),
@@ -3661,8 +4569,17 @@ InspGetTitleFont = function()
 end
 
 TrackTitleNumberLabels = function(num_str)
+    if num_str == nil or num_str == "" then return "", "" end
     local num_label = tostring(num_str or "")
     return num_label, num_label .. ":"
+end
+
+ReflexTrackTitleNumberString = function(track, track_num)
+    if master_strip_rendering and track_num <= 0 then
+        local real_master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+        if real_master and track == real_master then return nil end
+    end
+    return (track_num <= 0) and "M" or tostring(track_num)
 end
 
 PushTrackTitleScaledFont = function(font, size_mult)
@@ -3721,10 +4638,16 @@ end
 
 InspRoutingPillWidth = function()
     local dot_r = S(5)
-    local dot_gap = S(7)
-    local dots_pad_x = S(10)
+    local dot_gap = 4
     local btn_h = S(UI.btn_h)
-    return btn_h + dots_pad_x * 2 + dot_r * 6 + dot_gap * 2 + btn_h
+    local hide_add_send = master_strip_rendering == true
+    local route_dot_count = hide_add_send and 2 or 3
+    local dots_total_w = dot_r * 2 * route_dot_count + dot_gap * (route_dot_count - 1)
+    local plus_area_w = hide_add_send and 0 or btn_h
+    local segment_gap = 5.5
+    local arrow_dots_gap = segment_gap - 7 * 0.5
+    local route_area_w = btn_h + arrow_dots_gap + dots_total_w + segment_gap
+    return route_area_w + plus_area_w
 end
 
 InspDrawRoutingButton = function(track, sx, sy, override_w)
@@ -3736,30 +4659,25 @@ InspDrawRoutingButton = function(track, sx, sy, override_w)
     local has_sends = r.GetTrackNumSends(track, 0) > 0
     local has_receives = r.GetTrackNumSends(track, -1) > 0
 
-    -- Compound dimensions: [+][routing dots][expand], matching FX block style.
+    -- Compound dimensions: [arrow + routing dots][+].
     local dot_r = S(5)
-    local dot_gap = S(7)
-    local dots_pad_x = S(10)
+    local dot_gap = 4
     local btn_h = S(UI.btn_h)
-    local plus_area_w = btn_h
-    local arrow_area_w = btn_h
-    local default_w = plus_area_w + dots_pad_x * 2 + dot_r * 6 + dot_gap * 2 + arrow_area_w
+    local hide_add_send = master_strip_rendering == true
+    local route_dot_count = hide_add_send and 2 or 3
+    local dots_total_w = dot_r * 2 * route_dot_count + dot_gap * (route_dot_count - 1)
+    local plus_area_w = hide_add_send and 0 or btn_h
+    local segment_gap = 5.5
+    local arrow_dots_gap = segment_gap - 7 * 0.5
+    local default_route_area_w = btn_h + arrow_dots_gap + dots_total_w + segment_gap
+    local default_w = default_route_area_w + plus_area_w
     local pill_w = override_w or default_w
-    local route_area_w = math.max(S(20), pill_w - plus_area_w - arrow_area_w)
-    local arrow_area_x = sx + plus_area_w + route_area_w
+    local route_area_w = math.max(default_route_area_w, pill_w - plus_area_w)
+    local plus_area_x = sx + route_area_w
+    local is_expanded = insp_routing_expanded[track] == true
 
-    -- Add-send endcap.
-    r.ImGui_SetCursorPos(ctx, sx, sy)
-    local _, plus_clicked = NavRect("##route_add", plus_area_w, btn_h, "+", {
-        hov = C.route_send,
-        active = (C.route_send & 0xFFFFFF00) | 0xCC,
-        rounding = {tl = 3, bl = 3, tr = 0, br = 0},
-    })
-    local plus_rclicked = r.ImGui_IsItemClicked(ctx, 1)
-    Tip("Create send to new track\nRight-click for options")
-
-    -- Routing body (dots): no rounding, keeps routing drag behavior.
-    local route_area_x = sx + plus_area_w
+    -- Routing body: one hit area for hover, tooltip, click, and drag.
+    local route_area_x = sx
     r.ImGui_SetCursorPos(ctx, route_area_x, sy)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), 0x00000000)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonHovered(), 0x00000000)
@@ -3770,63 +4688,83 @@ InspDrawRoutingButton = function(track, sx, sy, override_w)
     local is_rclicked = r.ImGui_IsItemClicked(ctx, 1)
     local is_active = r.ImGui_IsItemActive(ctx)
     local is_hovered = r.ImGui_IsItemHovered(ctx)
-    if is_hovered then ShowRoutingTooltip(track) end
+    if is_hovered then
+        local action_text = hide_add_send
+            and "Click: toggle routing panel"
+            or "Click: toggle routing panel\nOpt: toggle parent/master send"
+        ShowRoutingTooltip(track, { action_text = action_text })
+    end
     local is_released = r.ImGui_IsItemDeactivated(ctx)
     r.ImGui_PopStyleVar(ctx, 1)
     r.ImGui_PopStyleColor(ctx, 3)
-    local route_mouse_x, route_mouse_y = r.ImGui_GetMousePos(ctx)
-    local route_compound_hovered = route_mouse_x >= route_area_x
-        and route_mouse_x <= arrow_area_x + arrow_area_w
-        and route_mouse_y >= scy
-        and route_mouse_y <= scy + btn_h
 
-    -- Add-send click handling
-    if plus_clicked then
-        RoutingAddSendTrack(track)
-    end
-    if plus_rclicked then r.ImGui_OpenPopup(ctx, "##route_addsend_popup"); nav_rclick_consumed = true end
-    PushPopupStyle()
-    if r.ImGui_BeginPopup(ctx, "##route_addsend_popup") then
-        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), C.fx_ctrl_hover)
-        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
-        if r.ImGui_MenuItem(ctx, "Post-Fader (Post-Pan)") then RoutingAddSendTrack(track, 0) end
-        if r.ImGui_MenuItem(ctx, "Pre-Fader (Post-FX)") then RoutingAddSendTrack(track, 1) end
-        if r.ImGui_MenuItem(ctx, "Pre-Fader (Pre-FX)") then RoutingAddSendTrack(track, 3) end
-        r.ImGui_PopStyleColor(ctx, 2)
-        r.ImGui_EndPopup(ctx)
-    end
-    PopPopupStyle()
-
-    -- Expand arrow endcap.
-    local is_expanded = insp_routing_expanded[track] == true
-    r.ImGui_SetCursorPos(ctx, arrow_area_x, sy)
-    local _, arrow_clicked, arrow_active = NavRect("##route_expand", arrow_area_w, btn_h,
-        is_expanded and "\xE2\x96\xBC" or "\xE2\x96\xB6", {
-            bg = is_active and C.fx_ctrl_active
-                or (route_compound_hovered and C.fx_ctrl_hover or C.fx_ctrl_bg),
-            hov = C.fx_ctrl_hover,
-            active = C.fx_ctrl_active,
-            fg = (is_expanded or route_compound_hovered) and C.text or C.text_dim,
+    -- Add-send endcap.
+    local plus_clicked = false
+    local plus_rclicked = false
+    if not hide_add_send then
+        r.ImGui_SetCursorPos(ctx, plus_area_x, sy)
+        _, plus_clicked = NavRect("##route_add", plus_area_w, btn_h, "+", {
+            hov = C.route_send,
+            active = (C.route_send & 0xFFFFFF00) | 0xCC,
             rounding = {tl = 0, bl = 0, tr = 3, br = 3},
         })
-    Tip("Click: toggle routing panel\nOpt: toggle master send")
-    local arrow_hovered = r.ImGui_IsItemHovered(ctx)
-    local route_group_hovered = route_compound_hovered or is_hovered or arrow_hovered
-    local route_group_active = is_active or arrow_active
+        plus_rclicked = r.ImGui_IsItemClicked(ctx, 1)
+        Tip("Create send to new track\nRight-click for options")
+    end
+
+    -- Add-send click handling
+    if not hide_add_send then
+        if plus_clicked then
+            RoutingAddSendTrack(track)
+        end
+        if plus_rclicked then r.ImGui_OpenPopup(ctx, "##route_addsend_popup"); nav_rclick_consumed = true end
+        PushPopupStyle()
+        if r.ImGui_BeginPopup(ctx, "##route_addsend_popup") then
+            r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), C.fx_ctrl_hover)
+            r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
+            if r.ImGui_MenuItem(ctx, "Post-Fader (Post-Pan)") then RoutingAddSendTrack(track, 0) end
+            if r.ImGui_MenuItem(ctx, "Pre-Fader (Post-FX)") then RoutingAddSendTrack(track, 1) end
+            if r.ImGui_MenuItem(ctx, "Pre-Fader (Pre-FX)") then RoutingAddSendTrack(track, 3) end
+            if QuickSendMenuItems then QuickSendMenuItems(track) end
+            r.ImGui_PopStyleColor(ctx, 2)
+            r.ImGui_EndPopup(ctx)
+        end
+        PopPopupStyle()
+    end
+
+    local route_group_hovered = is_hovered
+    local route_group_active = is_active
     local route_bg = route_group_active and C.fx_ctrl_active
         or (route_group_hovered and C.fx_ctrl_hover or C.route_bg)
-    r.ImGui_DrawList_AddRectFilled(dl, scx + plus_area_w, scy,
-        scx + plus_area_w + route_area_w, scy + btn_h, route_bg)
+    local arrow_col = is_expanded and C.text or C.text_dim
+    if route_group_hovered or route_group_active then arrow_col = C.text end
+    local route_round_flags = 0
+    if r.ImGui_DrawFlags_RoundCornersLeft then
+        route_round_flags = route_round_flags | r.ImGui_DrawFlags_RoundCornersLeft()
+    end
+    if hide_add_send and r.ImGui_DrawFlags_RoundCornersRight then
+        route_round_flags = route_round_flags | r.ImGui_DrawFlags_RoundCornersRight()
+    end
+    r.ImGui_DrawList_AddRectFilled(dl, scx, scy,
+        scx + route_area_w, scy + btn_h, route_bg, S(3),
+        route_round_flags)
+    NavDrawContent(dl, scx, scy, btn_h, btn_h,
+        is_expanded and "\xE2\x96\xBC" or "\xE2\x96\xB6",
+        arrow_col, { bg = 0x00000000, arrow_dx = 1.0, arrow_dy = 0.5 })
 
-    -- Three circles centered in the middle segment.
+    -- Route state circles in the middle segment. Master omits the parent-send dot.
     local cy_dot = scy + btn_h / 2
-    local dots_total_w = dot_r * 6 + dot_gap * 2
-    local cx1 = scx + plus_area_w + Round((route_area_w - dots_total_w) / 2) + dot_r
+    local cx1 = scx + btn_h + arrow_dots_gap + dot_r
     local cx2 = cx1 + dot_r * 2 + dot_gap
     local cx3 = cx2 + dot_r * 2 + dot_gap
-    r.ImGui_DrawList_AddCircleFilled(dl, cx1, cy_dot, dot_r, has_parent and C.route_parent or C.route_dim, 0)
-    r.ImGui_DrawList_AddCircleFilled(dl, cx2, cy_dot, dot_r, has_sends and C.route_send or C.route_dim, 0)
-    r.ImGui_DrawList_AddCircleFilled(dl, cx3, cy_dot, dot_r, has_receives and C.route_recv or C.route_dim, 0)
+    if hide_add_send then
+        r.ImGui_DrawList_AddCircleFilled(dl, cx1, cy_dot, dot_r, has_sends and C.route_send or C.route_dim, 0)
+        r.ImGui_DrawList_AddCircleFilled(dl, cx2, cy_dot, dot_r, has_receives and C.route_recv or C.route_dim, 0)
+    else
+        r.ImGui_DrawList_AddCircleFilled(dl, cx1, cy_dot, dot_r, has_parent and C.route_parent or C.route_dim, 0)
+        r.ImGui_DrawList_AddCircleFilled(dl, cx2, cy_dot, dot_r, has_sends and C.route_send or C.route_dim, 0)
+        r.ImGui_DrawList_AddCircleFilled(dl, cx3, cy_dot, dot_r, has_receives and C.route_recv or C.route_dim, 0)
+    end
 
     -- Record click position on mouse down
     if is_clicked then
@@ -3877,7 +4815,7 @@ InspDrawRoutingButton = function(track, sx, sy, override_w)
     end
 
     -- Release handling
-    if is_released or arrow_clicked then
+    if is_released then
         if insp_route_dragging then
             insp_route_dragging = false
             RouteDragQueueRelease(track)
@@ -3886,11 +4824,13 @@ InspDrawRoutingButton = function(track, sx, sy, override_w)
             -- Click (no drag)
             local mods = r.ImGui_GetKeyMods(ctx)
             if IsAlt(mods) then
-                -- Opt-click: toggle parent send
-                local cur = r.GetMediaTrackInfo_Value(track, "B_MAINSEND")
-                r.Undo_BeginBlock()
-                r.SetMediaTrackInfo_Value(track, "B_MAINSEND", cur == 1 and 0 or 1)
-                r.Undo_EndBlock("Reflex: Toggle master send", -1)
+                if not hide_add_send then
+                    -- Opt-click: toggle parent/master send on regular tracks.
+                    local cur = r.GetMediaTrackInfo_Value(track, "B_MAINSEND")
+                    r.Undo_BeginBlock()
+                    r.SetMediaTrackInfo_Value(track, "B_MAINSEND", cur == 1 and 0 or 1)
+                    r.Undo_EndBlock("Reflex: Toggle master send", -1)
+                end
             else
                 -- Normal click: toggle inline routing panel
                 if insp_routing_expanded[track] then
@@ -3905,7 +4845,7 @@ InspDrawRoutingButton = function(track, sx, sy, override_w)
     return pill_w
 end
 
-InspDrawEnvRow = function(ed, display_name, name_col, bw, text_pad, on_eye_click, on_name_click, fx_track)
+InspDrawEnvRow = function(ed, display_name, name_col, bw, text_pad, on_eye_click, on_name_click, fx_track, fx_power_row_h)
     local ctrl_sz = InspCtrlSz()
     local env_row_h = ctrl_sz + S(4)
     local env_inner_pad = text_pad - S(4)
@@ -3948,7 +4888,11 @@ InspDrawEnvRow = function(ed, display_name, name_col, bw, text_pad, on_eye_click
     -- Env visibility indicator: circle (filled when visible, outline when hidden)
     local icon_sz = S(14)
     local icon_r = icon_sz / 2
-    local icon_cx_env = scx + env_inner_pad + S(4) + icon_r
+    local control_left = env_inner_pad + S(4)
+    if fx_power_row_h then
+        control_left = math.max(0, fx_power_row_h / 2 - FXPowerCircleDiameter() / 2)
+    end
+    local icon_cx_env = scx + control_left + icon_r
     local icon_cy_env = scy + math.floor(env_row_h / 2) + env_nudge_y
     local ecol = ed.visible and 0xFFFFFFFF or C.text_muted
     if ed.visible then
@@ -3958,7 +4902,7 @@ InspDrawEnvRow = function(ed, display_name, name_col, bw, text_pad, on_eye_click
     end
 
     -- Name text (clipped to available width with buffer before right-side buttons)
-    local text_x = scx + env_inner_pad + ctrl_sz + S(6)
+    local text_x = scx + control_left + ctrl_sz + S(6)
     local text_y = scy + Round((env_row_h - text_h) / 2) + env_nudge_y
     local right_reserve = (has_fx_btn and (S(14) + S(10)) or 0) + S(8)  -- S(14) button + margins + buffer
     local max_text_w = bw - (text_x - scx) - right_reserve
@@ -4108,16 +5052,19 @@ require("Reflex_FXRowCore")({
     end,
 })
 
-InspDrawFXRow = function(fx, fi, bw, ibh)
+InspDrawFXRow = function(fx, fi, bw, ibh, fx_count)
     r.ImGui_PushID(ctx, 5000 + fi)
 
     local gap = S(3)
     local ctrl_h = InspCtrlSz()
     local rpad = S(6)
+    local cat_bar_w = FXCategoryBarWidth()
     local power_hit_w = ibh
-    local text_pad = FXPowerNamePad(ibh)
+    local text_pad = cat_bar_w + FXPowerNamePad(ibh)
     local pad_y = Round((ibh - ctrl_h) / 2)
     local row_r = S(4)
+    local row_corners = fx_count and FXRowStackCorners(fi, fx_count) or FXRowDefaultCorners()
+    local body_round_flags = FXRowBodyCornerFlags(row_corners, cat_bar_w)
 
     -- Expansion state (now controls extras: A/B + envelopes)
     local is_exp = insp_env_expanded[fi] ~= nil and insp_env_expanded[fi] ~= false
@@ -4129,10 +5076,7 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
     local is_dry = not fx.offline and fx.enabled and fx.wet_value < 0.005
     local bg, hover, active, txt = FxStateColors(fx.is_container, fx.is_instrument, fx.offline, fx.enabled, is_dry, fx.has_bypass_env, fx.wet_value)
 
-    -- Instrument-specific element colors (white with opacity on colored bg)
-    local is_instr = fx.is_instrument
-    local instr_hover_overlay = 0xFFFFFF18  -- white overlay for hover on instrument buttons
-    local instr_wet_col = is_instr and rgb(0x7EB5F7) or C.fx_drywet_txt
+    local instr_wet_col = C.fx_drywet_txt
     local instr_env_dim = C.route_dim
     local instr_env_hov = C.text_dim
 
@@ -4142,11 +5086,16 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
     local dl = r.ImGui_GetWindowDrawList(ctx)
 
     -- Background (covers full height including extras)
-    local row_bg = fx.is_instrument and bg or (C.fx_row_bg or bg)
-    local power_hovered_pre = r.ImGui_IsMouseHoveringRect(ctx, cx, cy, cx + power_hit_w, cy + ibh)
-    DrawFXRowBase(dl, cx, cy, bw, power_hit_w, total_h, row_bg, FXPowerBgColor(fx.enabled, power_hovered_pre), row_r)
+    local row_bg = C.fx_row_bg or bg
+    local row_hovered_pre = r.ImGui_IsMouseHoveringRect(ctx, cx, cy, cx + bw, cy + total_h)
+    local power_hovered_pre = row_hovered_pre
+        or r.ImGui_IsMouseHoveringRect(ctx, cx + cat_bar_w, cy, cx + cat_bar_w + power_hit_w, cy + ibh)
+    local cat_col = FXCategoryColor(fx.category, fx.is_container, fx.is_instrument, fx.offline, fx.enabled)
+    DrawFXRowBase(dl, cx, cy, bw, power_hit_w, total_h, row_bg,
+        FXPowerEndcapBgColor(fx.enabled, power_hovered_pre, row_bg, fx.offline, fx.has_bypass_env == true),
+        row_r, cat_col, cat_bar_w, row_corners)
     if C.fx_row_border then
-        DrawSolidRoundedRectOutline(dl, cx, cy, cx + bw, cy + total_h, C.fx_row_border, row_r, 1)
+        DrawFXRowRightOutline(dl, cx, cy, bw, total_h, C.fx_row_border, row_r, 1, row_corners)
     end
 
     -- Top row button positions (right to left): arrow, gap, ENV (if > 0)
@@ -4171,17 +5120,20 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Header(), 0x00000000)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), 0x00000000)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderActive(), 0x00000000)
-    r.ImGui_SetCursorPos(ctx, start_x + power_hit_w, start_y)
-    local body_click_w = math.max(S(20), click_w - power_hit_w)
+    r.ImGui_SetCursorPos(ctx, start_x + cat_bar_w + power_hit_w, start_y)
+    local body_click_w = math.max(S(20), click_w - cat_bar_w - power_hit_w)
     local sel = r.ImGui_Selectable(ctx, "##fxsel", false,
         r.ImGui_SelectableFlags_AllowOverlap(), body_click_w, total_h)
     local body_hovered = r.ImGui_IsItemHovered(ctx)
-    local hovered = r.ImGui_IsMouseHoveringRect(ctx, cx + power_hit_w, cy, cx + bw, cy + total_h)
+    local hovered = r.ImGui_IsMouseHoveringRect(ctx, cx + cat_bar_w + power_hit_w, cy, cx + bw, cy + total_h)
+    local row_hovered_full = row_hovered_pre
     r.ImGui_PopStyleColor(ctx, 3)
+    if fx.offline and row_hovered_full then
+        ShowOfflineFxStateTooltip(fx.enabled)
     -- v20.424: descriptive hover tooltip on FX row (parity with sends).
     -- "Click: open" omitted — self-explanatory. Suppressed during carry mode
     -- to avoid competing with insert-indicator visuals.
-    if body_hovered and not FxClipHasContent() then
+    elseif body_hovered and not FxClipHasContent() then
         Tip("Shift: bypass\nOpt: remove\nCmd+Shift: offline")
     end
 
@@ -4197,26 +5149,26 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
         popup_id = "##fxctx" .. fi,
         sel = sel, hovered = hovered, item_hovered = body_hovered,
         dl = dl, cx = cx, cy = cy, w = bw, h = total_h, radius = row_r,
-        fill_x = cx + power_hit_w, fill_w = math.max(1, bw - power_hit_w),
+        fill_x = cx + cat_bar_w + power_hit_w, fill_w = math.max(1, bw - cat_bar_w - power_hit_w),
+        body_round_flags = body_round_flags,
         hover_col = hover, active_col = active,
         enabled = fx.enabled, offline = fx.offline,
         cmp_key = fx.cmp_key,
     })
 
-    DrawFXPowerButton("##fxpower", cx, cy, ibh, fx.enabled, {
+    DrawFXPowerButton("##fxpower", cx + cat_bar_w, cy, ibh, fx.enabled, {
         track = fx.track, fi = fi0, guid = fx.guid, surface = "inspector",
         enabled = fx.enabled, offline = fx.offline, cmp_key = fx.cmp_key,
     })
 
-    -- A/B assignment group detection (needed for dot before name)
+    -- A/B assignment group detection (used by expanded A/B controls).
     local grp = ""
     if fx.cmp_key ~= "" then
         local _, val = r.GetProjExtState(0, CMP_EXT_SECTION, fx.cmp_key)
         local parsed_grp = InspCmpParseAssignment(val)
         if parsed_grp then grp = parsed_grp end
     end
-    local dot_r_sz = S(5)
-    local dot_offset = grp ~= "" and (dot_r_sz * 2 + S(6)) or 0
+    local dot_offset = 0
 
     -- FX name (vertically centered in top row) — inline rename or normal display
     local text_h = r.ImGui_GetTextLineHeight(ctx)
@@ -4248,12 +5200,16 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
             insp_rename_type = nil
         end
     else
-        -- FX name: full row width normally, clipped to button zone on hover
-        local row_hovered = r.ImGui_IsMouseHoveringRect(ctx, cx, cy, cx + bw, cy + ibh)
-        local name_right = row_hovered and (cx + click_w) or (cx + bw - rpad)
-        local name_avail = name_right - (cx + text_pad + dot_offset)
+        -- FX name: always stop before row controls so ENV/arrow never overlap it.
+        local name_x = cx + text_pad + dot_offset
+        local name_right = cx + click_w
+        local name_avail = math.max(0, name_right - name_x)
         local name_col = (not fx.enabled and not fx.offline and hovered) and C.fx_power_off or txt
         local display_name = fx.name
+        local name_font_pushed = false
+        if fx.offline then
+            name_font_pushed = PushFont(GetSteppedFont(UI.font_fx, "italic"))
+        end
         local name_tw = r.ImGui_CalcTextSize(ctx, display_name)
         if name_tw > name_avail then
             local ellipsis = "\xE2\x80\xA6"
@@ -4262,18 +5218,15 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
                 display_name = Utf8DropLast(display_name)
                 name_tw = r.ImGui_CalcTextSize(ctx, display_name)
             end
-            display_name = display_name .. ellipsis
-            name_tw = r.ImGui_CalcTextSize(ctx, display_name)
+            if name_avail >= ew then
+                display_name = display_name .. ellipsis
+                name_tw = r.ImGui_CalcTextSize(ctx, display_name)
+            else
+                display_name = ""
+            end
         end
-        r.ImGui_DrawList_AddText(dl, cx + text_pad + dot_offset, name_y, name_col, display_name)
-    end
-
-    -- A/B assignment dot (before name, vertically centered)
-    if grp ~= "" then
-        local dot_col = grp == "A" and C.cmp_a or C.cmp_b
-        local dot_cx = cx + text_pad + dot_r_sz
-        local dot_cy = cy + math.floor(ibh / 2)
-        r.ImGui_DrawList_AddCircleFilled(dl, dot_cx, dot_cy, dot_r_sz, dot_col, 0)
+        r.ImGui_DrawList_AddText(dl, name_x, name_y, name_col, display_name)
+        PopFont(name_font_pushed)
     end
 
     -- Wet percentage button in row 1 (only when collapsed AND wet < 100% and not offline, or during drag)
@@ -4293,11 +5246,11 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
         -- Draw bg on hover only
         if wet_hov or (insp_wet_dragging and insp_wet_drag_fi == fi) then
             r.ImGui_DrawList_AddRectFilled(dl, wet_cx, wet_cy, wet_cx + wet_w, wet_cy + ctrl_h,
-                is_instr and instr_hover_overlay or C.fx_ctrl_hover, S(3))
+                C.fx_ctrl_hover, S(3))
         end
         -- Draw text centered
         local wt_w = r.ImGui_CalcTextSize(ctx, wet_str)
-        local wet_txt_col = wet_pct >= 100 and (is_instr and 0xFFFFFF60 or C.text_muted) or instr_wet_col
+        local wet_txt_col = wet_pct >= 100 and C.text_muted or instr_wet_col
         r.ImGui_DrawList_AddText(dl,
             wet_cx + Round((wet_w - wt_w) / 2),
             wet_cy + Round((ctrl_h - r.ImGui_GetTextLineHeight(ctx)) / 2),
@@ -4438,27 +5391,49 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
         local row2_cy = cy + ibh + gap
         local row2_sy = start_y + ibh + gap
         local row2_btn_y = row2_sy + Round((extras_h - ctrl_h) / 2)
-        local ab_cmp_w = ctrl_h  -- square A/B buttons
+        local ab_cmp_w = ctrl_h * 1.10  -- square A/B buttons, 110%
+        local ab_cmp_h = ctrl_h * 1.10
+        local ab_btn_y = row2_sy + Round((extras_h - ab_cmp_h) / 2)
         local ab_gap = S(6)  -- match ctrl_gap spacing
-        local b_x = start_x + bw - rpad - ab_cmp_w
-        local a_x = b_x - ab_gap - ab_cmp_w
+        local a_x = start_x + text_pad + dot_offset
+        local b_x = a_x + ab_cmp_w + ab_gap
+        local show_ab = not fx.offline
         local wet_w = r.ImGui_CalcTextSize(ctx, "100%") + S(12)
+        local latency_text, latency_has_value = InspGetFxLatencyText(fx.track, fx.fx_idx)
+        local latency_gap = S(15)  -- 24 retina px at 100%; separates status from wet control
+        local latency_tw = latency_text and r.ImGui_CalcTextSize(ctx, latency_text) or 0
+        local show_latency = latency_text ~= nil
+        local wet_block_w = fx.offline and 0 or wet_w
+        local status_w = wet_block_w
+        if show_latency then
+            status_w = status_w + (status_w > 0 and latency_gap or 0) + latency_tw
+        end
+        local ab_right = show_ab and (b_x + ab_cmp_w) or a_x
+        local status_right_x = start_x + bw - rpad - S(6)
+        local status_x = status_right_x - status_w
+        if show_latency and status_x < ab_right + S(8) then
+            show_latency = false
+            latency_tw = 0
+            status_w = wet_block_w
+            status_x = status_right_x - status_w
+        end
+        local muted_status_col = hovered and C.text_dim or C.text_muted
 
-        -- Wet/dry percentage left-aligned in row 2 (always visible when expanded)
+        -- Wet/dry percentage right-aligned in row 2 with latency/status text.
         if not fx.offline then
             local wet_pct = math.floor(fx.wet_value * 100 + 0.5)
             local wet_str = tostring(wet_pct) .. "%"
-            r.ImGui_SetCursorPos(ctx, start_x + text_pad, row2_btn_y)
+            r.ImGui_SetCursorPos(ctx, status_x, row2_btn_y)
             local wet_cx, wet_cy = r.ImGui_GetCursorScreenPos(ctx)
             r.ImGui_InvisibleButton(ctx, "##wet2", wet_w, ctrl_h)
             Tip("Drag: wet/dry\nOpt: reset 100%")
             local wet_hov = r.ImGui_IsItemHovered(ctx)
             if wet_hov or (insp_wet_dragging and insp_wet_drag_fi == fi) then
                 r.ImGui_DrawList_AddRectFilled(dl, wet_cx, wet_cy, wet_cx + wet_w, wet_cy + ctrl_h,
-                    is_instr and instr_hover_overlay or C.fx_ctrl_hover, S(3))
+                    C.fx_ctrl_hover, S(3))
             end
             local wt_w = r.ImGui_CalcTextSize(ctx, wet_str)
-            local wet_txt_col = wet_pct >= 100 and (is_instr and 0xFFFFFF60 or C.text_muted) or instr_wet_col
+            local wet_txt_col = wet_pct >= 100 and muted_status_col or instr_wet_col
             r.ImGui_DrawList_AddText(dl,
                 wet_cx + Round((wet_w - wt_w) / 2),
                 wet_cy + Round((ctrl_h - r.ImGui_GetTextLineHeight(ctx)) / 2),
@@ -4499,27 +5474,13 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
             end
         end
 
-        local latency_text, latency_has_value = InspGetFxLatencyText(fx.track, fx.fx_idx)
-        if latency_text then
-            local latency_gap = S(15)  -- 24 retina px at 100%; separates status from wet control
-            local latency_x = start_x + text_pad
-            if not fx.offline then latency_x = latency_x + wet_w + latency_gap end
-            local latency_avail = a_x - latency_x - S(8)
-            if latency_avail > S(40) then
-                local latency_tw = r.ImGui_CalcTextSize(ctx, latency_text)
-                if latency_tw <= latency_avail then
-                    local latency_col
-                    if latency_has_value then
-                        latency_col = is_instr and 0xFFFFFFFF or C.text
-                    else
-                        latency_col = is_instr and 0xFFFFFF60 or C.text_muted
-                    end
-                    r.ImGui_DrawList_AddText(dl,
-                        cx + (latency_x - start_x),
-                        row2_cy + Round((extras_h - r.ImGui_GetTextLineHeight(ctx)) / 2),
-                        latency_col, latency_text)
-                end
-            end
+        if show_latency then
+            local latency_x = status_x + (fx.offline and 0 or (wet_w + latency_gap))
+            local latency_col = muted_status_col
+            r.ImGui_DrawList_AddText(dl,
+                cx + (latency_x - start_x),
+                row2_cy + Round((extras_h - r.ImGui_GetTextLineHeight(ctx)) / 2),
+                latency_col, latency_text)
         end
 
         local ab_offline = fx.offline
@@ -4527,38 +5488,28 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
         local ab_set_a_bg, ab_set_a_hov, ab_set_a_act
         local ab_set_b_bg, ab_set_b_hov, ab_set_b_act
         local ab_set_txt
-        if is_instr and not ab_offline then
-            -- Instrument: white buttons, text = row bg color
-            local row_txt = row_bg
-            ab_bg = 0xFFFFFF90; ab_hover_c = 0xFFFFFFBB; ab_active_c = 0xFFFFFFDD
-            ab_dim_txt = row_txt
-            ab_set_a_bg = C.cmp_a; ab_set_a_hov = (C.cmp_a & 0xFFFFFF00) | 0xCC; ab_set_a_act = (C.cmp_a & 0xFFFFFF00) | 0xAA
-            ab_set_b_bg = C.cmp_b; ab_set_b_hov = (C.cmp_b & 0xFFFFFF00) | 0xCC; ab_set_b_act = (C.cmp_b & 0xFFFFFF00) | 0xAA
-            ab_set_txt = row_txt
-        else
-            ab_bg = ab_offline and ((C.fx_ctrl_bg & 0xFFFFFF00) | 0x20) or C.fx_ctrl_bg
-            ab_hover_c = ab_offline and ab_bg or C.fx_ctrl_hover
-            ab_active_c = ab_offline and ab_bg or C.fx_ctrl_active
-            ab_dim_txt = ab_offline and ((C.text_muted & 0xFFFFFF00) | 0x20) or C.text_muted
-            ab_set_a_bg = ab_offline and ((C.cmp_a & 0xFFFFFF00) | 0x20) or C.cmp_a
-            ab_set_a_hov = ab_offline and ab_bg or (C.cmp_a & 0xFFFFFF00) | 0xCC
-            ab_set_a_act = ab_offline and ab_bg or (C.cmp_a & 0xFFFFFF00) | 0xAA
-            ab_set_b_bg = ab_offline and ((C.cmp_b & 0xFFFFFF00) | 0x20) or C.cmp_b
-            ab_set_b_hov = ab_offline and ab_bg or (C.cmp_b & 0xFFFFFF00) | 0xCC
-            ab_set_b_act = ab_offline and ab_bg or (C.cmp_b & 0xFFFFFF00) | 0xAA
-            ab_set_txt = ab_offline and ((C.bg & 0xFFFFFF00) | 0x20) or C.bg
-        end
+        ab_bg = ab_offline and ((C.fx_ctrl_bg & 0xFFFFFF00) | 0x20) or C.fx_ctrl_bg
+        ab_hover_c = ab_offline and ab_bg or C.fx_ctrl_hover
+        ab_active_c = ab_offline and ab_bg or C.fx_ctrl_active
+        ab_dim_txt = ab_offline and ((C.text_muted & 0xFFFFFF00) | 0x20) or C.text_muted
+        ab_set_a_bg = ab_offline and ((C.cmp_a & 0xFFFFFF00) | 0x20) or C.cmp_a
+        ab_set_a_hov = ab_offline and ab_bg or (C.cmp_a & 0xFFFFFF00) | 0xCC
+        ab_set_a_act = ab_offline and ab_bg or (C.cmp_a & 0xFFFFFF00) | 0xAA
+        ab_set_b_bg = ab_offline and ((C.cmp_b & 0xFFFFFF00) | 0x20) or C.cmp_b
+        ab_set_b_hov = ab_offline and ab_bg or (C.cmp_b & 0xFFFFFF00) | 0xCC
+        ab_set_b_act = ab_offline and ab_bg or (C.cmp_b & 0xFFFFFF00) | 0xAA
+        ab_set_txt = ab_offline and ((C.bg & 0xFFFFFF00) | 0x20) or C.bg
 
         local a_is_set = grp == "A"
-        r.ImGui_SetCursorPos(ctx, a_x, row2_btn_y)
-        local _, a_clk = NavRect("A##cmp", ab_cmp_w, ctrl_h, "A", {
-            bg     = a_is_set and ab_set_a_bg  or ab_bg,
-            hov    = a_is_set and ab_set_a_hov or ab_hover_c,
-            active = a_is_set and ab_set_a_act or ab_active_c,
-            fg     = a_is_set and ab_set_txt   or ab_dim_txt,
-        })
-        if a_clk then
-            if not ab_offline then
+        if show_ab then
+            r.ImGui_SetCursorPos(ctx, a_x, ab_btn_y)
+            local _, a_clk = NavRect("A##cmp", ab_cmp_w, ab_cmp_h, "A", {
+                bg     = a_is_set and ab_set_a_bg  or ab_bg,
+                hov    = a_is_set and ab_set_a_hov or ab_hover_c,
+                active = a_is_set and ab_set_a_act or ab_active_c,
+                fg     = a_is_set and ab_set_txt   or ab_dim_txt,
+            })
+            if a_clk then
                 local mods = r.ImGui_GetKeyMods(ctx)
                 if IsAlt(mods) then
                     InspCmpClearAll()
@@ -4575,15 +5526,15 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
         end
 
         local b_is_set = grp == "B"
-        r.ImGui_SetCursorPos(ctx, b_x, row2_btn_y)
-        local _, b_clk = NavRect("B##cmp", ab_cmp_w, ctrl_h, "B", {
-            bg     = b_is_set and ab_set_b_bg  or ab_bg,
-            hov    = b_is_set and ab_set_b_hov or ab_hover_c,
-            active = b_is_set and ab_set_b_act or ab_active_c,
-            fg     = b_is_set and ab_set_txt   or ab_dim_txt,
-        })
-        if b_clk then
-            if not ab_offline then
+        if show_ab then
+            r.ImGui_SetCursorPos(ctx, b_x, ab_btn_y)
+            local _, b_clk = NavRect("B##cmp", ab_cmp_w, ab_cmp_h, "B", {
+                bg     = b_is_set and ab_set_b_bg  or ab_bg,
+                hov    = b_is_set and ab_set_b_hov or ab_hover_c,
+                active = b_is_set and ab_set_b_act or ab_active_c,
+                fg     = b_is_set and ab_set_txt   or ab_dim_txt,
+            })
+            if b_clk then
                 local mods = r.ImGui_GetKeyMods(ctx)
                 if IsAlt(mods) then
                     InspCmpClearAll()
@@ -4601,21 +5552,19 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
     end
 
     -- Fade overlay for offline/dry (covers full height) — bypassed rows own their colors directly.
-    if not fx.is_instrument then
-        if fx.offline then
-            local fade = (C.bg & 0xFFFFFF00) | 0x90
-            DrawHighResRoundedRectFilled(dl, cx, cy, cx + bw, cy + total_h, fade, row_r)
-        elseif is_dry then
-            local fade = (C.bg & 0xFFFFFF00) | 0x60
-            DrawHighResRoundedRectFilled(dl, cx, cy, cx + bw, cy + total_h, fade, row_r)
-        end
+    if fx.offline then
+        local d = FXPowerCircleDiameter()
+        r.ImGui_DrawList_AddCircleFilled(dl, cx + cat_bar_w + ibh / 2, cy + ibh / 2, d / 2, C.fx_power_offline, NAV_CIRCLE_SEGMENTS)
+    elseif is_dry then
+        local fade = (C.bg & 0xFFFFFF00) | 0x60
+        DrawFXRowOverlay(dl, cx, cy, bw, ibh, total_h, cat_bar_w, fade, row_r, row_corners)
     end
 
     -- v20.422+: outline cascade extracted to FxRowOutlineColor.
     -- See helper for state priority (drag-source / paste-pulse / carry / select).
     local outline_col = FxRowOutlineColor(fx.track, fx.fx_idx, fx.guid, "inspector")
     if outline_col then
-        DrawSolidRoundedRectOutline(dl, cx, cy, cx + bw, cy + total_h, outline_col, row_r, SOURCE_STROKE_W)
+        DrawFXRowRightOutline(dl, cx, cy, bw, total_h, outline_col, row_r, SOURCE_STROKE_W, row_corners)
     end
 
     -- Reset cursor to next row with gap
@@ -4654,7 +5603,7 @@ InspDrawFXRow = function(fx, fi, bw, ibh)
                         for _, d in ipairs(all_details) do InspSetEnvelopeVisibleRaw(d.env, false) end
                         InspSetEnvelopeVisible(ed.env, true)
                     end
-                end, fx.track)
+                end, fx.track, ibh)
             r.ImGui_PopID(ctx)
         end
         r.ImGui_Spacing(ctx)
@@ -4783,8 +5732,8 @@ InspDrawHeader = function(track, bw, is_flow)
     local rpad = 0
     local text_pad = 0
 
-    -- Build envelope cache once per frame (or rebuild if invalidated mid-frame)
-    if insp_env_cache_dirty or not insp_env_cache or insp_env_cache.track ~= track then
+    -- Build envelope cache once per frame (or rebuild if REAPER-side state changed).
+    if InspEnvelopeCacheStale(track) then
         InspBuildEnvCache(track)
     end
 
@@ -4793,7 +5742,7 @@ InspDrawHeader = function(track, bw, is_flow)
     hdr.is_muted = r.GetMediaTrackInfo_Value(track, "B_MUTE") == 1
     local is_solo = r.GetMediaTrackInfo_Value(track, "I_SOLO") > 0
     local track_num = math.floor(r.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER"))
-    hdr.show_record = track_num > 0
+    hdr.show_record = track_num > 0 and not master_strip_rendering
     hdr.record_armed = hdr.show_record and r.GetMediaTrackInfo_Value(track, "I_RECARM") == 1
 
     -- Track header (rounded bg, two/three rows plus armed-only input row)
@@ -4812,7 +5761,9 @@ InspDrawHeader = function(track, bw, is_flow)
     local trk_row_gap = S(UI.hdr_row_gap)
     local trk_pad_bot = S(UI.pad)
     local row2_btn_h = S(UI.btn_h)
-    local row2_h = row2_btn_h
+    local pan_knob_d = S(64 / 1.44)
+    local vol_value_w = row2_btn_h * 2 + S(UI.pad_sm)
+    local row2_h = math.max(row2_btn_h, pan_knob_d)
     local input_row_h = hdr.record_armed and RecordInputRowHeight() or 0
     local input_row_gap = hdr.record_armed and RecordInputRowGap() or 0
     local input_meter_h = hdr.record_armed and RecordInputMeterHeight() or 0
@@ -4823,29 +5774,39 @@ InspDrawHeader = function(track, bw, is_flow)
     local group_gap = S(UI.group_gap)
     hdr.fx_btn_w = math.floor(InspCtrlW("FX") * 1.4)  -- used by controls row
     local pan_val_w = math.max(row2_btn_h, r.ImGui_CalcTextSize(ctx, "100R") + S(16))
+    local pan_group_w = pan_val_w + ms_gap + pan_knob_d
     hdr.pan_val_w = pan_val_w
+    hdr.pan_knob_d = pan_knob_d
+    hdr.pan_group_w = pan_group_w
     hdr.record_mon_w = hdr.record_armed and RecordMonitorButtonWidth(row2_btn_h) or 0
     local rec_total = 0
     if hdr.show_record then
         rec_total = ms_w + ms_gap
         if hdr.record_armed then rec_total = rec_total + hdr.record_mon_w + ms_gap * 2 end
     end
-    local left_end = text_pad + rec_total + ms_w + ms_gap + ms_w + ms_gap + pan_val_w + group_gap
+    local solo_right = text_pad + rec_total + ms_w + ms_gap + ms_w
 
     hdr.route_pill_w = InspRoutingPillWidth()
-    local ab_w_r2 = row2_btn_h
-    local trk_env_label = "ENV"
-    local trk_ew = math.max(row2_btn_h, r.ImGui_CalcTextSize(ctx, trk_env_label) + S(12))
-    local env_dot_r = S(5)
-    local env_dot_gap = S(4)
-    local env_dots_w = env_dot_r * 2 + env_dot_gap + env_dot_r * 2  -- space for 2 dots
-    local right_total = env_dots_w + gap + trk_ew + gap + ab_w_r2
-
-    local row2_wraps = (left_end + right_total) > (bw - rpad - text_pad)
-    hdr.row2_wraps = row2_wraps
-    local record_input_extra_h = hdr.record_armed and (input_row_gap + input_meter_h + input_row_gap + input_row_h) or 0
+    local vol_row_wraps = InspVolumeShouldWrap(bw, row2_btn_h)
+    local vol_value_x = solo_right + group_gap
+    local fader_to_buttons_gap = ms_gap * 2
+    local vol_pm_w = row2_btn_h + ms_gap + row2_btn_h
+    local fader_right_x = bw - vol_pm_w - fader_to_buttons_gap
+    local pan_knob_x = bw - pan_knob_d + 5
+    local pan_value_x = pan_knob_x - ms_gap * 2 - pan_val_w
+    local left_end = vol_value_x + vol_value_w
+    local pan_value_wraps = false
+    hdr.vol_row_wraps = vol_row_wraps
+    hdr.pan_value_wraps = pan_value_wraps
+    hdr.vol_fader_right_x = fader_right_x
+    hdr.pan_value_x = pan_value_x
+    hdr.pan_knob_x = pan_knob_x
+    hdr.vol_value_x = vol_value_x
+    hdr.vol_value_w = vol_value_w
+    local record_input_fader_gap_extra = hdr.record_armed and Round((row2_h - row2_btn_h) / 2) or 0
+    local record_input_extra_h = hdr.record_armed and (input_row_gap + input_meter_h + input_row_gap + input_row_h + record_input_fader_gap_extra) or 0
     hdr.trk_row_h = trk_pad_top + title_h + trk_row_gap + row2_h
-        + (row2_wraps and (gap + row2_h) or 0)
+        + (pan_value_wraps and (gap + row2_btn_h) or 0)
         + record_input_extra_h + trk_pad_bot
 
     -- Draw rounded background
@@ -4858,12 +5819,14 @@ InspDrawHeader = function(track, bw, is_flow)
 
     -- Row 1: Track number + name (full-width click area)
     local title_y = hdr.trk_sy + trk_pad_top
-    local num_str = (track_num == 0) and "M" or tostring(track_num)
+    local num_str = ReflexTrackTitleNumberString(track, track_num)
     hdr.is_flow_secondary = is_flow and track ~= insp_track
 
     -- Pin circle: only on focus track (flow) or single inspector card (normal)
     local show_pin = false
-    if flow_view_active then
+    if master_strip_rendering then
+        show_pin = false
+    elseif flow_view_active then
         show_pin = is_flow and (track == flow_view_anchor)
     elseif not is_flow then
         show_pin = (track == insp_track)
@@ -4878,6 +5841,7 @@ InspDrawHeader = function(track, bw, is_flow)
     local num_col = hdr.track_color_raw ~= 0 and TrackColorToImGui(hdr.track_color_raw) or C.text_muted
     local num_label, num_slot_label = TrackTitleNumberLabels(num_str)
     local num_tw = r.ImGui_CalcTextSize(ctx, num_slot_label)
+    local num_name_gap = (num_tw > 0) and S(4) or 0
     local title_text_h = r.ImGui_GetTextLineHeight(ctx)
     local title_text_offset_y = Round((title_h - title_text_h) / 2)
 
@@ -4885,8 +5849,8 @@ InspDrawHeader = function(track, bw, is_flow)
         -- Inline track rename (unchanged)
         local name_cx, name_cy = r.ImGui_GetCursorScreenPos(ctx)
         r.ImGui_DrawList_AddText(dl, name_cx, name_cy + title_text_offset_y, num_col, num_label)
-        r.ImGui_SetCursorPosX(ctx, hdr.trk_sx + text_pad + num_tw + S(4))
-        local name_avail = hdr.trk_cx + bw - rpad - S(8) - (hdr.trk_cx + text_pad + num_tw + S(4))
+        r.ImGui_SetCursorPosX(ctx, hdr.trk_sx + text_pad + num_tw + num_name_gap)
+        local name_avail = hdr.trk_cx + bw - rpad - S(8) - (hdr.trk_cx + text_pad + num_tw + num_name_gap)
         insp_rename_frames = insp_rename_frames + 1
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), C.fx_ctrl_bg)
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
@@ -4924,7 +5888,7 @@ InspDrawHeader = function(track, bw, is_flow)
         local title_text_y = num_cy + title_text_offset_y
         r.ImGui_DrawList_AddText(dl, num_cx, title_text_y, num_col, num_label)
 
-        local name_x = num_cx + num_tw + S(4)
+        local name_x = num_cx + num_tw + num_name_gap
         local name_avail = hdr.trk_cx + bw - rpad - pin_area - S(4) - name_x
         local display_name = track_name
         local name_tw = r.ImGui_CalcTextSize(ctx, display_name)
@@ -4944,7 +5908,13 @@ InspDrawHeader = function(track, bw, is_flow)
         -- Register AFTER text draw so it sits on top of hdrtitle for hit-test.
         local link_w = (name_x + name_tw) - num_cx
         local link_dbl_handler = nil
-        if is_flow then
+            if master_strip_rendering then
+                -- Master strip owns its own expansion state and should not
+                -- browse/select or mutate Flow View when clicked.
+                link_dbl_handler = function()
+                    master_track_expanded = false
+                end
+            elseif is_flow then
             -- Flow view: double-click sets focus (preserves current behavior).
             link_dbl_handler = function()
                 ViewHistoryPush()
@@ -4968,6 +5938,9 @@ InspDrawHeader = function(track, bw, is_flow)
         local title_hovered, title_clicked = TitleLink(
             "##hdrnamelink", num_cx, title_text_y, link_w, title_text_h, track,
             { dbl_handler = link_dbl_handler })
+        if master_strip_rendering and title_clicked then
+            master_track_expanded = false
+        end
 
         -- Underline on hover (web-link affordance)
         if title_hovered then
@@ -4978,7 +5951,11 @@ InspDrawHeader = function(track, bw, is_flow)
         -- TitleLink locate gesture doesn't double-fire with the broader
         -- hdrtitle handlers when the click landed on the title-text region.
         if not title_clicked then
-            if is_flow then
+            if master_strip_rendering then
+                if hdr_clicked then
+                    master_track_expanded = false
+                end
+            elseif is_flow then
                 if hdr_dbl then
                     -- Double-click in flow: make this the focus track, unpin, rebuild.
                     -- v20.429: pre/post push so Back/Forward restore the previous flow
@@ -5095,9 +6072,17 @@ InspDrawHeader = function(track, bw, is_flow)
 
     -- Row 2: record/mon/M/S (left) + FX + routing + env controls (right, or row 3 if wrapped)
     local row2_y = title_y + title_h + trk_row_gap
-    local row2_btn_y = row2_y
-    local row3_btn_y = row2_wraps and (row2_btn_y + row2_h + gap) or row2_btn_y
-    local right_row_y = row2_wraps and row3_btn_y or row2_btn_y
+    local row_btn_offset_y = Round((row2_h - row2_btn_h) / 2)
+    local row2_btn_y = row2_y + row_btn_offset_y
+    local row2_knob_y = row2_y + Round((row2_h - (hdr.pan_knob_d or row2_btn_h)) / 2)
+    local pan_value_wraps = hdr.pan_value_wraps == true
+    local pan_value_row_y = row2_btn_y
+    hdr.vol_value_sx = hdr.trk_cx + (hdr.vol_value_x or (bw - row2_btn_h * 2 - gap))
+    hdr.vol_value_sy = hdr.trk_cy + (row2_btn_y - hdr.trk_sy)
+    hdr.vol_value_w = hdr.vol_value_w or (row2_btn_h * 2 + gap)
+    hdr.vol_value_h = row2_btn_h
+    local right_row_block_y = row2_y
+    local right_row_h = row2_h
 
     local left_x = hdr.trk_sx + text_pad
 
@@ -5171,13 +6156,27 @@ InspDrawHeader = function(track, bw, is_flow)
 
     -- Pan value button on header row 2 (after S, draggable, click to edit)
     do
-        local pan_x = left_x + ms_w + ms_gap + ms_w + ms_gap
+        local pan_knob_d = hdr.pan_knob_d or row2_btn_h
+        local pan_knob_x = hdr.pan_knob_x or (bw - pan_knob_d)
+        local pan_x = hdr.pan_value_x or ((hdr.vol_fader_right_x or pan_knob_x) - pan_val_w)
+
+        if not insp_pan_editing then
+            r.ImGui_SetCursorPos(ctx, pan_knob_x, row2_knob_y)
+            local pan_knob_sx, pan_knob_sy = r.ImGui_GetCursorScreenPos(ctx)
+            NavParamKnob(dl, "##trkpan_knob", pan_knob_sx, pan_knob_sy, pan_knob_d, "pan",
+                         track, nil, insp_pan_knob_state,
+                         "Reflex: Pan change", "Track pan",
+                         nil, nil, { hide_value = true, center_notch_w = 2 })
+            pan = r.GetMediaTrackInfo_Value(track, "D_PAN")
+            pan_str = InspFormatPan(pan)
+        end
+
         local pan_val_col
         if math.abs(pan) < 0.005 then pan_val_col = C.text
         elseif pan < 0 then pan_val_col = C.pan_slider_fill
         else pan_val_col = C.fx_offline_txt end
 
-        r.ImGui_SetCursorPos(ctx, pan_x, row2_btn_y)
+        r.ImGui_SetCursorPos(ctx, pan_x, pan_value_row_y)
         if insp_pan_editing then
             insp_pan_edit_frames = insp_pan_edit_frames + 1
             r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), C.fx_ctrl_bg)
@@ -5215,7 +6214,12 @@ InspDrawHeader = function(track, bw, is_flow)
             Tip("Drag: adjust pan\nOpt: reset center")
             local pan_btn_hov = r.ImGui_IsItemHovered(ctx)
             local pan_btn_act = r.ImGui_IsItemActive(ctx)
-            if pan_btn_hov or pan_btn_act then
+            local knob_recent_release = insp_pan_knob_state.released_at
+                and (r.time_precise() - insp_pan_knob_state.released_at <= 2.0)
+            local show_pan_value = insp_hdr_card_hovered[track] == true
+                or pan_btn_hov or pan_btn_act or insp_pan_dragging
+                or insp_pan_knob_state.active or knob_recent_release
+            if show_pan_value and (pan_btn_hov or pan_btn_act) then
                 r.ImGui_DrawList_AddRectFilled(dl, pan_btn_cx, pan_btn_cy, pan_btn_cx + pan_val_w, pan_btn_cy + row2_btn_h, pan_btn_act and C.fx_ctrl_active or C.fx_ctrl_hover, 3)
             end
             local ptw = r.ImGui_CalcTextSize(ctx, pan_str)
@@ -5226,10 +6230,12 @@ InspDrawHeader = function(track, bw, is_flow)
             else
                 pan_draw_col = pan_val_col
             end
-            r.ImGui_DrawList_AddText(dl,
-                pan_btn_cx + Round((pan_val_w - ptw) / 2),
-                pan_btn_cy + Round((row2_btn_h - pth) / 2),
-                pan_draw_col, pan_str)
+            if show_pan_value then
+                r.ImGui_DrawList_AddText(dl,
+                    pan_btn_cx + Round((pan_val_w - ptw) / 2),
+                    pan_btn_cy + Round((row2_btn_h - pth) / 2),
+                    pan_draw_col, pan_str)
+            end
             if r.ImGui_IsItemClicked(ctx, 0) then
                 insp_pan_dragging = true; insp_pan_drag_moved = false
                 insp_pan_before = r.GetMediaTrackInfo_Value(track, "D_PAN")
@@ -5246,6 +6252,9 @@ InspDrawHeader = function(track, bw, is_flow)
             end
             if r.ImGui_IsItemDeactivated(ctx) and insp_pan_dragging then
                 insp_pan_dragging = false
+                if not insp_hdr_card_hovered[track] then
+                    insp_pan_knob_state.released_at = r.time_precise()
+                end
                 if insp_pan_drag_moved and insp_pan_before ~= nil then
                     -- Rollback + atomic commit (Option C)
                     local pan_final = r.GetMediaTrackInfo_Value(track, "D_PAN")
@@ -5259,6 +6268,14 @@ InspDrawHeader = function(track, bw, is_flow)
                 end
                 insp_pan_before = nil
             end
+            if insp_pan_knob_state.active then
+                insp_pan_knob_state.was_active = true
+            elseif insp_pan_knob_state.was_active then
+                insp_pan_knob_state.was_active = false
+                if not insp_hdr_card_hovered[track] then
+                    insp_pan_knob_state.released_at = r.time_precise()
+                end
+            end
             if pan_btn_hov and r.ImGui_IsMouseClicked(ctx, 1) then
                 insp_pan_editing = true; insp_pan_edit_focus = false
                 insp_pan_edit_frames = 0; insp_pan_edit_buf = pan_str
@@ -5266,95 +6283,9 @@ InspDrawHeader = function(track, bw, is_flow)
         end
     end
 
-    local vol_env_exists, vol_env_vis = InspEnvelopeState(track, "Volume")
-    local pan_env_exists, pan_env_vis = InspEnvelopeState(track, "Pan")
-
-    -- Right-side buttons (right_row_y = row 2 or row 3 if wrapped)
-    local right_edge = hdr.trk_sx + bw - rpad
-    local trk_arr_x = right_edge - ab_w_r2
-    local trk_env_x = trk_arr_x - gap - trk_ew
-    local env_dots_x = trk_env_x - gap - env_dots_w
-
-    -- When wrapped, left-align right-side buttons
-    if row2_wraps then
-        env_dots_x = hdr.trk_sx + text_pad
-        trk_env_x = env_dots_x + env_dots_w + gap
-        trk_arr_x = trk_env_x + trk_ew + gap
-    end
-
-    -- Envelope indicator dots (to left of ENV, same size as A/B compare dots)
-    do
-        r.ImGui_SetCursorPos(ctx, env_dots_x, right_row_y)
-        local dot_sx, dot_sy = r.ImGui_GetCursorScreenPos(ctx)
-        local dot_cy = dot_sy + row2_btn_h / 2
-        if vol_env_exists then
-            r.ImGui_DrawList_AddCircleFilled(dl, dot_sx + env_dot_r, dot_cy, env_dot_r, C.green, 24)
-        end
-        if pan_env_exists then
-            r.ImGui_DrawList_AddCircleFilled(dl, dot_sx + env_dot_r * 2 + env_dot_gap + env_dot_r, dot_cy, env_dot_r, C.amber, 24)
-        end
-    end
-
-    -- ENV + expand (always visible)
-    do
-        local active_envs = InspGetAllTrackEnvelopeDetails(track)
-        local trk_env_exp = insp_env_expanded["track_env"] == true
-
-        -- Expand arrow: transparent bg, inactive rest matches M/S rest BG.
-        local arr_txt, arr_htxt
-        if trk_env_exp then
-            arr_txt = C.text
-        else
-            arr_txt = C.fx_ctrl_bg
-            arr_htxt = C.text_dim
-        end
-        r.ImGui_SetCursorPos(ctx, trk_arr_x, right_row_y)
-        local _, trk_arr_clk = NavRect("##tea", ab_w_r2, row2_btn_h,
-            trk_env_exp and "\xE2\x96\xBC" or "\xE2\x96\xB6",
-            { bg = 0x00000000, hov = 0x00000000, active = 0x00000000, fg = arr_txt, fg_hov = arr_htxt })
-        Tip("Opt: toggle all")
-        if trk_arr_clk then
-            local mods = r.ImGui_GetKeyMods(ctx)
-            if IsAlt(mods) then
-                local new_state = not trk_env_exp
-                -- v20.434 Stage C: count from track_fx_cache for this header's track.
-                for ffi = 1, #InspGetFxList(track) do insp_env_expanded[ffi] = new_state end
-                insp_env_expanded["track_env"] = new_state
-            else
-                insp_env_expanded["track_env"] = not trk_env_exp
-            end
-        end
-
-        -- ENV button: transparent bg, inactive rest matches M/S rest BG.
-        r.ImGui_SetCursorPos(ctx, trk_env_x, right_row_y)
-        local has_active_envs = #active_envs > 0
-        local any_env_vis = false
-        for _, ed in ipairs(active_envs) do if ed.visible then any_env_vis = true; break end end
-        local env_txt, env_htxt
-        if any_env_vis then
-            env_txt = 0xFFFFFFFF
-        elseif not has_active_envs then
-            env_txt = C.fx_ctrl_bg
-            env_htxt = C.fx_ctrl_bg
-        else
-            env_txt = C.fx_ctrl_bg
-            env_htxt = C.text_dim
-        end
-        local _, trk_env_clk = NavRect("##tenv", trk_ew, row2_btn_h, trk_env_label,
-            { bg = 0x00000000, hov = 0x00000000, active = 0x00000000, fg = env_txt, fg_hov = env_htxt })
-        if trk_env_clk and has_active_envs then
-            r.Undo_BeginBlock()
-            local any_vis = false
-            for _, ed in ipairs(active_envs) do if ed.visible then any_vis = true; break end end
-            for _, ed in ipairs(active_envs) do InspSetEnvelopeVisibleRaw(ed.env, not any_vis) end
-            r.TrackList_AdjustWindows(false); r.UpdateArrange()
-            r.Undo_EndBlock("Toggle envelope visibility", -1)
-        end
-    end
-
     if hdr.record_armed then
         local current_value = math.floor(r.GetMediaTrackInfo_Value(track, "I_RECINPUT") or -1)
-        local meter_y = right_row_y + row2_h + input_row_gap
+        local meter_y = right_row_block_y + right_row_h + input_row_gap
         local meter_h = RecordInputMeterHeight()
         local meter_w = math.max(1, bw - text_pad)
         local mx1, my1 = hdr.trk_cx + text_pad, hdr.trk_cy + meter_y - hdr.trk_sy
@@ -5366,74 +6297,7 @@ InspDrawHeader = function(track, bw, is_flow)
         InspDrawRecordInputRow(track, hdr, input_row_y, input_row_h, bw, text_pad, row2_btn_h)
     end
 
-    -- Track envelope detail rows (between header and volume bar)
-    if insp_env_expanded["track_env"] then
-        r.ImGui_SetCursorPos(ctx, hdr.trk_sx, hdr.trk_sy + hdr.trk_row_h + gap)
-
-        local details = InspGetAllTrackEnvelopeDetails(track)
-
-        -- Always include Volume and Pan in the list (even if not yet created)
-        local has_vol, has_pan = false, false
-        for _, ed in ipairs(details) do
-            if (ed.fx_idx == -1 or ed.fx_idx == nil) then
-                if ed.name == "Volume" then has_vol = true end
-                if ed.name == "Pan" then has_pan = true end
-            end
-        end
-        if not has_vol then
-            details[#details + 1] = { env = nil, name = "Volume", visible = false, fx_idx = -1, bypassed = false }
-        end
-        if not has_pan then
-            details[#details + 1] = { env = nil, name = "Pan", visible = false, fx_idx = -1, bypassed = false }
-        end
-
-        table.sort(details, function(a, b)
-            local ka = InspEnvSortKey(a.name, a.fx_idx)
-            local kb = InspEnvSortKey(b.name, b.fx_idx)
-            if ka ~= kb then return ka < kb end
-            if a.fx_idx ~= b.fx_idx then return a.fx_idx < b.fx_idx end
-            return a.name < b.name
-        end)
-        for ei, ed in ipairs(details) do
-            r.ImGui_PushID(ctx, 7000 + ei)
-            local display_name
-            if ed.fx_idx >= 0 then
-                display_name = InspFormatEnvForTrackList(ed.name, ed.fx_idx, track)
-            elseif ed.name and ed.name:match("^Send") and ed.env then
-                display_name = InspFormatSendEnvName(track, ed.env, ed.name)
-            else
-                display_name = InspStripEnvSuffix(ed.name, ed.fx_idx)
-            end
-            local name_col = InspEnvColor(ed.name, ed.fx_idx)
-            InspDrawEnvRow(ed, display_name, name_col, bw, text_pad,
-                function()
-                    local mods = r.ImGui_GetKeyMods(ctx)
-                    local is_native = (ed.fx_idx == -1 or ed.fx_idx == nil) and (ed.name == "Volume" or ed.name == "Pan")
-                    if is_native then
-                        InspToggleEnvelope(track, ed.name)
-                    elseif IsAlt(mods) then
-                        for _, d in ipairs(details) do InspSetEnvelopeVisibleRaw(d.env, false) end
-                        InspSetEnvelopeVisible(ed.env, true)
-                    else
-                        InspSetEnvelopeVisible(ed.env, not ed.visible)
-                    end
-                end,
-                function()
-                    local is_native = (ed.fx_idx == -1 or ed.fx_idx == nil) and (ed.name == "Volume" or ed.name == "Pan")
-                    if is_native then
-                        InspToggleEnvelope(track, ed.name)
-                    elseif ed.visible then
-                        InspSetEnvelopeVisible(ed.env, false)
-                    else
-                        for _, d in ipairs(details) do InspSetEnvelopeVisibleRaw(d.env, false) end
-                        InspSetEnvelopeVisible(ed.env, true)
-                    end
-                end, track)
-            r.ImGui_PopID(ctx)
-        end
-    else
-        r.ImGui_SetCursorPos(ctx, hdr.trk_sx, hdr.trk_sy + hdr.trk_row_h)
-    end
+    r.ImGui_SetCursorPos(ctx, hdr.trk_sx, hdr.trk_sy + hdr.trk_row_h)
 
     -- Read vol/pan for downstream sections
     hdr.vol = r.GetMediaTrackInfo_Value(track, "D_VOL")
@@ -5442,6 +6306,244 @@ InspDrawHeader = function(track, bw, is_flow)
     hdr.pan_str = InspFormatPan(hdr.pan)
 
     return hdr
+end
+
+InspDrawTrackEnvelopeRows = function(track, hdr, bw)
+    if not insp_env_expanded["track_env"] then return false end
+    local text_pad = 0
+    r.ImGui_SetCursorPos(ctx, hdr.trk_sx, r.ImGui_GetCursorPosY(ctx) + S(UI.section_gap))
+    local details = InspGetAllTrackEnvelopeDetails(track)
+
+    local has_vol, has_pan = false, false
+    for _, ed in ipairs(details) do
+        if (ed.fx_idx == -1 or ed.fx_idx == nil) then
+            if ed.name == "Volume" then has_vol = true end
+            if ed.name == "Pan" then has_pan = true end
+        end
+    end
+    if not has_vol then
+        details[#details + 1] = { env = nil, name = "Volume", visible = false, fx_idx = -1, bypassed = false }
+    end
+    if not has_pan then
+        details[#details + 1] = { env = nil, name = "Pan", visible = false, fx_idx = -1, bypassed = false }
+    end
+
+    table.sort(details, function(a, b)
+        local ka = InspEnvSortKey(a.name, a.fx_idx)
+        local kb = InspEnvSortKey(b.name, b.fx_idx)
+        if ka ~= kb then return ka < kb end
+        if a.fx_idx ~= b.fx_idx then return a.fx_idx < b.fx_idx end
+        return a.name < b.name
+    end)
+    for ei, ed in ipairs(details) do
+        r.ImGui_PushID(ctx, 7000 + ei)
+        local display_name
+        if ed.fx_idx >= 0 then
+            display_name = InspFormatEnvForTrackList(ed.name, ed.fx_idx, track)
+        elseif ed.name and ed.name:match("^Send") and ed.env then
+            display_name = InspFormatSendEnvName(track, ed.env, ed.name)
+        else
+            display_name = InspStripEnvSuffix(ed.name, ed.fx_idx)
+        end
+        local name_col = InspEnvColor(ed.name, ed.fx_idx)
+        InspDrawEnvRow(ed, display_name, name_col, bw, text_pad,
+            function()
+                local mods = r.ImGui_GetKeyMods(ctx)
+                local is_native = (ed.fx_idx == -1 or ed.fx_idx == nil) and (ed.name == "Volume" or ed.name == "Pan")
+                if is_native then
+                    InspToggleEnvelope(track, ed.name)
+                elseif IsAlt(mods) then
+                    for _, d in ipairs(details) do InspSetEnvelopeVisibleRaw(d.env, false) end
+                    InspSetEnvelopeVisible(ed.env, true)
+                else
+                    InspSetEnvelopeVisible(ed.env, not ed.visible)
+                end
+            end,
+            function()
+                local is_native = (ed.fx_idx == -1 or ed.fx_idx == nil) and (ed.name == "Volume" or ed.name == "Pan")
+                if is_native then
+                    InspToggleEnvelope(track, ed.name)
+                elseif ed.visible then
+                    InspSetEnvelopeVisible(ed.env, false)
+                else
+                    for _, d in ipairs(details) do InspSetEnvelopeVisibleRaw(d.env, false) end
+                    InspSetEnvelopeVisible(ed.env, true)
+                end
+            end, track)
+        r.ImGui_PopID(ctx)
+    end
+    return true
+end
+
+InspTrackEnvLabelWidth = function()
+    local env_text_nudge = 13 * 0.5
+    local env_right_trim = 6 * 0.5
+    local env_pad_each = 9
+    return r.ImGui_CalcTextSize(ctx, "ENV") + env_pad_each * 2 - env_text_nudge - env_right_trim
+end
+
+InspTrackEnvCompoundBaseWidth = function(row_h)
+    return row_h + InspTrackEnvLabelWidth()
+end
+
+InspTrackEnvCompoundWidth = function(row_h, track, opts)
+    opts = opts or {}
+    local dot_r = S(5)
+    local dot_gap = 4
+    local active_envs = track and InspGetAllTrackEnvelopeDetails(track) or {}
+    if #active_envs == 0 then return 0, 0, 0, 0 end
+    local show_dots = false
+    local dots_w = show_dots and (dot_r * 2 + dot_gap + dot_r * 2) or 0
+    local env_w = InspTrackEnvLabelWidth()
+    if opts.stack_dots then
+        return math.max(env_w + row_h, dots_w), dots_w, env_w, 0
+    end
+    local segment_gap = 5.5
+    local dots_block_w = show_dots and (segment_gap + dots_w + segment_gap) or 0
+    return dots_block_w + env_w + row_h, dots_w, env_w, segment_gap
+end
+
+InspDrawTrackEnvCompound = function(track, x, y, row_h, opts)
+    opts = opts or {}
+    local dot_r = S(5)
+    local dot_gap = 4
+    -- 7 Retina px from VP circle bottom to ENV glyph top = 3.5 logical px.
+    local stacked_dot_gap = 3.5
+    local total_w, dots_w, env_w, dots_gap = InspTrackEnvCompoundWidth(row_h, track, opts)
+    if total_w <= 0 then return 0 end
+    local dl = r.ImGui_GetWindowDrawList(ctx)
+    r.ImGui_SetCursorPos(ctx, x, y)
+    local comp_sx, comp_sy = r.ImGui_GetCursorScreenPos(ctx)
+
+    local active_envs = InspGetAllTrackEnvelopeDetails(track)
+    local vol_env_exists, pan_env_exists = false, false
+    for _, ed in ipairs(active_envs) do
+        if (ed.fx_idx == -1 or ed.fx_idx == nil) and ed.name == "Volume" then vol_env_exists = true end
+        if (ed.fx_idx == -1 or ed.fx_idx == nil) and ed.name == "Pan" then pan_env_exists = true end
+    end
+    local show_dots = false
+    local dot_h = dot_r * 2
+    local env_text_h = r.ImGui_GetTextLineHeight(ctx)
+    local env_text_offset_y = Round((row_h - env_text_h) / 2)
+    local stacked_total_h = show_dots and (dot_h + stacked_dot_gap + env_text_h) or row_h
+    local block_y = opts.stack_dots and (y + Round((row_h - stacked_total_h) / 2)) or y
+    local env_y = opts.stack_dots and (block_y + (show_dots and (dot_h + stacked_dot_gap - env_text_offset_y) or 0)) or y
+    local segment_gap = 5.5
+    local arr_x = x
+    local env_x = x + row_h
+    local trk_env_exp = insp_env_expanded["track_env"] == true
+    local any_env_vis = false
+    for _, ed in ipairs(active_envs) do if ed.visible then any_env_vis = true; break end end
+    local compound_hov = r.ImGui_IsMouseHoveringRect(ctx, comp_sx, comp_sy, comp_sx + total_w, comp_sy + row_h)
+    local compound_active = compound_hov and r.ImGui_IsMouseDown(ctx, 0)
+
+    if not opts.stack_dots then
+        local compound_bg
+        if any_env_vis then
+            compound_bg = compound_active and ((C.fx_power_on & 0xFFFFFF00) | 0xCC) or C.fx_power_on
+        else
+            compound_bg = compound_active and C.fx_ctrl_active
+                or (compound_hov and C.fx_ctrl_hover or C.fx_ctrl_bg)
+        end
+        r.ImGui_DrawList_AddRectFilled(dl, comp_sx, comp_sy, comp_sx + total_w, comp_sy + row_h,
+            compound_bg, S(3))
+    end
+
+    if show_dots then
+        local dot_x = x + segment_gap
+        local dot_y = y + Round((row_h - dot_r * 2) / 2)
+        if opts.stack_dots then
+            dot_x = env_x + Round((env_w - dots_w) / 2)
+            dot_y = block_y
+        end
+        r.ImGui_SetCursorPos(ctx, dot_x, dot_y)
+        local dot_sx, dot_sy = r.ImGui_GetCursorScreenPos(ctx)
+        r.ImGui_InvisibleButton(ctx, "##tenv_dots", dots_w, dot_r * 2)
+        local dots_clk = r.ImGui_IsItemClicked(ctx, 0)
+        local dot_cy = dot_sy + dot_r
+        if vol_env_exists then
+            r.ImGui_DrawList_AddCircleFilled(dl, dot_sx + dot_r, dot_cy, dot_r, C.env_vol_dot, 24)
+        end
+        if pan_env_exists then
+            r.ImGui_DrawList_AddCircleFilled(dl, dot_sx + dot_r * 3 + dot_gap, dot_cy, dot_r, C.pan_slider_fill, 24)
+        end
+        if dots_clk then
+            r.Undo_BeginBlock()
+            local any_native_vis = false
+            for _, ed in ipairs(active_envs) do
+                if (ed.fx_idx == -1 or ed.fx_idx == nil)
+                    and ed.env
+                    and (ed.name == "Volume" or ed.name == "Pan")
+                    and ed.visible then
+                    any_native_vis = true
+                    break
+                end
+            end
+            for _, ed in ipairs(active_envs) do
+                if (ed.fx_idx == -1 or ed.fx_idx == nil)
+                    and ed.env
+                    and (ed.name == "Volume" or ed.name == "Pan") then
+                    InspSetEnvelopeVisibleRaw(ed.env, not any_native_vis)
+                end
+            end
+            r.TrackList_AdjustWindows(false); r.UpdateArrange()
+            r.Undo_EndBlock("Toggle track envelope visibility", -1)
+        end
+    end
+
+    local arr_txt
+    if any_env_vis then
+        arr_txt = trk_env_exp and 0xFFFFFFFF or (0xFFFFFF00 | (C.text_dim & 0xFF))
+    else
+        arr_txt = trk_env_exp and C.text or C.text_dim
+    end
+    r.ImGui_SetCursorPos(ctx, arr_x, env_y)
+    local _, trk_arr_clk = NavRect("##tea", row_h, row_h,
+        trk_env_exp and "\xE2\x96\xBC" or "\xE2\x96\xB6",
+        { bg = 0x00000000, hov = 0x00000000, active = 0x00000000,
+          fg = arr_txt, fg_hov = any_env_vis and 0xFFFFFFFF or C.text, fg_active = any_env_vis and 0xFFFFFFFF or C.text,
+          arrow_dx = 0.5, arrow_dy = 1.0 })
+    Tip("Opt: toggle all")
+    if trk_arr_clk then
+        local mods = r.ImGui_GetKeyMods(ctx)
+        if IsAlt(mods) then
+            local new_state = not trk_env_exp
+            for ffi = 1, #InspGetFxList(track) do insp_env_expanded[ffi] = new_state end
+            insp_env_expanded["track_env"] = new_state
+        else
+            insp_env_expanded["track_env"] = not trk_env_exp
+        end
+    end
+
+    r.ImGui_SetCursorPos(ctx, env_x, env_y)
+    local env_txt, env_htxt = C.text_dim, C.text
+    if any_env_vis then
+        env_txt = 0xFFFFFFFF
+        env_htxt = 0xFFFFFFFF
+    else
+        env_txt = C.text_dim
+        env_htxt = C.text
+    end
+    r.ImGui_InvisibleButton(ctx, "##tenv", env_w, row_h)
+    local env_hov = r.ImGui_IsItemHovered(ctx)
+    local trk_env_clk = r.ImGui_IsItemClicked(ctx, 0)
+    local env_sx, env_sy = r.ImGui_GetItemRectMin(ctx)
+    local env_label = "ENV"
+    local env_text_nudge = 13 * 0.5
+    local env_pad_each = 9
+    r.ImGui_DrawList_AddText(dl, env_sx + env_pad_each - env_text_nudge,
+        env_sy + Round((row_h - r.ImGui_GetTextLineHeight(ctx)) / 2),
+        env_hov and env_htxt or env_txt, env_label)
+    if trk_env_clk then
+        r.Undo_BeginBlock()
+        local any_vis = false
+        for _, ed in ipairs(active_envs) do if ed.visible then any_vis = true; break end end
+        for _, ed in ipairs(active_envs) do InspSetEnvelopeVisibleRaw(ed.env, not any_vis) end
+        r.TrackList_AdjustWindows(false); r.UpdateArrange()
+        r.Undo_EndBlock("Toggle envelope visibility", -1)
+    end
+
+    return total_w
 end
 
 -- =========================================================================
@@ -5458,7 +6560,10 @@ InspDrawVolumeSlider = function(track, hdr)
     local track_color_raw = hdr.track_color_raw
     local is_flow_secondary = hdr.is_flow_secondary
 
-    local bar_spacing = S(UI.section_gap + UI.gap_hdr_vol)
+    local arrow_w = 12.0  -- 24 Retina px
+    local arrow_h = 9.5   -- 19 Retina px
+    local arrow_top_gap = -6.0 -- compensates inherited header padding; visible target is 14 Retina px
+    local bar_spacing = arrow_top_gap + arrow_h
     local vol_cur_y = r.ImGui_GetCursorPosY(ctx) + bar_spacing
     local vol_expanded_h = S(UI.btn_h)  -- match mute button height
     local vol_bar_h = vol_expanded_h
@@ -5474,56 +6579,75 @@ InspDrawVolumeSlider = function(track, hdr)
     local vol_circ_d = vol_bar_h
     local vol_circ_r = vol_circ_d / 2
 
-    -- Right-side layout: [vol_value] [-] [+] with standard gaps
-    local right_w, vol_val_w = InspVolumeRightWidth(vol_bar_h)
-    local vol_wrapped = hdr.row2_wraps
+    -- Right-side layout: fader fills remaining space beside [-] [+].
+    local vol_val_w = hdr.vol_value_w or (vol_bar_h * 2 + elem_gap)
+    local fader_to_buttons_gap = elem_gap * 2
+    local button_gap = elem_gap
+    local pm_w = vol_bar_h + button_gap + vol_bar_h
+    local vol_wrapped = false
     local vbar_cy = vbar_cy_raw + vol_y_offset
-    local vbar_w = InspVolumeMeterWidth(bw, vol_bar_h, vol_wrapped)
+    local vbar_w = math.max(1, bw - pm_w - fader_to_buttons_gap)
 
-    -- Volume dB mapping (fourth-root scaling)
+    -- Ableton-style fader scale: dense control below unity, small boost range above.
+    local VOL_MIN_DB = -60
     local VOL_MAX_DB = 12
-    local vol_max_gain = 10 ^ (VOL_MAX_DB / 20)
-    local vol_max_root = vol_max_gain ^ 0.25
-    local vol_fill = vol > 0 and math.min(1, (vol ^ 0.25) / vol_max_root) or 0
-    local zero_frac = 1.0 / vol_max_root
+    local VOL_DB_RANGE = VOL_MAX_DB - VOL_MIN_DB
+    local function vol_gain_to_db(gain)
+        return gain > 0.000001 and 20 * math.log(gain, 10) or VOL_MIN_DB
+    end
+    local function vol_db_to_frac(db)
+        return math.max(0, math.min(1, (db - VOL_MIN_DB) / VOL_DB_RANGE))
+    end
+    local function vol_frac_to_gain(frac)
+        if frac <= 0.005 then return 0 end
+        local db = VOL_MIN_DB + math.max(0, math.min(1, frac)) * VOL_DB_RANGE
+        return 10 ^ (db / 20)
+    end
+    local vol_fill = vol_db_to_frac(vol_gain_to_db(vol))
+    local zero_frac = vol_db_to_frac(0)
     local zero_x = vbar_cx + math.floor(zero_frac * vbar_w)
 
-    -- Handle: circle, outline only
-    local handle_d = vol_bar_h
-    local handle_r = handle_d / 2
-    local handle_stroke = S(3)
-    local handle_inset = math.floor(handle_stroke / 2)
-    local handle_x = vbar_cx + math.floor(vol_fill * vbar_w)
-    handle_x = math.max(vbar_cx + handle_r + handle_inset, math.min(vbar_cx + vbar_w - handle_r - handle_inset, handle_x))
-    local handle_left = handle_x - handle_r
-    local handle_right = handle_x + handle_r
+    -- Handle assembly: 4 Retina px indicator line plus external bitmap arrow.
+    local handle_line_w = 2.0
+    local handle_x = vbar_cx + vol_fill * vbar_w
+    handle_x = math.max(vbar_cx + handle_line_w / 2, math.min(vbar_cx + vbar_w - handle_line_w / 2, handle_x))
+    local handle_left = handle_x - handle_line_w / 2
+    local handle_right = handle_x + handle_line_w / 2
+    local arrow_top_y = vbar_cy - arrow_h
+    local vol_hit_x = vbar_cx - arrow_w / 2
+    local vol_hit_w = vbar_w + arrow_w
 
     -- Check if mouse is in the volume row area (for handle/dot visibility)
     local mx_vol, my_vol = r.ImGui_GetMousePos(ctx)
+    local vol_hit_top = arrow_top_y
     local vol_row_bottom = vol_wrapped and (vbar_cy + vol_bar_h + elem_gap + vol_bar_h) or (vbar_cy + vol_bar_h)
     local vol_row_hover = (insp_vol_dragging and insp_vol_drag_track == track)
         or (insp_vol_val_dragging and insp_vol_val_drag_track == track)
-        or (mx_vol >= vbar_cx and mx_vol <= vbar_cx + bw
-            and my_vol >= vbar_cy and my_vol <= vol_row_bottom)
+        or (mx_vol >= vol_hit_x and mx_vol <= vol_hit_x + vol_hit_w
+            and my_vol >= vol_hit_top and my_vol <= vol_row_bottom)
 
-    -- ── COMBINED METER + SLIDER BACKGROUND ──
+    -- ── COMBINED STEREO METER + SLIDER BACKGROUND ──
 
-    -- Peak level (max L/R) with smoothing and transport auto-reset
-    local peak_raw = math.max(r.Track_GetPeakInfo(track, 0), r.Track_GetPeakInfo(track, 1))
+    -- Peak level (independent L/R lanes) with smoothing and transport auto-reset.
+    local peak_l_raw = r.Track_GetPeakInfo(track, 0)
+    local peak_r_raw = r.Track_GetPeakInfo(track, 1)
+    local peak_raw = math.max(peak_l_raw, peak_r_raw)
     local ps = r.GetPlayState()
     if ps ~= (insp_meter_last_play or -1) then
         insp_meter_clip = {}; insp_meter_peak = {}; insp_meter_display = {}; insp_meter_noise = {}
     end
     insp_meter_last_play = ps
-    local cur_peak = SmoothPeak(insp_meter_peak, track, peak_raw)
+    local meter_key = tostring(track)
+    local cur_l = SmoothPeak(insp_meter_peak, meter_key .. ":L", peak_l_raw)
+    local cur_r = SmoothPeak(insp_meter_peak, meter_key .. ":R", peak_r_raw)
+    local cur_peak = math.max(cur_l, cur_r)
     if peak_raw >= 1.0 then insp_meter_clip[track] = true end
-    local meter_fill = cur_peak > 0.00001 and math.min(1, cur_peak ^ 0.25) or 0
 
-    -- Peak display: update at fixed interval (stable readout, not per-frame)
-    local display_interval = 0.12  -- seconds between display updates (~8fps)
+    -- Peak display: update at a calm interval so the tiny value button doesn't chatter.
+    local display_interval = 0.35
     local now = r.time_precise()
     if not insp_meter_display[track] then
-        insp_meter_display[track] = { val = 0, max = 0, time = now }
+        insp_meter_display[track] = { val = 0, max = 0, time = now, noise_db = nil, noise_time = now }
     end
     local md = insp_meter_display[track]
     -- Track max peak since last display update
@@ -5536,123 +6660,193 @@ InspDrawVolumeSlider = function(track, hdr)
     end
     local display_peak = md.val
 
-    -- Dark background pill
-    r.ImGui_DrawList_AddRectFilled(dl, vbar_cx, vbar_cy, vbar_cx + vbar_w, vbar_cy + vol_bar_h, C.vol_slider_bg, vol_bar_r)
+    -- Rounded-rect track. Full-width rounded rects clipped to sub-rects act as
+    -- the mask for meter lanes, zero line, and handle line.
+    local track_r = S(4)
+    local track_bg = C.vol_slider_bg
+    local zero_mark_col = C.vol_slider_mark
+    local lane_gap = 1.0  -- 2 Retina px
+    local lane_h = (vol_bar_h - lane_gap) / 2
+    local lane1_y1, lane1_y2 = vbar_cy, vbar_cy + lane_h
+    local lane2_y1, lane2_y2 = lane1_y2 + lane_gap, vbar_cy + vol_bar_h
 
-    -- Meter fill (green → amber → red, clip-rect masked for pill endcaps)
-    if meter_fill > 0 then
-        local meter_right = vbar_cx + math.floor(meter_fill * vbar_w)
+    local function draw_masked_track_slice(x1, x2, y1, y2, col)
+        if x2 <= x1 or y2 <= y1 then return end
+        r.ImGui_DrawList_PushClipRect(dl, x1, y1, x2, y2, true)
+        r.ImGui_DrawList_AddRectFilled(dl, vbar_cx, vbar_cy, vbar_cx + vbar_w, vbar_cy + vol_bar_h, col, track_r)
+        r.ImGui_DrawList_PopClipRect(dl)
+    end
+
+    r.ImGui_DrawList_AddRectFilled(dl, vbar_cx, vbar_cy, vbar_cx + vbar_w, vbar_cy + vol_bar_h, track_bg, track_r)
+    draw_masked_track_slice(zero_x - 0.75, zero_x + 0.75, vbar_cy, vbar_cy + vol_bar_h, zero_mark_col)
+
+    local function meter_fill_for_peak(cur)
+        if cur <= 0.00001 then return 0 end
+        local db = 20 * math.log(math.max(cur, 0.00001), 10)
+        return vol_db_to_frac(db)
+    end
+
+    -- Noise floor indicator: grey fill from left edge, variance-based detection.
+    -- This treats stable low-level plugin output as a held warning, not a momentary meter.
+    local noise_floor_db = -120
+    local noise_ceiling_db = -50
+    local noise_floor_amp = 10 ^ (noise_floor_db / 20)
+    local noise_ceiling_amp = 10 ^ (noise_ceiling_db / 20)
+    local noise_hold_s = 2.25
+    local noise_release_s = 0.45
+    local noise_display_db = nil
+    local track_noise = insp_meter_noise[track]
+    if not track_noise then
+        track_noise = {}
+        insp_meter_noise[track] = track_noise
+    end
+    local function update_noise_lane(raw, lane)
+        local mn = track_noise[lane]
+        if not mn then
+            mn = { variance = 0, score = 0, active = false, active_until = 0, time = now }
+            track_noise[lane] = mn
+        end
+
+        local last_time = mn.time or now
+        local dt = math.max(0, math.min(0.2, now - last_time))
+        mn.time = now
+
+        local in_band = raw >= noise_floor_amp and raw <= noise_ceiling_amp
+        if in_band then
+            local db = 20 * math.log(math.max(raw, 1e-30), 10)
+            local prev_db = mn.prev_db or db
+            local change = math.abs(db - prev_db)
+            if change > mn.variance then
+                mn.variance = mn.variance * 0.65 + change * 0.35
+            else
+                mn.variance = mn.variance * 0.92
+            end
+            mn.prev_db = db
+            mn.avg_db = mn.avg_db and (mn.avg_db * 0.88 + db * 0.12) or db
+
+            local clearly_audible_noise = db >= -100
+            local varying_like_noise = mn.variance >= 0.015
+            if clearly_audible_noise or varying_like_noise then
+                local attack = clearly_audible_noise and 0.45 or 0.7
+                mn.score = math.min(1, (mn.score or 0) + dt / attack)
+            else
+                mn.score = math.max(0, (mn.score or 0) - dt / 1.2)
+            end
+            if mn.score >= 0.55 then
+                mn.active = true
+                mn.active_until = now + noise_hold_s
+            end
+        else
+            mn.score = math.max(0, (mn.score or 0) - dt / 0.55)
+            if raw < noise_floor_amp and mn.active then
+                mn.active_until = math.min(mn.active_until or 0, now + noise_release_s)
+            end
+            if raw > noise_ceiling_amp then
+                mn.variance = 0
+                mn.score = 0
+                mn.avg_db = nil
+                mn.prev_db = nil
+                mn.active = false
+                mn.active_until = 0
+            end
+        end
+
+        if mn.active and now <= (mn.active_until or 0) then return mn end
+        mn.active = false
+        return nil
+    end
+    local noise_l = update_noise_lane(peak_l_raw, "L")
+    local noise_r = update_noise_lane(peak_r_raw, "R")
+
+    local function draw_meter_lane(cur, y1, y2, noise_state)
+        if noise_state then return end
+        local fill = meter_fill_for_peak(cur)
+        if fill <= 0 then return end
+        local meter_right = vbar_cx + math.floor(fill * vbar_w)
         if meter_right > vbar_cx then
-            local db = 20 * math.log(math.max(cur_peak, 0.00001), 10)
-            local meter_col
-            meter_col = MeterColor(db)
-            r.ImGui_DrawList_PushClipRect(dl, vbar_cx, vbar_cy, meter_right, vbar_cy + vol_bar_h, true)
-            r.ImGui_DrawList_AddRectFilled(dl, vbar_cx, vbar_cy, vbar_cx + vbar_w, vbar_cy + vol_bar_h, meter_col, vol_bar_r)
-            r.ImGui_DrawList_PopClipRect(dl)
+            local db = 20 * math.log(math.max(cur, 0.00001), 10)
+            draw_masked_track_slice(vbar_cx, meter_right, y1, y2, MeterColor(db))
         end
     end
 
-    -- Handle: filled white circle, same size as meter bar
-    local handle_fill_r = handle_r
-    if vol_row_hover then
-        local handle_cy = vbar_cy + vol_bar_h / 2
-        r.ImGui_DrawList_AddCircleFilled(dl, handle_x, handle_cy, handle_fill_r, 0xFFFFFFFF, 0)
-
-        -- 0dB indicator dot (only when hovering)
-        local mark_dot_r = S(3) + 0.5  -- ~4.5px diameter at typical scales
-        local mark_col
-        if math.abs(handle_x - zero_x) <= handle_fill_r then
-            mark_col = C.vol_slider_mark_intersect
-        elseif handle_x > zero_x + mark_dot_r then
-            mark_col = C.vol_slider_mark_over
-        else
-            mark_col = C.vol_slider_mark
-        end
-        r.ImGui_DrawList_AddCircleFilled(dl, zero_x, handle_cy, mark_dot_r, mark_col, 0)
-    else
-        local handle_cy = vbar_cy + vol_bar_h / 2
-        r.ImGui_DrawList_AddCircleFilled(dl, handle_x, handle_cy, handle_fill_r, 0xFFFFFFFF, 0)
+    local function draw_noise_lane(noise_state, y1, y2)
+        if not noise_state then return end
+        local noise_db = math.max(noise_floor_db, math.min(noise_ceiling_db, noise_state.avg_db or noise_floor_db))
+        noise_display_db = math.max(noise_display_db or noise_db, noise_db)
+        local base_frac = 0.08
+        local frac_part = noise_db - math.floor(noise_db)
+        local jitter = (frac_part - 0.5) * S(6)
+        local noise_w = math.max(S(4), math.floor(vbar_w * base_frac) + math.floor(jitter))
+        draw_masked_track_slice(vbar_cx, vbar_cx + noise_w, y1, y2, C.text_muted)
     end
+    draw_meter_lane(cur_l, lane1_y1, lane1_y2, noise_l)
+    draw_meter_lane(cur_r, lane2_y1, lane2_y2, noise_r)
+    draw_noise_lane(noise_l, lane1_y1, lane1_y2)
+    draw_noise_lane(noise_r, lane2_y1, lane2_y2)
 
-    -- Noise floor indicator: grey fill from left edge, variance-based detection
-    -- Real analog noise fluctuates frame-to-frame; FP artifacts are near-constant
-    -- Only shows when: sub-threshold signal present AND peak is varying (real noise)
-    local noise_threshold = 0.00001 -- -100dB (meter visibility ceiling)
-    if peak_raw > 0 and peak_raw < noise_threshold and meter_fill == 0 then
-        -- Track variance: compare current peak to previous frame
-        if not insp_meter_noise[track] then
-            insp_meter_noise[track] = { prev = peak_raw, variance = 0, active = false }
-        end
-        local mn = insp_meter_noise[track]
-        -- Compute frame-to-frame ratio (how much the peak changed)
-        local ratio = mn.prev > 0 and (peak_raw / mn.prev) or 1
-        local change = math.abs(ratio - 1)  -- 0 = identical, 0.1 = 10% change
-        -- Smooth the variance estimate (fast attack, slow decay)
-        if change > mn.variance then
-            mn.variance = mn.variance * 0.5 + change * 0.5  -- fast attack
-        else
-            mn.variance = mn.variance * 0.5  -- fast decay (~3 frames to clear)
-        end
-        mn.prev = peak_raw
-        -- Real noise has variance > ~0.001 (0.1% frame-to-frame change)
-        -- FP artifacts have variance < 0.0001 (essentially zero change)
-        mn.active = mn.variance > 0.001
-        if mn.active then
-            local noise_db = 20 * math.log(peak_raw, 10)
-            local base_frac = 0.08
-            local frac_part = noise_db - math.floor(noise_db)
-            local jitter = (frac_part - 0.5) * S(6)
-            local noise_w = math.max(S(4), math.floor(vbar_w * base_frac) + math.floor(jitter))
-            local noise_right = vbar_cx + noise_w
-            r.ImGui_DrawList_PushClipRect(dl, vbar_cx, vbar_cy, noise_right, vbar_cy + vol_bar_h, true)
-            r.ImGui_DrawList_AddRectFilled(dl, vbar_cx, vbar_cy, vbar_cx + vbar_w, vbar_cy + vol_bar_h, C.text_muted, vol_bar_r)
-            r.ImGui_DrawList_PopClipRect(dl)
+    local handle_line_col = vol_row_hover
+        and rgb(0xE5B365) or 0xFFFFFFFF
+    draw_masked_track_slice(handle_left, handle_right, vbar_cy, vbar_cy + vol_bar_h, handle_line_col)
+    local arrow_img = GetVolumeFaderArrowImg and GetVolumeFaderArrowImg() or nil
+    if arrow_img then
+        local arrow_left = handle_x - arrow_w / 2
+        r.ImGui_DrawList_AddImage(dl, arrow_img,
+            arrow_left, arrow_top_y,
+            arrow_left + arrow_w, vbar_cy,
+            0, 0, 1, 1, 0xFFFFFFFF)
+    else
+        r.ImGui_DrawList_AddTriangleFilled(dl,
+            handle_x - arrow_w / 2, arrow_top_y,
+            handle_x + arrow_w / 2, arrow_top_y,
+            handle_x, vbar_cy,
+            0xFFFFFFFF)
+    end
+    if noise_display_db then
+        if not md.noise_db or now - (md.noise_time or 0) >= display_interval then
+            md.noise_db = md.noise_db and (md.noise_db * 0.7 + noise_display_db * 0.3) or noise_display_db
+            md.noise_time = now
         end
     else
-        -- Clear variance state when signal is above threshold or absent
-        if insp_meter_noise[track] then
-            insp_meter_noise[track].variance = 0
-            insp_meter_noise[track].active = false
-        end
+        md.noise_db = nil
     end
 
     -- Slider interaction (handle drag; opt+click resets to 0dB)
-    r.ImGui_SetCursorPos(ctx, vbar_sx, vbar_sy)
-    r.ImGui_InvisibleButton(ctx, "##volbar", vbar_w, vol_expanded_h)
+    r.ImGui_SetCursorScreenPos(ctx, vol_hit_x, vol_hit_top)
+    r.ImGui_InvisibleButton(ctx, "##volbar", vol_hit_w, vol_row_bottom - vol_hit_top)
     Tip("Opt: reset 0 dB")
     if r.ImGui_IsItemClicked(ctx, 0) then
         if IsAlt(r.ImGui_GetKeyMods(ctx)) then
             r.Undo_BeginBlock(); r.SetMediaTrackInfo_Value(track, "D_VOL", 1.0); r.Undo_EndBlock("Reflex: Reset volume", -1)
         else
-            local mx, my = r.ImGui_GetMousePos(ctx)
-            if mx >= handle_left and mx <= handle_right and my >= vbar_cy and my <= vbar_cy + vol_bar_h then
-                insp_vol_dragging = true; insp_vol_drag_track = track
-                -- Option C test: cache pre-drag value, no undo block during drag
-                insp_vol_before = r.GetMediaTrackInfo_Value(track, "D_VOL")
-            end
+            insp_vol_dragging = true; insp_vol_drag_track = track
+            insp_vol_drag_moved = false
+            -- Option C test: cache pre-drag value, no undo block during drag
+            insp_vol_before = r.GetMediaTrackInfo_Value(track, "D_VOL")
         end
     end
     if r.ImGui_IsItemActive(ctx) and insp_vol_dragging then
-        local mx = r.ImGui_GetMousePos(ctx)
-        local ratio = math.max(0, math.min(1, (mx - vbar_cx) / vbar_w))
-        local new_vol = (ratio * vol_max_root) ^ 4
-        local new_db = new_vol > 0.00001 and 20 * math.log(new_vol, 10) or -200
-        if math.abs(new_db) < 0.8 then new_vol = 1.0 end
-        if ratio < 0.005 then new_vol = 0 end
-        -- Raw write during drag, no undo wrapping (audio feedback only)
-        r.SetMediaTrackInfo_Value(track, "D_VOL", new_vol)
+        local dx, dy = r.ImGui_GetMouseDragDelta(ctx, 0)
+        if insp_vol_drag_moved or math.abs(dx) >= 1 or math.abs(dy) >= 1 then
+            insp_vol_drag_moved = true
+            local mx = r.ImGui_GetMousePos(ctx)
+            local ratio = math.max(0, math.min(1, (mx - vbar_cx) / vbar_w))
+            local new_vol = vol_frac_to_gain(ratio)
+            -- Raw write during drag, no undo wrapping (audio feedback only)
+            r.SetMediaTrackInfo_Value(track, "D_VOL", new_vol)
+        end
     end
     if r.ImGui_IsItemDeactivated(ctx) and insp_vol_dragging then
         insp_vol_dragging = false; insp_vol_drag_track = nil
         -- Atomic commit: read final, rollback silently, then Begin/Set/End
-        if insp_vol_before ~= nil then
+        if insp_vol_drag_moved and insp_vol_before ~= nil then
             local vol_final = r.GetMediaTrackInfo_Value(track, "D_VOL")
             r.SetMediaTrackInfo_Value(track, "D_VOL", insp_vol_before)  -- silent rollback
             r.Undo_BeginBlock()
             r.SetMediaTrackInfo_Value(track, "D_VOL", vol_final)
             r.Undo_EndBlock("Reflex: Volume change", -1)
-            insp_vol_before = nil
         end
+        insp_vol_before = nil
+        insp_vol_drag_moved = false
     end
 
     -- Click on slider background also resets clip indicator
@@ -5660,21 +6854,20 @@ InspDrawVolumeSlider = function(track, hdr)
         insp_meter_clip[track] = false
     end
 
-    -- Right-side elements: [vol_value] [-] [+]
+    -- Right-side elements: header [vol_value], row [-] [+]
     local circ_cy = vbar_cy + vol_bar_h / 2
-    local right_start, right_cy
-    if vol_wrapped then
-        -- Below slider: right-aligned on next row
-        right_cy = vbar_cy + vol_bar_h + elem_gap
-        right_start = vbar_cx + vbar_w - right_w
-        circ_cy = right_cy + vol_bar_h / 2
-    else
-        right_start = vbar_cx + vbar_w + elem_gap
-        right_cy = vbar_cy
-    end
+    local right_start = hdr.vol_value_sx or (vbar_cx + vbar_w + fader_to_buttons_gap)
+    local right_cy = hdr.vol_value_sy or vbar_cy
+    local minus_x = vbar_cx + vbar_w + fader_to_buttons_gap
+    local plus_x = minus_x + vol_circ_d + button_gap
 
     -- Determine vol value display mode: peak dB (default) vs volume setting
-    local vol_row_interacting = vol_row_hover
+    local vol_value_hover = mx_vol >= right_start and mx_vol <= right_start + vol_val_w
+        and my_vol >= right_cy and my_vol <= right_cy + vol_bar_h
+    local vol_button_hover = mx_vol >= minus_x and mx_vol <= plus_x + vol_circ_d
+        and my_vol >= vbar_cy and my_vol <= vbar_cy + vol_bar_h
+    local vol_button_hold = now < (insp_vol_button_show_until[track] or 0)
+    local vol_row_interacting = vol_row_hover or vol_value_hover or vol_button_hover or vol_button_hold
 
     -- Format display value
     local display_str, display_col
@@ -5686,19 +6879,16 @@ InspDrawVolumeSlider = function(track, hdr)
         -- Show peak dB (slow-smoothed for stable readout)
         if display_peak > 0.00001 then
             local peak_db = 20 * math.log(display_peak, 10)
-            display_str = string.format("%.1f", peak_db)
+            display_str = string.format("%.0f", peak_db)
+        elseif md.noise_db then
+            display_str = string.format("%.0f", md.noise_db)
         else
             display_str = "-inf"
         end
-        local peak_db_val = display_peak > 0.00001 and 20 * math.log(display_peak, 10) or -200
         if insp_meter_clip[track] then
             display_col = C.fx_offline_txt  -- red, stays red until clicked
-        elseif peak_db_val > -3 then
-            display_col = C.fx_offline_txt
-        elseif peak_db_val > -6 then
-            display_col = C.amber
         else
-            display_col = C.green
+            display_col = C.text_muted
         end
     end
 
@@ -5732,24 +6922,19 @@ InspDrawVolumeSlider = function(track, hdr)
         Tip("Click: edit\nOpt: reset 0 dB")
         local vv_hov = r.ImGui_IsItemHovered(ctx)
         local vv_act = r.ImGui_IsItemActive(ctx)
-        -- Hover background
         if vv_hov or vv_act then
-            r.ImGui_DrawList_AddRectFilled(dl, right_start, right_cy, right_start + vol_val_w, right_cy + vol_bar_h, vv_act and C.fx_ctrl_active or C.fx_ctrl_hover, 3)
+            r.ImGui_DrawList_AddRectFilled(dl, right_start, right_cy, right_start + vol_val_w, right_cy + vol_bar_h,
+                vv_act and C.fx_ctrl_active or C.fx_ctrl_hover, 3)
         end
-        -- Left-align text with reserved space for "-" sign (prevents horizontal jitter)
-        -- Exception: center "-inf" and make it grey
+        -- Center text in the header volume value box.
         local text_x, text_col
         if display_str == "-inf" then
             local inf_w = r.ImGui_CalcTextSize(ctx, "-inf")
             text_x = right_start + Round((vol_val_w - inf_w) / 2)
             text_col = C.text_muted
         else
-            local sign_w = r.ImGui_CalcTextSize(ctx, "-")
-            local text_pad_l = S(8)
-            text_x = right_start + text_pad_l + sign_w
-            if display_str:sub(1,1) == "-" then
-                text_x = right_start + text_pad_l
-            end
+            local display_w = r.ImGui_CalcTextSize(ctx, display_str)
+            text_x = right_start + Round((vol_val_w - display_w) / 2)
             text_col = display_col
         end
         r.ImGui_DrawList_AddText(dl, text_x,
@@ -5793,9 +6978,15 @@ InspDrawVolumeSlider = function(track, hdr)
         end
     end
 
+    if InspTrackVolumeEnvelopeActive and InspTrackVolumeEnvelopeActive(track) then
+        local dot_r = S(5)
+        local dot_gap = 11 * 0.5
+        r.ImGui_DrawList_AddCircleFilled(dl, right_start + vol_val_w + dot_gap + dot_r,
+            right_cy + vol_bar_h / 2, dot_r, C.env_vol_dot, 24)
+    end
+
     -- Minus square (hit rect taller than visible square for easier click)
-    local minus_x = right_start + vol_val_w + elem_gap
-    r.ImGui_SetCursorScreenPos(ctx, minus_x, right_cy)
+    r.ImGui_SetCursorScreenPos(ctx, minus_x, vbar_cy)
     local _, md_clk = NavSquare("##vcirc_d", vol_circ_d, vol_circ_d, "-", { hit_h = vol_bar_h })
     Tip("Click: -1 dB\nOpt: -0.5 dB")
     if md_clk then
@@ -5804,11 +6995,11 @@ InspDrawVolumeSlider = function(track, hdr)
         local new_db = math.max(-100, cur_db - step)
         r.Undo_BeginBlock(); r.SetMediaTrackInfo_Value(track, "D_VOL", new_db <= -100 and 0 or 10 ^ (new_db / 20))
         r.Undo_EndBlock("Reflex: Volume change", -1)
+        insp_vol_button_show_until[track] = now + 2.0
     end
 
     -- Plus square
-    local plus_x = minus_x + vol_circ_d + elem_gap
-    r.ImGui_SetCursorScreenPos(ctx, plus_x, right_cy)
+    r.ImGui_SetCursorScreenPos(ctx, plus_x, vbar_cy)
     local _, pu_clk = NavSquare("##vcirc_u", vol_circ_d, vol_circ_d, "+", { hit_h = vol_bar_h })
     Tip("Click: +1 dB\nOpt: +0.5 dB")
     if pu_clk then
@@ -5816,20 +7007,17 @@ InspDrawVolumeSlider = function(track, hdr)
         local cur_db = vol < 0.00001 and -100 or 20 * math.log(vol, 10)
         r.Undo_BeginBlock(); r.SetMediaTrackInfo_Value(track, "D_VOL", 10 ^ (math.min(VOL_MAX_DB, cur_db + step) / 20))
         r.Undo_EndBlock("Reflex: Volume change", -1)
+        insp_vol_button_show_until[track] = now + 2.0
     end
 
     -- Export alignment values for controls row
     hdr.vol_val_w = vol_val_w
     hdr.vol_right_x = right_start  -- screen X of vol value button
-    hdr.vol_pm_combined_w = vol_circ_d + elem_gap + vol_circ_d  -- width of -/+ buttons combined
+    hdr.vol_pm_combined_w = vol_circ_d + button_gap + vol_circ_d  -- width of -/+ buttons combined
 
     -- Set cursor for next section (no separate meter — combined into slider).
     -- No trailing gap: CTRL owns the VOL→CTRL space via gap_vol_ctrl.
-    if vol_wrapped then
-        r.ImGui_SetCursorPos(ctx, trk_sx, vbar_sy + vol_expanded_h + elem_gap + vol_bar_h)
-    else
-        r.ImGui_SetCursorPos(ctx, trk_sx, vbar_sy + vol_expanded_h)
-    end
+    r.ImGui_SetCursorPos(ctx, trk_sx, vbar_sy + vol_expanded_h)
 end
 
 -- =========================================================================
@@ -5850,8 +7038,7 @@ DrawFXChainCompound = function(track, trk_sx, y, fx_btn_w, ctrl_row_h, min_btn_w
     local fx_enabled = r.GetMediaTrackInfo_Value(track, "I_FXEN") == 1
 
     if has_fx then
-        local half_gap = math.floor(ctrl_gap / 2)
-        local arrow_hit_w = min_btn_w + half_gap
+        local arrow_hit_w = min_btn_w
         local arrow_label = is_fx_collapsed and "\xE2\x96\xB6" or "\xE2\x96\xBC"
         local fx_txt_col = fx_enabled and C.fx_power_on or C.fx_offline_txt
 
@@ -5859,6 +7046,8 @@ DrawFXChainCompound = function(track, trk_sx, y, fx_btn_w, ctrl_row_h, min_btn_w
         r.ImGui_SetCursorPos(ctx, trk_sx, y)
         local _, arrow_clk = NavRect("##fxcollapse", arrow_hit_w, ctrl_row_h, arrow_label, {
             fg = is_fx_collapsed and C.text_dim or C.text,
+            arrow_dx = 1.0,
+            arrow_dy = 0.5,
             rounding = {tl = 3, bl = 3, tr = 0, br = 0},
         })
         Tip("Opt: toggle all")
@@ -6030,7 +7219,6 @@ InspDrawControlsRow = function(track, hdr)
     local trk_sx = hdr.trk_sx
     local dl = hdr.dl
     local bw = hdr.bw
-    local ctrl_wraps = hdr.row2_wraps
     -- CTRL owns the VOL→CTRL gap (top-margin-only convention)
     r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + S(UI.section_gap + UI.gap_vol_ctrl))
     local ctrl_row_y = r.ImGui_GetCursorPosY(ctx)
@@ -6039,46 +7227,61 @@ InspDrawControlsRow = function(track, hdr)
     local min_btn_w = ctrl_row_h
 
     local is_fx_collapsed = insp_fx_collapsed[track] == true
-    local is_routing_open = insp_routing_expanded[track] == true
+    local route_w = InspRoutingPillWidth()
+    local env_w = InspTrackEnvCompoundWidth(ctrl_row_h, track)
+    local env_stacked_w = InspTrackEnvCompoundWidth(ctrl_row_h, track, { stack_dots = true })
+    local fx_has_items = InspGetFxCount(track) > 0
+    local fx_compound_w = hdr.fx_btn_w + min_btn_w
+    if fx_has_items then
+        fx_compound_w = fx_compound_w + min_btn_w + math.floor(ctrl_gap / 2)
+    end
+    local stack_env_dots = false
+    local active_env_w = stack_env_dots and env_stacked_w or env_w
+    local ctrl_wraps = false
+    hdr.fx_compound_w = fx_compound_w
+    hdr.ctrl_row_h = ctrl_row_h
+    hdr.ctrl_gap = ctrl_gap
+    hdr.min_btn_w = min_btn_w
 
     if ctrl_wraps then
         -- Stacked layout: each element on its own row
         local cy = ctrl_row_y
 
-        -- Routing pill
-        local route_w = InspRoutingPillWidth() + S(2)
-        r.ImGui_SetCursorPos(ctx, trk_sx, cy)
-        InspDrawRoutingButton(track, trk_sx, cy, route_w)
+        -- FX button
+        is_fx_collapsed = DrawFXChainCompound(track, trk_sx, cy, hdr.fx_btn_w, ctrl_row_h, min_btn_w, ctrl_gap)
         cy = cy + ctrl_row_h + ctrl_gap
 
-        -- FX button
-        if not is_routing_open then
-            is_fx_collapsed = DrawFXChainCompound(track, trk_sx, cy, hdr.fx_btn_w, ctrl_row_h, min_btn_w, ctrl_gap)
-            cy = cy + ctrl_row_h
-        end
+        InspDrawTrackEnvCompound(track, trk_sx, cy, ctrl_row_h, { stack_dots = true })
+        cy = cy + ctrl_row_h + ctrl_gap
+
+        r.ImGui_SetCursorPos(ctx, trk_sx, cy)
+        InspDrawRoutingButton(track, trk_sx, cy, route_w)
+        cy = cy + ctrl_row_h
 
         r.ImGui_SetCursorPos(ctx, trk_sx, cy)
         hdr.ctrl_row_y = cy
+        hdr.route_panel_y = cy
         return is_fx_collapsed
     end
 
     -- Normal (wide) layout below
-    if is_routing_open then
-        -- No label when routing expanded (routing panel visible below)
-    else
-        -- FX controls on this row (collapsed routing)
-        is_fx_collapsed = DrawFXChainCompound(track, trk_sx, ctrl_row_y, hdr.fx_btn_w, ctrl_row_h, min_btn_w, ctrl_gap)
-    end
+    is_fx_collapsed = DrawFXChainCompound(track, trk_sx, ctrl_row_y, hdr.fx_btn_w, ctrl_row_h, min_btn_w, ctrl_gap)
 
     -- Right-aligned: routing pill (always on this row)
     local right_x = trk_sx + bw
-    local route_w = InspRoutingPillWidth() + S(2)
     local route_ctrl_x = right_x - route_w
+    local env_lane_left = trk_sx + fx_compound_w + ctrl_gap
+    local env_lane_right = route_ctrl_x - ctrl_gap * 2
+    local env_x = env_lane_right - active_env_w
+    env_x = math.max(env_lane_left, env_x)
+    InspDrawTrackEnvCompound(track, env_x, ctrl_row_y, ctrl_row_h, { stack_dots = stack_env_dots })
+
     r.ImGui_SetCursorPos(ctx, route_ctrl_x, ctrl_row_y)
     InspDrawRoutingButton(track, route_ctrl_x, ctrl_row_y, route_w)
 
-    -- Save controls row Y for routing panel slide-up
+    -- Save routing panel Y after the controls row.
     hdr.ctrl_row_y = ctrl_row_y
+    hdr.route_panel_y = ctrl_row_y + ctrl_row_h
 
     -- Reset cursor past controls row (no trailing gap: FX/ROUTE own the next top-margin)
     r.ImGui_SetCursorPos(ctx, trk_sx, ctrl_row_y + ctrl_row_h)
@@ -6098,7 +7301,6 @@ InspDrawFXArea = function(track, hdr, is_fx_collapsed, ibh)
     local dl = hdr.dl
     local bw = hdr.bw
     local is_muted = hdr.is_muted
-    local is_routing_open = insp_routing_expanded[track] == true
 
     -- v20.434 Stage C: canonical FX record list for this track (per-track cache).
     -- Single fetch at function entry; all subsequent #/iter access uses this local.
@@ -6108,24 +7310,10 @@ InspDrawFXArea = function(track, hdr, is_fx_collapsed, ibh)
 
     -- CTRL/ROUTE → FX top gap (only when FX area has content to render)
     local has_fx_content = (not is_fx_collapsed) and #fx_list > 0
-    if is_routing_open or has_fx_content then
-        local extra = 0  -- route_section_pad handles the routing→FX gap
+    if has_fx_content then
+        local extra = 0
         r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + S(UI.section_gap + UI.gap_ctrl_fx + extra))
     end
-
-    -- FX controls row: [▶/▼ FX] [+] — only drawn here when routing is expanded
-    if is_routing_open then
-    local ctrl_row_h = S(UI.btn_h)
-    local ctrl_gap = S(UI.pad_sm)
-    local min_btn_w = ctrl_row_h
-    local fx_ctrl_y = r.ImGui_GetCursorPosY(ctx)
-
-    is_fx_collapsed = DrawFXChainCompound(track, trk_sx, fx_ctrl_y, hdr.fx_btn_w, ctrl_row_h, min_btn_w, ctrl_gap)
-
-    -- Gap after FX controls row (only when FX rows will actually render)
-    has_fx_content = (not is_fx_collapsed) and #fx_list > 0
-    r.ImGui_SetCursorPos(ctx, trk_sx, fx_ctrl_y + ctrl_row_h + (has_fx_content and S(UI.section_gap) or 0))
-    end -- is_routing_open FX controls
 
     -- Record FX area start for bypass overlay
     local _, fx_area_start_cy = r.ImGui_GetCursorScreenPos(ctx)
@@ -6134,7 +7322,7 @@ InspDrawFXArea = function(track, hdr, is_fx_collapsed, ibh)
     insp_fx_rects = {}
     for fi, fx in ipairs(fx_list) do
         r.ImGui_SetCursorPosX(ctx, trk_sx)
-        InspDrawFXRow(fx, fi, bw, ibh)
+        InspDrawFXRow(fx, fi, bw, ibh, #fx_list)
         if fi < #fx_list then
             r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + S(UI.fx_gap))
         end
@@ -6358,6 +7546,7 @@ require("Reflex_SendCreateCore")({
     r = r,
     ctx = ctx,
     colors = C,
+    script_dir = script_dir,
 })
 
 -- =========================================================================
@@ -6409,12 +7598,21 @@ InspDrawTrackBlock = function(track, bw, bh, block_idx, is_flow)
     InspDrawVolumeSlider(track, hdr)
     local is_fx_collapsed = InspDrawControlsRow(track, hdr)
 
-    -- Routing panel (expanded inline, slides up to controls row)
-    if insp_routing_expanded[track] then
+    local route_expanded = insp_routing_expanded[track] == true
+
+    -- Routing opens as an overlay layer over the inspector body. It hides ENV/FX
+    -- rows while open, but does not mutate their expansion state.
+    if route_expanded then
         DrawRoutePanel(track, bw, hdr)
     end
 
-    local has_fx_rows = InspDrawFXArea(track, hdr, is_fx_collapsed, ibh) == true
+    local has_fx_rows
+    if route_expanded then
+        has_fx_rows = InspDrawFXArea(track, hdr, true, ibh) == true
+    else
+        InspDrawTrackEnvelopeRows(track, hdr, bw)
+        has_fx_rows = InspDrawFXArea(track, hdr, is_fx_collapsed, ibh) == true
+    end
     local pad_bot_adjust = InspCardBottomPadAdjust(has_fx_rows)
 
     local _, card_end_cy = r.ImGui_GetCursorScreenPos(ctx)
@@ -6425,6 +7623,7 @@ InspDrawTrackBlock = function(track, bw, bh, block_idx, is_flow)
     local cy1 = hdr.trk_cy - cpt
     local cx2 = hdr.trk_cx + bw + cp
     local cy2 = card_end_cy + cpb
+    insp_hdr_card_hovered[track] = r.ImGui_IsMouseHoveringRect(ctx, cx1, cy1, cx2, cy2)
     RouteDragRegisterCardTarget(track, cx1, cy1, cx2 - cx1, cy2 - cy1,
         r.ImGui_GetWindowDrawList(ctx), opt_card_boxes and S(UI.card_r) or 0)
     if r.ImGui_IsMouseClicked(ctx, 1) and not nav_rclick_consumed then
@@ -6438,6 +7637,338 @@ InspDrawTrackBlock = function(track, bw, bh, block_idx, is_flow)
 
     r.ImGui_PopID(ctx)
     return { pad_bot_adjust = pad_bot_adjust }
+end
+
+-- Responsive inspector/SEND column measurements shared by nested and outer layouts.
+ReflexInspectorColumnMinWidth = function()
+    local mvw_btn = S(UI.btn_h)
+    local mvw_gap = S(UI.pad_sm)
+    local mvw_gg = S(UI.group_gap)
+    local mvw_env = math.max(mvw_btn, r.ImGui_CalcTextSize(ctx, "ENV") + S(12))
+    local mvw_content = mvw_btn + mvw_gap + mvw_btn + mvw_gg + mvw_env + mvw_gap + mvw_btn
+    return math.max(mvw_content + S(UI.card_pad) * 2, InspCardMinWidth())
+end
+
+ReflexSendsColumnMinWidth = function()
+    local scmw_btn = S(UI.btn_h)
+    local scmw_gap = S(UI.pad_sm)
+    local scmw_vol = math.max(scmw_btn, r.ImGui_CalcTextSize(ctx, "-00.0") + S(24))
+    local controls_min = scmw_btn * 2 + scmw_gap + scmw_gap + scmw_vol + S(UI.card_pad) * 2
+    local module_min = ReflexSendModuleInlineMinWidth and ReflexSendModuleInlineMinWidth() or 0
+    return math.max(controls_min, module_min)
+end
+
+ReflexSendModuleInlineMinWidth = function()
+    local btn_h = S(UI.btn_h)
+    local knob_d = Round(btn_h * 1.5)
+    local knob_gap = S(20 / 1.44)
+    local knob_pair_w = knob_d * 2 + knob_gap
+    return math.ceil(S(UI.card_pad) * 2 + knob_pair_w)
+end
+
+ReflexComputeInspectorColumnLayout = function(total_w, side_gap)
+    local layout = {
+        two_column = false,
+        inspector_w = total_w,
+        side_w = 0,
+        side_gap = side_gap or 0,
+    }
+    total_w = math.max(0, total_w or 0)
+    side_gap = math.max(0, side_gap or 0)
+    local inspector_min = ReflexInspectorColumnMinWidth()
+    if opt_two_column_mode == true then
+        local side_min_w = ReflexTwoColumnLeftMinWidth()
+        local side_max_w = ReflexTwoColumnResolvedLeftWidth()
+        local side_available_w = math.max(0, total_w - side_gap - inspector_min)
+        local side_w = math.min(side_max_w, math.max(side_min_w, side_available_w))
+        layout.two_column = true
+        layout.side_w = side_w
+        layout.inspector_w = math.max(inspector_min, total_w - side_w - side_gap)
+    else
+        layout.inspector_w = math.max(total_w, inspector_min)
+    end
+    return layout
+end
+
+ReflexResolveMasterTrack = function()
+    if master_track_guid and master_track_guid ~= "" then
+        local custom = ExternalFxFindTrackByGuid(master_track_guid)
+        if custom and r.ValidatePtr(custom, "MediaTrack*") then return custom end
+    end
+    local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+    if master and r.ValidatePtr(master, "MediaTrack*") then return master end
+    return nil
+end
+
+ReflexVisibleMasterTrack = function()
+    if opt_show_master_track ~= true then return nil end
+    return ReflexResolveMasterTrack()
+end
+
+ReflexIsVisibleMasterTrack = function(track)
+    local master = ReflexVisibleMasterTrack()
+    return master ~= nil and track == master
+end
+
+ReflexCurrentSelectedTrack = function()
+    local sel_track = r.CountSelectedTracks(0) > 0 and r.GetSelectedTrack(0, 0) or nil
+    if not sel_track and r.GetMasterTrack and r.IsTrackSelected then
+        local master = r.GetMasterTrack(0)
+        if master and r.IsTrackSelected(master) then sel_track = master end
+    end
+    return sel_track
+end
+
+ReflexShouldShowMasterTrackStrip = function()
+    local master = ReflexVisibleMasterTrack()
+    if not master then return false end
+    if insp_track and insp_track == master then return false end
+    local sel_track = ReflexCurrentSelectedTrack()
+    if sel_track and sel_track == master then return false end
+    return true
+end
+
+ReflexTrackHeaderBlankHovered = function(track, card_sx, card_sy, outer_w)
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
+    local px = opt_card_boxes and S(UI.card_pad) or 0
+    local py_top = opt_card_boxes and S(UI.card_pad_top) or 0
+    local content_x = card_sx + px
+    local content_y = card_sy + py_top
+    local inner_w = math.max(0, outer_w - px * 2)
+    local title_font = InspGetTitleFont()
+    if title_font then r.ImGui_PushFont(ctx, title_font) end
+    local title_h = r.ImGui_GetTextLineHeight(ctx)
+    local _, track_name = r.GetTrackName(track)
+    local track_num = math.floor(r.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER"))
+    local num_str = ReflexTrackTitleNumberString(track, track_num)
+    local _, num_slot_label = TrackTitleNumberLabels(num_str)
+    local num_tw = r.ImGui_CalcTextSize(ctx, num_slot_label)
+    local num_name_gap = (num_tw > 0) and S(4) or 0
+    local name_avail = math.max(0, inner_w - num_tw - num_name_gap)
+    local display_name = track_name
+    local name_tw = r.ImGui_CalcTextSize(ctx, display_name)
+    if name_tw > name_avail then
+        local ellipsis = "\xE2\x80\xA6"
+        local ew = r.ImGui_CalcTextSize(ctx, ellipsis)
+        while name_tw + ew > name_avail and #display_name > 0 do
+            display_name = Utf8DropLast(display_name)
+            name_tw = r.ImGui_CalcTextSize(ctx, display_name)
+        end
+    end
+    if title_font then r.ImGui_PopFont(ctx) end
+    local x1 = content_x + num_tw + num_name_gap + name_tw + S(10)
+    local x2 = content_x + inner_w
+    local y1 = content_y
+    local y2 = content_y + title_h + S(UI.hdr_row_gap)
+    if x2 <= x1 then return false end
+    local mx, my = r.ImGui_GetMousePos(ctx)
+    return mx >= x1 and mx <= x2 and my >= y1 and my <= y2
+end
+
+ReflexDrawMasterTrackMini = function(track, bw)
+    local gap = S(UI.pad_sm)
+    local btn_h = S(UI.btn_h)
+    local pad_x = S(UI.card_pad)
+    local pad_top = S(UI.card_pad_top)
+    local pad_bot = S(UI.card_pad_bot)
+    local row_gap = S(UI.hdr_row_gap)
+    local meter_h = btn_h
+
+    local title_font = InspGetTitleFont()
+    local title_h
+    if title_font then r.ImGui_PushFont(ctx, title_font) end
+    title_h = r.ImGui_GetTextLineHeight(ctx)
+    if title_font then r.ImGui_PopFont(ctx) end
+
+    local title_row_h = math.max(title_h, btn_h)
+    local card_h = pad_top + title_row_h + row_gap + meter_h + pad_bot
+    local sx = r.ImGui_GetCursorPosX(ctx)
+    local sy = r.ImGui_GetCursorPosY(ctx)
+    local cx, cy = r.ImGui_GetCursorScreenPos(ctx)
+    local dl = r.ImGui_GetWindowDrawList(ctx)
+    local col_r = opt_card_boxes and S(UI.card_r) or S(UI.corner_r)
+    local rcx, rcy = math.floor(cx), math.floor(cy)
+    local rcx2, rcy2 = math.floor(cx + bw), math.floor(cy + card_h)
+    local hov = r.ImGui_IsMouseHoveringRect(ctx, rcx, rcy, rcx2, rcy2)
+    local bg = C.bg
+    r.ImGui_DrawList_AddRectFilled(dl, rcx, rcy, rcx2, rcy2, bg, col_r)
+    RouteDragRegisterCardTarget(track, rcx, rcy, rcx2 - rcx, rcy2 - rcy, dl, col_r)
+    card_idx = card_idx + 1
+
+    local ix = cx + pad_x
+    local iy = cy + pad_top
+    local inner_w = bw - pad_x * 2
+    local _, track_name = r.GetTrackName(track)
+    local track_num = math.floor(r.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER"))
+    local num_str = ReflexTrackTitleNumberString(track, track_num)
+    local track_color_raw = r.GetTrackColor(track)
+    local num_col = track_color_raw ~= 0 and TrackColorToImGui(track_color_raw) or C.text_muted
+    local is_muted = r.GetMediaTrackInfo_Value(track, "B_MUTE") == 1
+    local is_solo = r.GetMediaTrackInfo_Value(track, "I_SOLO") > 0
+    local ms_w = btn_h
+    local ms_total_w = ms_w * 2 + gap
+    local ms_y = iy + Round((title_row_h - btn_h) / 2)
+    local m_rect = nil
+    local s_rect = nil
+
+    if title_font then r.ImGui_PushFont(ctx, title_font) end
+    local num_label, num_slot_label = TrackTitleNumberLabels(num_str)
+    local num_tw = r.ImGui_CalcTextSize(ctx, num_slot_label)
+    local num_name_gap = (num_tw > 0) and S(4) or 0
+    local name_avail = inner_w - ms_total_w - gap * 2 - num_tw - num_name_gap
+    local display_name = track_name
+    local name_tw = r.ImGui_CalcTextSize(ctx, display_name)
+    if name_tw > name_avail then
+        local ellipsis = "\xE2\x80\xA6"
+        local ew = r.ImGui_CalcTextSize(ctx, ellipsis)
+        while name_tw + ew > name_avail and #display_name > 0 do
+            display_name = Utf8DropLast(display_name)
+            name_tw = r.ImGui_CalcTextSize(ctx, display_name)
+        end
+        display_name = display_name .. ellipsis
+    end
+    local title_text_y = iy + Round((title_row_h - title_h) / 2)
+    r.ImGui_DrawList_AddText(dl, ix, title_text_y, num_col, num_label)
+    r.ImGui_DrawList_AddText(dl, ix + num_tw + num_name_gap, title_text_y, C.text, display_name)
+    if title_font then r.ImGui_PopFont(ctx) end
+
+    local ms_x = ix + inner_w - ms_total_w
+    r.ImGui_SetCursorScreenPos(ctx, ms_x, ms_y)
+    local m_opts = MuteOpts(is_muted)
+    local _, m_clk = NavRect("M##mastermini_m", ms_w, btn_h, "M", m_opts)
+    m_rect = { r.ImGui_GetItemRectMin(ctx) }
+    m_rect[3], m_rect[4] = r.ImGui_GetItemRectMax(ctx)
+    if m_clk then
+        r.Undo_BeginBlock()
+        r.SetMediaTrackInfo_Value(track, "B_MUTE", is_muted and 0 or 1)
+        r.Undo_EndBlock("Reflex: Mute master strip", -1)
+    end
+    r.ImGui_SetCursorScreenPos(ctx, ms_x + ms_w + gap, ms_y)
+    local s_opts = SoloOpts(is_solo)
+    local _, s_clk = NavRect("S##mastermini_s", ms_w, btn_h, "S", s_opts)
+    s_rect = { r.ImGui_GetItemRectMin(ctx) }
+    s_rect[3], s_rect[4] = r.ImGui_GetItemRectMax(ctx)
+    if s_clk then
+        r.Undo_BeginBlock()
+        r.SetMediaTrackInfo_Value(track, "I_SOLO", is_solo and 0 or 2)
+        r.Undo_EndBlock("Reflex: Solo master strip", -1)
+    end
+
+    local meter_x = ix
+    local meter_y = iy + title_row_h + row_gap
+    local meter_w = inner_w
+    local meter_r = S(4)
+    local lane_gap = 1.0
+    local lane_h = (meter_h - lane_gap) / 2
+    local zero_mark_col = C.vol_slider_mark
+    local master_meter_min_db = -60
+    local master_meter_max_db = 12
+    local function master_mini_db_x(db)
+        local t = (math.max(master_meter_min_db, math.min(master_meter_max_db, db)) - master_meter_min_db)
+            / (master_meter_max_db - master_meter_min_db)
+        return meter_x + Round(meter_w * t)
+    end
+    local zero_x = master_mini_db_x(0)
+    local low_end_x = master_mini_db_x(-24)
+    local green_end_x = master_mini_db_x(-12)
+    local red_start_x = zero_x
+    local low_level_col = rgb(0x1485E0)
+    local function draw_master_mini_segment(x1, x2, fill_right, y1, y2, col)
+        local sx1 = math.max(x1, meter_x)
+        local sx2 = math.min(x2, fill_right, meter_x + meter_w)
+        if sx2 <= sx1 then return end
+        r.ImGui_DrawList_PushClipRect(dl, sx1, y1, sx2, y2, true)
+        r.ImGui_DrawList_AddRectFilled(dl, meter_x, meter_y, meter_x + meter_w, meter_y + meter_h, col, meter_r)
+        r.ImGui_DrawList_PopClipRect(dl)
+    end
+    local function draw_master_mini_slice(x1, x2, y1, y2, col)
+        if x2 <= x1 or y2 <= y1 then return end
+        r.ImGui_DrawList_PushClipRect(dl, x1, y1, x2, y2, true)
+        r.ImGui_DrawList_AddRectFilled(dl, meter_x, meter_y, meter_x + meter_w, meter_y + meter_h, col, meter_r)
+        r.ImGui_DrawList_PopClipRect(dl)
+    end
+    local function draw_master_mini_lane(raw_peak, key, y1, y2)
+        local cur_peak = SmoothPeak(flow_mini_peak, key, raw_peak)
+        if cur_peak <= 0.00001 then return end
+        local db = 20 * math.log(math.max(cur_peak, 0.00001), 10)
+        local fill_right = master_mini_db_x(db)
+        draw_master_mini_segment(meter_x, low_end_x, fill_right, y1, y2, low_level_col)
+        draw_master_mini_segment(low_end_x, green_end_x, fill_right, y1, y2, C.green)
+        draw_master_mini_segment(green_end_x, red_start_x, fill_right, y1, y2, rgb(0xE5B365))
+        draw_master_mini_segment(red_start_x, meter_x + meter_w, fill_right, y1, y2, C.fx_offline_txt)
+    end
+    r.ImGui_DrawList_AddRectFilled(dl, meter_x, meter_y, meter_x + meter_w, meter_y + meter_h, C.vol_slider_bg, meter_r)
+    draw_master_mini_slice(zero_x - 0.75, zero_x + 0.75, meter_y, meter_y + meter_h, zero_mark_col)
+    draw_master_mini_lane(r.Track_GetPeakInfo(track, 0), tostring(track) .. ":masterMiniL", meter_y, meter_y + lane_h)
+    draw_master_mini_lane(r.Track_GetPeakInfo(track, 1), tostring(track) .. ":masterMiniR", meter_y + lane_h + lane_gap, meter_y + meter_h)
+
+    if is_muted then
+        local fade = (C.bg & 0xFFFFFF00) | 0x70
+        r.ImGui_DrawList_AddRectFilled(dl, rcx, rcy, rcx2, rcy2, fade, col_r)
+        if m_rect then DrawStaticRectButton(dl, m_rect, "M", MuteOpts(true)) end
+        if is_solo and s_rect then DrawStaticRectButton(dl, s_rect, "S", SoloOpts(true)) end
+    end
+
+    if hov and r.ImGui_IsMouseClicked(ctx, 0) and not r.ImGui_IsAnyItemHovered(ctx) then
+        master_track_expanded = true
+    end
+
+    r.ImGui_SetCursorPos(ctx, sx, sy + card_h)
+    return card_h
+end
+
+ReflexDrawMasterTrackStrip = function(bw, bh, gap_after)
+    if not ReflexShouldShowMasterTrackStrip() then return 0 end
+    local track = ReflexVisibleMasterTrack()
+    if not track then return 0 end
+    local start_y = r.ImGui_GetCursorPosY(ctx)
+    local saved_env = insp_env_expanded
+    local saved_ve = insp_vol_editing
+    local saved_pe = insp_pan_editing
+    local saved_rn = insp_rename_type
+    local saved_master_rendering = master_strip_rendering
+    local saved_card_idx = card_idx
+
+    r.ImGui_PushID(ctx, "master_track_strip")
+    master_strip_rendering = true
+    if master_track_expanded == true then
+        local strip_scx, strip_scy = r.ImGui_GetCursorScreenPos(ctx)
+        InspScanTrack(track)
+        insp_env_expanded = master_strip_env_expanded or {}
+        insp_vol_editing = false
+        insp_pan_editing = false
+        insp_rename_type = nil
+        local card_bw, card_state = CardBegin(bw, { est_h = master_strip_prev_h or S(140) })
+        local use_bw = card_bw or bw
+        local card_layout = InspDrawTrackBlock(track, use_bw, bh, 9001, false)
+        card_layout = card_layout or {}
+        card_layout.no_height_cache = true
+        CardEnd(card_state, card_layout)
+        master_strip_env_expanded = insp_env_expanded
+        if ReflexTrackHeaderBlankHovered(track, strip_scx, strip_scy, bw)
+           and r.ImGui_IsMouseClicked(ctx, 0) then
+            master_track_expanded = false
+        end
+    else
+        ReflexDrawMasterTrackMini(track, bw)
+    end
+    r.ImGui_PopID(ctx)
+    card_idx = saved_card_idx
+
+    master_strip_rendering = saved_master_rendering
+    insp_env_expanded = saved_env
+    insp_vol_editing = saved_ve
+    insp_pan_editing = saved_pe
+    insp_rename_type = saved_rn
+
+    local used_h = r.ImGui_GetCursorPosY(ctx) - start_y
+    if used_h > 0 then
+        master_strip_prev_h = used_h
+        gap_after = gap_after or 0
+        r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + gap_after)
+        used_h = used_h + gap_after
+    end
+    return used_h
 end
 
 -- Secondary "Selected track" card shown below pinned track when REAPER's selected
@@ -6454,13 +7985,7 @@ InspDrawSelectedTrackCard = function(sel_track, bw, bh)
     insp_pin_sel_frames = insp_pin_sel_frames + 1
     if insp_pin_sel_frames <= 1 then return end
 
-    -- "Selected track" section header
-    r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + S(UI.bg_label_gap_above))
-    local dl_sec = r.ImGui_GetWindowDrawList(ctx)
-    local sec_sx, sec_sy = r.ImGui_GetCursorScreenPos(ctx)
-    local sec_th = r.ImGui_GetTextLineHeight(ctx)
-    r.ImGui_DrawList_AddText(dl_sec, sec_sx, sec_sy, C.bg_label, "Selected track")
-    r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + sec_th + S(UI.bg_label_gap_below))
+    r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + S(UI.edge_pad) - 2)
 
     -- Save state. ImGui ID scope and per-track UI state must be isolated during
     -- the secondary card's render so they don't collide with the primary card.
@@ -6529,41 +8054,17 @@ InspDrawInspector = function(bw, bh)
         return
     end
 
-    -- Minimum viable width: V + gap + P + group_gap + ENV + gap + expand + card_pad*2
-    local mvw
-    do
-        local mvw_btn = S(UI.btn_h)
-        local mvw_gap = S(UI.pad_sm)
-        local mvw_gg = S(UI.group_gap)
-        local mvw_env = math.max(mvw_btn, r.ImGui_CalcTextSize(ctx, "ENV") + S(12))
-        local mvw_content = mvw_btn + mvw_gap + mvw_btn + mvw_gg + mvw_env + mvw_gap + mvw_btn
-        mvw = mvw_content + S(UI.card_pad) * 2
-        bw = math.max(bw, mvw)
-    end
+    local mvw = ReflexInspectorColumnMinWidth()
+    bw = math.max(bw, mvw, InspCardMinWidth())
 
-    -- Side-by-side sends: compute sends column min width and check threshold
+    -- Two-column SEND/NAV layout is owned by the outer content split. The
+    -- inspector keeps SENDS inline when it is asked to draw them itself.
     local sends_side = false
     local sends_side_bw = 0
     local sends_side_x = 0
     local full_bw = bw
     local insp_start_sx = r.ImGui_GetCursorPosX(ctx)
     local insp_start_sy = r.ImGui_GetCursorPosY(ctx)
-    if opt_show_sends then
-        local scmw_btn = S(UI.btn_h)
-        local scmw_gap = S(UI.pad_sm)
-        local scmw_vol = math.max(scmw_btn, r.ImGui_CalcTextSize(ctx, "-00.0") + S(24))
-        local sends_col_min_w = scmw_btn * 2 + scmw_gap + scmw_gap + scmw_vol + S(UI.card_pad) * 2
-        local side_gap = S(UI.edge_pad)  -- match window border padding
-        local threshold = math.floor(mvw * TWO_COL_MULT) + sends_col_min_w + side_gap
-        if full_bw >= threshold then
-            sends_side = true
-            -- Inspector capped at comfortable max, remainder goes to sends
-            local insp_max = INSP_MAX_W
-            bw = math.min(full_bw - sends_col_min_w - side_gap, insp_max)
-            sends_side_bw = full_bw - bw - side_gap
-            sends_side_x = insp_start_sx + bw + side_gap
-        end
-    end
 
     if flow_view_active and #flow_view_chain >= 1 then
         -- Per-frame refresh: detect routing changes (parent send toggled, sends added/removed)
@@ -6617,6 +8118,7 @@ InspDrawInspector = function(bw, bh)
         local n = #flow_view_chain
         local flow_card_gap = S(UI.edge_pad) - 2
         local flow_focus_cursor_y = nil
+        local flow_visible_count = 0
 
         -- Drop entries for tracks no longer in the chain
         if next(flow_view_expanded_set) then
@@ -6635,24 +8137,26 @@ InspDrawInspector = function(bw, bh)
             -- nil/stale tracks. Break cleanly — already-drawn cards will
             -- re-render correctly next frame against the new chain.
             if not chain_track or not r.ValidatePtr(chain_track, "MediaTrack*") then break end
-            local is_focus = (i == n)
-            local is_expanded = flow_view_expanded_set[chain_track] == true
-            local show_full = is_focus or is_expanded
+            if not ReflexIsVisibleMasterTrack(chain_track) then
+                local is_focus = (i == n)
+                local is_expanded = flow_view_expanded_set[chain_track] == true
+                local show_full = is_focus or is_expanded
 
-            -- v20.439: sends are never rendered inline within the flow chain.
-            -- In single-column mode they are hidden; widen the window to see
-            -- the sends column on the right (sends_side path at frame end).
+                -- v20.439: sends are never rendered inline within the flow chain.
+                -- In single-column mode they are hidden; widen the window to see
+                -- the sends column on the right (sends_side path at frame end).
 
-            -- Gap between cards (not before first)
-            if i > 1 then
-                r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + flow_card_gap)
-            end
+                -- Gap between cards (not before first)
+                if flow_visible_count > 0 then
+                    r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + flow_card_gap)
+                end
+                flow_visible_count = flow_visible_count + 1
 
-            if is_focus then
-                flow_focus_cursor_y = r.ImGui_GetCursorPosY(ctx)
-            end
+                if is_focus then
+                    flow_focus_cursor_y = r.ImGui_GetCursorPosY(ctx)
+                end
 
-            if show_full then
+                if show_full then
                 -- Full card rendering (focus track or expanded non-focus)
                 if not flow_prepare_track(chain_track) then break end
 
@@ -6702,16 +8206,20 @@ InspDrawInspector = function(bw, bh)
                         r.SetOnlyTrackSelected(chain_track)
                         r.Undo_EndBlock("Reflex: Browse track", 0)
                         flow_view_browsing = true
-                    elseif r.ImGui_IsMouseClicked(ctx, 0) and chain_track == insp_track and not is_focus then
+                    elseif r.ImGui_IsMouseClicked(ctx, 0)
+                       and chain_track == insp_track
+                       and not is_focus
+                       and ReflexTrackHeaderBlankHovered(chain_track, flow_scx, flow_scy, bw) then
                         -- v20.431: click on already-selected expanded non-focus
                         -- card → collapse it. This is the "remove from set"
                         -- gesture that lets users dismiss a persistent expansion.
                         flow_view_expanded_set[chain_track] = nil
                     end
                 end
-            else
-                -- Minimal card (title + M/S + meter)
-                FlowDrawMinimalCard(chain_track, bw, i)
+                else
+                    -- Minimal card (title + M/S + meter)
+                    FlowDrawMinimalCard(chain_track, bw, i)
+                end
             end
         end
 
@@ -6721,14 +8229,9 @@ InspDrawInspector = function(bw, bh)
         insp_fx_rects = saved_rects
         -- v20.436 Stage D: removed insp_fx restore (`insp_fx = afc.list else insp_fx = saved_fx`).
         -- With insp_fx gone, readers look up via track_fx_cache[track] directly.
-        -- v20.439: Sends are not rendered inline in flow view single-column
-        -- mode. They appear in the right column when the window is wide
-        -- enough (sends_side path below); otherwise they are hidden until
-        -- the user widens the window or exits flow view.
 
-        -- Selected track card below chain (flow view)
-        -- Gate: pinned, not suppressed, sel_track differs from anchor, and sel_track
-        -- is not already rendering as a chain card.
+        -- Secondary selected track stays with the flow cards; SENDS render below
+        -- all associated cards when there is enough vertical room.
         if insp_pinned and not insp_pin_suppress_selected then
             local sel_track = r.CountSelectedTracks(0) > 0 and r.GetSelectedTrack(0, 0) or nil
             if sel_track and r.ValidatePtr(sel_track, "MediaTrack*")
@@ -6742,6 +8245,13 @@ InspDrawInspector = function(bw, bh)
                     InspDrawSelectedTrackCard(sel_track, bw, bh)
                 end
             end
+        end
+
+        local sends_section_start_y = r.ImGui_GetCursorPosY(ctx)
+        last_inspector_cards_content_h = sends_section_start_y - insp_start_sy
+        if opt_show_sends and not sends_side then
+            SendsDrawSection(bw)
+            last_inline_sends_content_h = r.ImGui_GetCursorPosY(ctx) - sends_section_start_y
         end
 
         -- Auto-scroll on first frame after activation
@@ -6767,17 +8277,20 @@ InspDrawInspector = function(bw, bh)
 
         CardEnd(card_state, card_layout)
 
-        -- Sends section (above secondary track when not side-by-side)
-        if opt_show_sends and not sends_side then
-            SendsDrawSection(bw)
-        end
-
-        -- Selected track card below pinned track (normal view)
+        -- Secondary selected track stays with the primary card; SENDS render below
+        -- both when the inline placement fits without extra scrolling.
         if insp_pinned and not insp_pin_suppress_selected then
             local sel_track = r.CountSelectedTracks(0) > 0 and r.GetSelectedTrack(0, 0) or nil
             if sel_track and sel_track ~= insp_track and r.ValidatePtr(sel_track, "MediaTrack*") then
                 InspDrawSelectedTrackCard(sel_track, bw, bh)
             end
+        end
+
+        local sends_section_start_y = r.ImGui_GetCursorPosY(ctx)
+        last_inspector_cards_content_h = sends_section_start_y - insp_start_sy
+        if opt_show_sends and not sends_side then
+            SendsDrawSection(bw)
+            last_inline_sends_content_h = r.ImGui_GetCursorPosY(ctx) - sends_section_start_y
         end
     end
 
@@ -6965,11 +8478,8 @@ ReflexInspectorFlatContentMinWidth = function()
 
     local trk_env_label = "ENV"
     local trk_ew = math.max(row_h, r.ImGui_CalcTextSize(ctx, trk_env_label) + S(12))
-    local env_dot_r = S(5)
-    local env_dot_gap = S(4)
-    local env_dots_w = env_dot_r * 2 + env_dot_gap + env_dot_r * 2
-    local right_total = env_dots_w + gap + trk_ew + gap + row_h
-    return left_end + right_total
+    local right_total = trk_ew + gap + row_h
+    return math.max(InspCardMinWidth(), left_end + right_total)
 end
 
 ReflexFooterContentMinWidth = function()
@@ -6979,7 +8489,7 @@ ReflexFooterContentMinWidth = function()
     local edge = ReflexFooterEdgeGap()
     local step = hit_w + gap
     local history_w = d + step
-    local right_group_w = d + step * 2
+    local right_group_w = d + step * 3
     local cmp_w = InspGetCompareControlsWidth(d)
     local middle_w = cmp_w > 0 and (gap * 4 + cmp_w) or 0
     return edge * 2 + history_w + middle_w + right_group_w
@@ -8200,6 +9710,18 @@ ReflexNavigatorRunExternalCommand = function(command)
     elseif command == "open_fx_browser" then
         return ReflexOpenFXBrowserForHotkey
             and ReflexOpenFXBrowserForHotkey({ source = "external" }) == true
+    elseif command == "fx_window_next" then
+        return ReflexCycleFXWindow and ReflexCycleFXWindow(1, { source = "external" }) == true
+    elseif command == "fx_window_previous" then
+        return ReflexCycleFXWindow and ReflexCycleFXWindow(-1, { source = "external" }) == true
+    elseif command == "fx_window_stack_next" then
+        return ReflexCycleFXWindow and ReflexCycleFXWindow(1, { source = "external", keep_open = true }) == true
+    elseif command == "fx_window_stack_previous" then
+        return ReflexCycleFXWindow and ReflexCycleFXWindow(-1, { source = "external", keep_open = true }) == true
+    elseif command == "close_all_fx_windows" then
+        return ReflexCloseAllFXWindows and ReflexCloseAllFXWindows() == true
+    elseif command == "tile_fx_windows" then
+        return ReflexTileFXWindowsOrCurrentTrack and ReflexTileFXWindowsOrCurrentTrack() == true
     end
     return false
 end
@@ -8327,6 +9849,7 @@ FlowDrawMinimalCard = function(track, bw, block_idx)
 
     local gap = S(UI.pad_sm)
     local btn_h = S(UI.btn_h)
+    local knob_gap = S(20 / 1.44)
     local pad_x = S(UI.card_pad)
     local pad_top = S(UI.card_pad_top)
     local pad_bot = S(UI.card_pad_bot)
@@ -8387,7 +9910,7 @@ FlowDrawMinimalCard = function(track, bw, block_idx)
     -- Track info
     local _, track_name = r.GetTrackName(track)
     local track_num = math.floor(r.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER"))
-    local num_str = (track_num == 0) and "M" or tostring(track_num)
+    local num_str = (track_num <= 0) and "M" or tostring(track_num)
     local track_color_raw = r.GetTrackColor(track)
     local num_col = track_color_raw ~= 0 and TrackColorToImGui(track_color_raw) or C.text_muted
     local is_muted = r.GetMediaTrackInfo_Value(track, "B_MUTE") == 1
@@ -8689,13 +10212,17 @@ SendsOverviewSourcePinned = function(source_track)
     return sends_view_active == true and sends_view_source == insp_track
 end
 
-DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, source_track, send_idx)
+DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, source_track, send_idx, opts)
+    opts = opts or {}
     local pad_x = S(UI.card_pad)
     local pad_top = S(UI.card_pad_top)
     if source_track and send_idx then pad_top = S(UI.send_pad_top) end
+    local is_folder_column = not (source_track and send_idx)
+    local is_folder_spanner = is_folder_column and opts.folder_spanner == true
     local corner_r = S(UI.corner_r)
     local gap = S(UI.pad_sm)
     local btn_h = S(UI.btn_h)
+    local knob_gap = S(20 / 1.44)
 
     -- Column background (card styling when enabled)
     local col_r = opt_card_boxes and S(UI.card_r) or corner_r
@@ -8714,7 +10241,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
     local inner_w = col_w - pad_x * 2
     if inner_w < S(20) then return end
     local knob_d = Round(btn_h * 1.5)
-    local knobs_wrap = inner_w < (knob_d * 2 + gap)
+    local knobs_wrap = inner_w < (knob_d * 2 + knob_gap)
 
     -- SND section (collapsible send controls — default collapsed, before title)
     if source_track and send_idx and r.ValidatePtr(source_track, "MediaTrack*") then
@@ -8876,10 +10403,16 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
         end -- snd_expanded
     end
 
+    -- Track state (mute/solo used by M/S buttons)
+    local is_muted = r.GetMediaTrackInfo_Value(track, "B_MUTE") == 1
+    local is_solo = r.GetMediaTrackInfo_Value(track, "I_SOLO") > 0
+    local cm_rx, cm_ry, cm_rx2, cm_ry2 = 0, 0, 0, 0  -- mute button rect (for overlay redraw)
+    local cs_rx, cs_ry, cs_rx2, cs_ry2 = 0, 0, 0, 0  -- solo button rect (for overlay redraw)
+
     -- Track title (card header — after SND section)
     local _, track_name = r.GetTrackName(track)
     local track_num = math.floor(r.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER"))
-    local num_str = (track_num == 0) and "M" or tostring(track_num)
+    local num_str = (track_num <= 0) and "M" or tostring(track_num)
     local num_label, num_slot_label = TrackTitleNumberLabels(num_str)
     local track_color_raw = r.GetTrackColor(track)
     local num_col = track_color_raw ~= 0 and TrackColorToImGui(track_color_raw) or C.text_muted
@@ -8895,7 +10428,13 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
     local num_tw = r.ImGui_CalcTextSize(ctx, num_slot_label)
     local num_gap = S(4)
     local name_tw_raw = r.ImGui_CalcTextSize(ctx, track_name)
-    r.ImGui_DrawList_PushClipRect(dl, x, y, x + inner_w, y + title_h + 2, true)
+    local spanner_knob_d = knob_d
+    local spanner_knobs_w = spanner_knob_d * 2 + knob_gap
+    local title_clip_right = x + inner_w
+    if is_folder_spanner then
+        title_clip_right = math.max(x, x + inner_w - spanner_knobs_w - gap)
+    end
+    r.ImGui_DrawList_PushClipRect(dl, x, y, title_clip_right, y + title_h + 2, true)
     r.ImGui_DrawList_AddText(dl, x, title_text_y, num_col, num_label)
     r.ImGui_DrawList_AddText(dl, x + num_tw + num_gap, title_text_y, C.text, track_name)
     r.ImGui_DrawList_PopClipRect(dl)
@@ -8904,7 +10443,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
     -- v20.441: TitleLink over the actual text bounds (number + name, clipped
     -- to inner_w). Manual hit-test inside TitleLink lets it dispatch even
     -- when ##ctitle below claims the broader area.
-    local title_link_w = math.min(num_tw + num_gap + name_tw_raw, inner_w)
+    local title_link_w = math.min(num_tw + num_gap + name_tw_raw, math.max(0, title_clip_right - x))
     local title_link_hov, title_link_clk = TitleLink(
         "##ctitle_link", x, title_text_y, title_link_w, title_text_h, track, {})
     if title_link_hov then
@@ -8914,24 +10453,34 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             title_name_x + title_name_w, C.text, 1)
     end
 
+    local title_hit_w = inner_w
+    if is_folder_spanner then title_hit_w = math.max(1, title_clip_right - x) end
     r.ImGui_SetCursorScreenPos(ctx, x, y)
-    r.ImGui_InvisibleButton(ctx, "##ctitle", inner_w, title_h)
+    r.ImGui_InvisibleButton(ctx, "##ctitle", title_hit_w, title_h)
     -- v20.441: title-link locate is ADDITIVE — ct_clicked still fires so
     -- callers (folder expand toggle) get title-click as a normal title hit.
     -- v20.442: but peek (Opt+click) is light-touch — suppress fall-through.
     local ct_clicked = r.ImGui_IsItemClicked(ctx, 0) and not nav_title_peek_consumed
-    y = y + title_h + S(UI.section_gap)
+    local title_row_h = title_h
+    if is_folder_spanner then
+        title_row_h = math.max(title_h, knob_d + S(2) + r.ImGui_GetTextLineHeight(ctx))
+        local spanner_knob_y = y
+        local pan_kx = x + inner_w - knob_d
+        local vol_kx = pan_kx - knob_gap - knob_d
+        NavParamKnob(dl, "##rkvol", vol_kx, spanner_knob_y, knob_d, "vol",
+                     track, nil, rkvol_state,
+                     "Reflex: Return volume", "Return volume")
+        NavParamKnob(dl, "##rkpan", pan_kx, spanner_knob_y, knob_d, "pan",
+                     track, nil, rkpan_state,
+                     "Reflex: Return pan", "Return pan")
+    end
+    y = y + title_row_h + S(UI.section_gap)
     if source_track and send_idx then y = y + 3 end
     -- ct_clicked is returned at end of function for callers (e.g. folder expand toggle)
 
-    -- Track state (mute/solo used by M/S buttons at bottom)
-    local is_muted = r.GetMediaTrackInfo_Value(track, "B_MUTE") == 1
-    local is_solo = r.GetMediaTrackInfo_Value(track, "I_SOLO") > 0
-    local cm_rx, cm_ry, cm_rx2, cm_ry2 = 0, 0, 0, 0  -- mute button rect (for overlay redraw)
-    local cs_rx, cs_ry, cs_rx2, cs_ry2 = 0, 0, 0, 0  -- solo button rect (for overlay redraw)
-
     -- FX and routing row (wraps when too narrow)
-    local is_send_fx_collapsed = source_track and send_idx and (insp_fx_collapsed[track] == true)
+    local is_send_fx_collapsed = insp_fx_collapsed[track] == true
+    local ctrl_wrap = false
     do
         local fx_btn_w = math.floor(InspCtrlW("FX") * 1.4)
         local fx_enabled = r.GetMediaTrackInfo_Value(track, "I_FXEN") == 1
@@ -8948,14 +10497,20 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
         -- Mirrors inspector DrawFXChainCompound. Right-click on + opens
         -- ##snd_addfx_ctx (Open Browser / Define Action / Clear).
         local fx_end_x
+        local arrow_hit_w = btn_h
+        local fx_compound_w = (has_any_fx and arrow_hit_w or 0) + fx_btn_w + btn_h
+        local ms_pair_w = btn_h + gap + btn_h
+        local controls_w = fx_compound_w + (is_folder_spanner and (gap + ms_pair_w) or 0) + gap + route_w
+        ctrl_wrap = controls_w > inner_w
+        local fx_y = (ctrl_wrap and not is_folder_spanner) and (y + btn_h + gap) or y
         if has_any_fx then
-            local half_gap = math.floor(gap / 2)
-            local arrow_hit_w = btn_h + half_gap
             local arrow_label = is_send_fx_collapsed and "\xE2\x96\xB6" or "\xE2\x96\xBC"
 
-            r.ImGui_SetCursorScreenPos(ctx, x, y)
+            r.ImGui_SetCursorScreenPos(ctx, x, fx_y)
             local _, arrow_clk = NavRect("##fxcollapse", arrow_hit_w, btn_h, arrow_label, {
                 fg = is_send_fx_collapsed and C.text_dim or C.text,
+                arrow_dx = 1.0,
+                arrow_dy = 0.5,
                 rounding = {tl = 3, bl = 3, tr = 0, br = 0},
             })
             Tip("Collapse FX\nOpt: toggle all sends")
@@ -8965,12 +10520,19 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
                     for _, st in ipairs(sends_view_tracks) do insp_fx_collapsed[st] = new_state end
                 else
                     insp_fx_collapsed[track] = not is_send_fx_collapsed
+                    if is_folder_spanner then
+                        if insp_fx_collapsed[track] == true then
+                            sends_folder_collapse_request = true
+                        else
+                            sends_folder_expand_request = true
+                        end
+                    end
                 end
                 is_send_fx_collapsed = insp_fx_collapsed[track] == true
             end
 
             -- FX middle segment: no rounding (joined on both sides)
-            r.ImGui_SetCursorScreenPos(ctx, x + arrow_hit_w, y)
+            r.ImGui_SetCursorScreenPos(ctx, x + arrow_hit_w, fx_y)
             local _, cfx_clk = NavRect("FX##cfx", fx_btn_w, btn_h, "FX", {
                 fg = fx_txt,
                 rounding = {tl = 0, bl = 0, tr = 0, br = 0},
@@ -9007,7 +10569,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
 
             -- + button (right): round right corners only. v20.420.
             local addfx_x = x + arrow_hit_w + fx_btn_w
-            r.ImGui_SetCursorScreenPos(ctx, addfx_x, y)
+            r.ImGui_SetCursorScreenPos(ctx, addfx_x, fx_y)
             do
                 local _, addfx_clk, addfx_act = NavRect("##snd_addfx_btn", btn_h, btn_h, "+", {
                     hov = C.fx_power_on, active = (C.fx_power_on & 0xFFFFFF00) | 0xCC,
@@ -9028,7 +10590,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             fx_end_x = addfx_x + btn_h
         else
             -- No FX: [FX | +] compound
-            r.ImGui_SetCursorScreenPos(ctx, x, y)
+            r.ImGui_SetCursorScreenPos(ctx, x, fx_y)
             local _, cfx_clk = NavRect("FX##cfx", fx_btn_w, btn_h, "FX", {
                 fg = fx_txt,
                 rounding = {tl = 3, bl = 3, tr = 0, br = 0},
@@ -9040,7 +10602,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             if r.ImGui_IsItemClicked(ctx, 1) then r.ImGui_OpenPopup(ctx, "##cfx_ctx") end
 
             local addfx_x = x + fx_btn_w
-            r.ImGui_SetCursorScreenPos(ctx, addfx_x, y)
+            r.ImGui_SetCursorScreenPos(ctx, addfx_x, fx_y)
             do
                 local _, addfx_clk, addfx_act = NavRect("##snd_addfx_btn", btn_h, btn_h, "+", {
                     hov = C.fx_power_on, active = (C.fx_power_on & 0xFFFFFF00) | 0xCC,
@@ -9121,11 +10683,47 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
         end
         PopPopupStyle()
 
-        -- Routing pill (right-aligned, or own row when wrapped)
-        local ctrl_wrap = (fx_end_x - x + gap + route_w) > inner_w
+        if is_folder_spanner then
+            local m_x = fx_end_x + gap
+            local ms_y = fx_y
+            local s_x = m_x + btn_h + gap
+            if ctrl_wrap or s_x + btn_h > x + inner_w - route_w - gap then
+                ctrl_wrap = true
+                m_x = x
+                ms_y = fx_y + btn_h + gap
+                s_x = m_x + btn_h + gap
+            end
+            if s_x + btn_h <= x + inner_w then
+                local m_opts = MuteOpts(is_muted)
+                r.ImGui_SetCursorScreenPos(ctx, m_x, ms_y)
+                local _, cm_clk = NavRect("M##cm", btn_h, btn_h, "M", m_opts)
+                cm_rx, cm_ry = r.ImGui_GetItemRectMin(ctx)
+                cm_rx2, cm_ry2 = r.ImGui_GetItemRectMax(ctx)
+                Tip("Mute")
+                if cm_clk then
+                    r.Undo_BeginBlock()
+                    r.SetMediaTrackInfo_Value(track, "B_MUTE", is_muted and 0 or 1)
+                    r.Undo_EndBlock("Reflex: Mute", -1)
+                end
+
+                local s_opts = SoloOpts(is_solo)
+                r.ImGui_SetCursorScreenPos(ctx, s_x, ms_y)
+                local _, cs_clk = NavRect("S##cs", btn_h, btn_h, "S", s_opts)
+                cs_rx, cs_ry = r.ImGui_GetItemRectMin(ctx)
+                cs_rx2, cs_ry2 = r.ImGui_GetItemRectMax(ctx)
+                Tip("Solo")
+                if cs_clk then
+                    r.Undo_BeginBlock()
+                    r.SetMediaTrackInfo_Value(track, "I_SOLO", is_solo and 0 or 2)
+                    r.Undo_EndBlock("Reflex: Solo", -1)
+                end
+            end
+        end
+
+        -- Routing pill stays on the upper row when controls wrap so FX remains
+        -- visually attached to the FX chain below.
         local route_x, ry
-        if ctrl_wrap then
-            y = y + btn_h + gap
+        if ctrl_wrap and not is_folder_spanner then
             route_x = x
             ry = y + Round((btn_h - route_h) / 2)
         else
@@ -9162,7 +10760,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             r.Undo_EndBlock("Reflex: Show routing", 0)
         end
     end
-    y = y + btn_h + gap
+    y = y + btn_h + gap + (ctrl_wrap and (btn_h + gap) or 0)
 
     -- FX list (bold text, matching inspector row height and spacing)
     local fx_step = GetFontStep(UI.font_fx)
@@ -9172,6 +10770,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
     local fx_gap_v = S(UI.fx_gap)
     local fx_r = S(UI.corner_r)
     local fx_pad = FXPowerNamePad(fx_h)
+    local fx_cat_w = FXCategoryBarWidth()
     local fx_power_hit_w = fx_h
     local fxth = r.ImGui_GetTextLineHeight(ctx)
 
@@ -9210,11 +10809,18 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             -- Colors via shared FxStateColors helper
             local bg, hover_c, active_c, txt = FxStateColors(is_cont, is_instr, fx_off, fx_en, is_dry, false, wet_val)
 
-            local row_bg = is_instr and bg or (C.fx_row_bg or bg)
-            local power_hovered_pre = r.ImGui_IsMouseHoveringRect(ctx, x, fy, x + fx_power_hit_w, fy + fx_h)
-            DrawFXRowBase(dl, x, fy, inner_w, fx_power_hit_w, fx_h, row_bg, FXPowerBgColor(fx_en, power_hovered_pre), fx_r)
+            local fx_category = FXPluginCategory(track, fi, fx_name, InspStripName(fx_name), is_cont, is_instr)
+            local row_bg = C.fx_row_bg or bg
+            local row_corners = FXRowStackCorners(fi + 1, fx_count)
+            local body_round_flags = FXRowBodyCornerFlags(row_corners, fx_cat_w)
+            local row_hovered_pre = r.ImGui_IsMouseHoveringRect(ctx, x, fy, x + inner_w, fy + fx_h)
+            local power_hovered_pre = row_hovered_pre
+                or r.ImGui_IsMouseHoveringRect(ctx, x + fx_cat_w, fy, x + fx_cat_w + fx_power_hit_w, fy + fx_h)
+            local cat_col = FXCategoryColor(fx_category, is_cont, is_instr, fx_off, fx_en)
+            DrawFXRowBase(dl, x, fy, inner_w, fx_power_hit_w, fx_h, row_bg,
+                FXPowerEndcapBgColor(fx_en, power_hovered_pre, row_bg, fx_off, false), fx_r, cat_col, fx_cat_w, row_corners)
             if C.fx_row_border then
-                DrawSolidRoundedRectOutline(dl, x, fy, x + inner_w, fy + fx_h, C.fx_row_border, fx_r, 1)
+                DrawFXRowRightOutline(dl, x, fy, inner_w, fx_h, C.fx_row_border, fx_r, 1, row_corners)
             end
 
             col_fx_rects[fi] = { cy = fy, h = fx_h, cx = x, w = inner_w }
@@ -9223,16 +10829,19 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Header(), 0x00000000)
             r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderHovered(), 0x00000000)
             r.ImGui_PushStyleColor(ctx, r.ImGui_Col_HeaderActive(), 0x00000000)
-            r.ImGui_SetCursorScreenPos(ctx, x + fx_power_hit_w, fy)
+            r.ImGui_SetCursorScreenPos(ctx, x + fx_cat_w + fx_power_hit_w, fy)
             local sel = r.ImGui_Selectable(ctx, "##sfxi" .. fi, false,
-                r.ImGui_SelectableFlags_AllowOverlap(), math.max(S(20), inner_w - fx_power_hit_w), fx_h)
+                r.ImGui_SelectableFlags_AllowOverlap(), math.max(S(20), inner_w - fx_cat_w - fx_power_hit_w), fx_h)
             local body_hovered = r.ImGui_IsItemHovered(ctx)
-            local hovered = r.ImGui_IsMouseHoveringRect(ctx, x + fx_power_hit_w, fy, x + inner_w, fy + fx_h)
+            local hovered = r.ImGui_IsMouseHoveringRect(ctx, x + fx_cat_w + fx_power_hit_w, fy, x + inner_w, fy + fx_h)
+            local row_hovered_full = row_hovered_pre
             r.ImGui_PopStyleColor(ctx, 3)
+            if fx_off and row_hovered_full then
+                ShowOfflineFxStateTooltip(fx_en)
             -- v20.424: drop "Click: open" (self-explanatory). Suppress during
             -- carry mode — competes with insert-indicator
             -- visuals and pill messaging. Descriptive category, opt_tooltips-gated.
-            if body_hovered and not FxClipHasContent() then
+            elseif body_hovered and not FxClipHasContent() then
                 Tip("Shift: bypass\nOpt: remove\nCmd+Shift: offline")
             end
 
@@ -9245,12 +10854,13 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
                 popup_id = "##sfx_ctx" .. fi,
                 sel = sel, hovered = hovered, item_hovered = body_hovered,
                 dl = dl, cx = x, cy = fy, w = inner_w, h = fx_h, radius = fx_r,
-                fill_x = x + fx_power_hit_w, fill_w = math.max(1, inner_w - fx_power_hit_w),
+                fill_x = x + fx_cat_w + fx_power_hit_w, fill_w = math.max(1, inner_w - fx_cat_w - fx_power_hit_w),
+                body_round_flags = body_round_flags,
                 hover_col = hover_c, active_col = active_c,
                 enabled = fx_en, offline = fx_off,
             })
 
-            DrawFXPowerButton("##sfxpower" .. fi, x, fy, fx_h, fx_en, {
+            DrawFXPowerButton("##sfxpower" .. fi, x + fx_cat_w, fy, fx_h, fx_en, {
                 track = track, fi = fi, guid = fx_guid, surface = "sends",
                 enabled = fx_en, offline = fx_off,
             })
@@ -9263,12 +10873,12 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             if insp_rename_type == "fx" and insp_rename_track == track
                and insp_rename_idx == fi then
                 insp_rename_frames = insp_rename_frames + 1
-                r.ImGui_SetCursorScreenPos(ctx, x + fx_pad, fy + Round((fx_h - fxth) / 2))
+                r.ImGui_SetCursorScreenPos(ctx, x + fx_cat_w + fx_pad, fy + Round((fx_h - fxth) / 2))
                 r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), C.fx_ctrl_bg)
                 r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
                 r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FrameRounding(), 3)
                 r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FramePadding(), S(4), 0)
-                r.ImGui_SetNextItemWidth(ctx, inner_w - fx_pad - S(UI.pad_sm))
+                r.ImGui_SetNextItemWidth(ctx, inner_w - fx_cat_w - fx_pad - S(UI.pad_sm))
                 if not insp_rename_focus then
                     r.ImGui_SetKeyboardFocusHere(ctx); insp_rename_focus = true
                 end
@@ -9287,25 +10897,44 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
                 end
             else
                 local name_col = (not fx_en and not fx_off and hovered) and C.fx_power_off or txt
-                r.ImGui_DrawList_PushClipRect(dl, x + fx_pad, fy, x + inner_w - S(UI.pad_sm), fy + fx_h, true)
-                r.ImGui_DrawList_AddText(dl, x + fx_pad, fy + Round((fx_h - fxth) / 2), name_col, fx_name)
-                r.ImGui_DrawList_PopClipRect(dl)
+                local name_font_pushed = false
+                if fx_off then
+                    name_font_pushed = PushFont(GetSteppedFont(UI.font_fx, "italic"))
+                end
+                local name_x = x + fx_cat_w + fx_pad
+                local name_avail = math.max(0, x + inner_w - S(UI.pad_sm) - name_x)
+                local display_name = fx_name
+                local name_tw = r.ImGui_CalcTextSize(ctx, display_name)
+                if name_tw > name_avail then
+                    local ellipsis = "\xE2\x80\xA6"
+                    local ew = r.ImGui_CalcTextSize(ctx, ellipsis)
+                    while name_tw + ew > name_avail and #display_name > 0 do
+                        display_name = Utf8DropLast(display_name)
+                        name_tw = r.ImGui_CalcTextSize(ctx, display_name)
+                    end
+                    if name_avail >= ew then
+                        display_name = display_name .. ellipsis
+                    else
+                        display_name = ""
+                    end
+                end
+                r.ImGui_DrawList_AddText(dl, name_x, fy + Round((fx_h - fxth) / 2), name_col, display_name)
+                PopFont(name_font_pushed)
             end
 
             -- Fade overlay for offline/dry (matching InspDrawFXRow)
-            if not is_instr then
-                if fx_off then
-                    DrawHighResRoundedRectFilled(dl, x, fy, x + inner_w, fy + fx_h, (C.bg & 0xFFFFFF00) | 0x90, fx_r)
-                elseif is_dry then
-                    DrawHighResRoundedRectFilled(dl, x, fy, x + inner_w, fy + fx_h, (C.bg & 0xFFFFFF00) | 0x60, fx_r)
-                end
+            if fx_off then
+                local d = FXPowerCircleDiameter()
+                r.ImGui_DrawList_AddCircleFilled(dl, x + fx_cat_w + fx_h / 2, fy + fx_h / 2, d / 2, C.fx_power_offline, NAV_CIRCLE_SEGMENTS)
+            elseif is_dry then
+                DrawFXRowOverlay(dl, x, fy, inner_w, fx_h, fx_h, fx_cat_w, (C.bg & 0xFFFFFF00) | 0x60, fx_r, row_corners)
             end
 
             -- v20.422+: outline cascade extracted to FxRowOutlineColor.
             -- See helper for state priority (drag-source / paste-pulse / carry / select).
             local sends_outline_col = FxRowOutlineColor(track, fi, fx_guid, "sends")
             if sends_outline_col then
-                DrawSolidRoundedRectOutline(dl, x, fy, x + inner_w, fy + fx_h, sends_outline_col, fx_r, SOURCE_STROKE_W)
+                DrawFXRowRightOutline(dl, x, fy, inner_w, fx_h, sends_outline_col, fx_r, SOURCE_STROKE_W, row_corners)
             end
         else
             -- v20.420: empty slots render nothing. Variant B — column heights
@@ -9348,57 +10977,58 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
     if fx_font then r.ImGui_PopFont(ctx) end
 
     -- Track controls section (vol/pan knobs + M/S at very bottom)
-    do
+    if not is_folder_spanner then
         local text_h = r.ImGui_GetTextLineHeight(ctx)
         -- v20.420: trailing add-FX row removed. Height = real FX rows + gaps only.
         local fx_area_h = is_send_fx_collapsed and 0
                           or (slots > 0 and (slots * fx_h + (slots - 1) * fx_gap_v) or 0)
         local knob_unit = knob_d + S(2) + text_h
         local knob_pair_h = knobs_wrap and (knob_unit * 2 + gap) or knob_unit
-        local return_controls_h = knob_pair_h + S(UI.section_gap) + btn_h
+        local return_controls_h = is_folder_column and knob_pair_h or (knob_pair_h + S(UI.section_gap) + btn_h)
         local ret_y = cy + col_h - S(UI.send_pad_bot) - return_controls_h
+        local knob_y = ret_y
 
         if knobs_wrap then
             -- Stacked: vol on top, pan below
-            local kx = x + Round((inner_w - knob_d) / 2)
+            local kx = is_folder_column and (x + inner_w - knob_d) or (x + Round((inner_w - knob_d) / 2))
 
-            NavParamKnob(dl, "##rkvol", kx, ret_y, knob_d, "vol",
+            NavParamKnob(dl, "##rkvol", kx, knob_y, knob_d, "vol",
                          track, nil, rkvol_state,
                          "Reflex: Return volume", "Return volume")
-            ret_y = ret_y + knob_d + S(2) + text_h + gap
+            knob_y = knob_y + knob_d + S(2) + text_h + gap
 
-            NavParamKnob(dl, "##rkpan", kx, ret_y, knob_d, "pan",
+            NavParamKnob(dl, "##rkpan", kx, knob_y, knob_d, "pan",
                          track, nil, rkpan_state,
                          "Reflex: Return pan", "Return pan")
-            ret_y = ret_y + knob_d + S(2) + text_h + gap
         else
             -- Side by side: fixed minimum gap, centered as a packed pair.
-            local knobs_total_w = knob_d * 2 + gap
-            local vol_kx = x + Round((inner_w - knobs_total_w) / 2)
-            local pan_kx = vol_kx + knob_d + gap
+            local knobs_total_w = knob_d * 2 + knob_gap
+            local vol_kx = is_folder_column and (x + inner_w - knobs_total_w) or (x + Round((inner_w - knobs_total_w) / 2))
+            local pan_kx = vol_kx + knob_d + knob_gap
 
-            NavParamKnob(dl, "##rkvol", vol_kx, ret_y, knob_d, "vol",
+            NavParamKnob(dl, "##rkvol", vol_kx, knob_y, knob_d, "vol",
                          track, nil, rkvol_state,
                          "Reflex: Return volume", "Return volume")
 
-            NavParamKnob(dl, "##rkpan", pan_kx, ret_y, knob_d, "pan",
+            NavParamKnob(dl, "##rkpan", pan_kx, knob_y, knob_d, "pan",
                          track, nil, rkpan_state,
                          "Reflex: Return pan", "Return pan")
-            ret_y = ret_y + knob_d + S(2) + text_h + gap
         end
 
-        -- M/S buttons (return track mute/solo, centered pair with standard gap)
+        -- M/S buttons (return track mute/solo)
         -- v20.441: inspect arrow removed (locate via title click instead).
         local card_hov = r.ImGui_IsMouseHoveringRect(ctx, cx, cy, cx + col_w, cy + col_h)
-        ret_y = ret_y + S(UI.section_gap) - gap  -- extra gap above M/S
         local ms_w = btn_h
         local ms_gap = S(UI.pad_sm)
         local ms_pair_w = ms_w + ms_gap + ms_w
-        local m_x = x + Round((inner_w - ms_pair_w) / 2)
+        local m_x = is_folder_column and x or (x + Round((inner_w - ms_pair_w) / 2))
         local s_x = m_x + ms_w + ms_gap
+        local ms_y = is_folder_column
+            and (cy + col_h - S(UI.send_pad_bot) - btn_h)
+            or (cy + col_h - S(UI.send_pad_bot - 3) - btn_h)
 
         local m_opts = MuteOpts(is_muted)
-        r.ImGui_SetCursorScreenPos(ctx, m_x, ret_y)
+        r.ImGui_SetCursorScreenPos(ctx, m_x, ms_y)
         local _, cm_clk = NavRect("M##cm", ms_w, btn_h, "M", m_opts)
         -- Save mute button rect for overlay redraw
         cm_rx, cm_ry = r.ImGui_GetItemRectMin(ctx)
@@ -9411,7 +11041,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
         end
 
         local s_opts = SoloOpts(is_solo)
-        r.ImGui_SetCursorScreenPos(ctx, s_x, ret_y)
+        r.ImGui_SetCursorScreenPos(ctx, s_x, ms_y)
         local _, cs_clk = NavRect("S##cs", ms_w, btn_h, "S", s_opts)
         cs_rx, cs_ry = r.ImGui_GetItemRectMin(ctx)
         cs_rx2, cs_ry2 = r.ImGui_GetItemRectMax(ctx)
@@ -9681,8 +11311,9 @@ FxBrowserRender = function()
                 local dl_fg = r.ImGui_GetForegroundDrawList(ctx)
                 local ins_thick = math.max(2, S(2))
                 local ins_r = math.floor(ins_thick / 2)
+                local ins_col = C.fx_drag_move or C.amber or rgb(0xD29922)
                 r.ImGui_DrawList_AddRectFilled(dl_fg, rc_ref.cx + ins_inset, ins_line_y - ins_r,
-                    rc_ref.cx + rc_ref.w - ins_inset, ins_line_y + ins_r, 0xFFFFFF66, ins_r)
+                    rc_ref.cx + rc_ref.w - ins_inset, ins_line_y + ins_r, ins_col, ins_r)
             end
         end
     end
@@ -9826,7 +11457,7 @@ TitleLink = function(id, x, y, w, h, track, opts)
                 opts.dbl_handler()
             else
                 local mods = r.ImGui_GetKeyMods(ctx)
-                local opt_held = (mods & 0x4) ~= 0  -- Mod_Alt = 0x4
+                local opt_held = IsAlt(mods)
                 if opt_held then
                     -- v20.442: Opt+click peek is a pure light-touch gesture —
                     -- locate in REAPER, no Reflex state change. Set frame
@@ -10003,6 +11634,7 @@ local RESCAN_THROTTLE = 0.5  -- seconds between structure rescans
 local nav_project_key = nil
 local nav_project_search_cache = {}
 local inspector_project_state_cache = {}
+local fx_window_toggle_state_cache = {}
 
 ReflexNavigatorCurrentProjectKey = function()
     local proj = r.EnumProjects and r.EnumProjects(-1, "") or nil
@@ -10026,6 +11658,29 @@ ReflexFindTrackByGuid = function(guid)
     for i = 0, nt - 1 do
         local track = r.GetTrack(0, i)
         if track and r.GetTrackGUID(track) == guid then return track end
+    end
+    return nil
+end
+
+ReflexGetTakeGUID = function(take)
+    if not take or not r.ValidatePtr(take, "MediaItem_Take*") then return nil end
+    if not r.GetSetMediaItemTakeInfo_String then return nil end
+    local ok, rv, guid = pcall(r.GetSetMediaItemTakeInfo_String, take, "GUID", "", false)
+    if ok and rv and guid and guid ~= "" then return guid end
+    return nil
+end
+
+ReflexFindTakeByGuid = function(guid)
+    if not guid or guid == "" then return nil end
+    for i = 0, r.CountTracks(0) - 1 do
+        local track = r.GetTrack(0, i)
+        for j = 0, r.CountTrackMediaItems(track) - 1 do
+            local item = r.GetTrackMediaItem(track, j)
+            for k = 0, r.GetMediaItemNumTakes(item) - 1 do
+                local take = r.GetTake(item, k)
+                if ReflexGetTakeGUID(take) == guid then return take end
+            end
+        end
     end
     return nil
 end
@@ -10160,6 +11815,399 @@ ReflexResolveFXBrowserHotkeyTarget = function()
     return nil
 end
 
+ReflexResolveFXWindowCommandTrack = function()
+    if insp_track and r.ValidatePtr(insp_track, "MediaTrack*") then return insp_track end
+    local sel_track = r.CountSelectedTracks(0) > 0 and r.GetSelectedTrack(0, 0) or nil
+    if sel_track and r.ValidatePtr(sel_track, "MediaTrack*") then return sel_track end
+    local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+    if master and r.ValidatePtr(master, "MediaTrack*") and r.IsTrackSelected(master) then return master end
+    return nil
+end
+
+ReflexFindFXByGUID = function(track, target_guid)
+    if not target_guid or target_guid == "" then return nil end
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return nil end
+    for f = 0, r.TrackFX_GetCount(track) - 1 do
+        if r.TrackFX_GetFXGUID(track, f) == target_guid then return f end
+    end
+    return nil
+end
+
+ReflexFXWindowKey = function(track, fx_idx)
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return nil end
+    local track_guid = r.GetTrackGUID(track) or ""
+    local fx_guid = r.TrackFX_GetFXGUID(track, fx_idx) or ""
+    if track_guid == "" or fx_guid == "" then return nil end
+    return track_guid .. "::" .. fx_guid
+end
+
+ReflexForEachProjectTrack = function(fn)
+    if not fn then return end
+    local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+    if master and r.ValidatePtr(master, "MediaTrack*") then fn(master, true) end
+    for i = 0, r.CountTracks(0) - 1 do
+        local track = r.GetTrack(0, i)
+        if track and r.ValidatePtr(track, "MediaTrack*") then fn(track, false) end
+    end
+end
+
+ReflexCollectOpenTrackFXWindows = function(opts)
+    opts = opts or {}
+    local windows = {}
+    ReflexForEachProjectTrack(function(track, is_master)
+        if is_master and opts.include_master == false then return end
+        if opts.only_track and track ~= opts.only_track then return end
+        for f = 0, r.TrackFX_GetCount(track) - 1 do
+            local hwnd = r.TrackFX_GetFloatingWindow(track, f)
+            if hwnd then
+                windows[#windows + 1] = {
+                    kind = "track",
+                    track = track,
+                    fx_idx = f,
+                    hwnd = hwnd,
+                    key = ReflexFXWindowKey(track, f),
+                }
+            end
+        end
+    end)
+    return windows
+end
+
+ReflexCollectOpenFXWindows = function()
+    local windows = ReflexCollectOpenTrackFXWindows()
+    for i = 0, r.CountTracks(0) - 1 do
+        local track = r.GetTrack(0, i)
+        for j = 0, r.CountTrackMediaItems(track) - 1 do
+            local item = r.GetTrackMediaItem(track, j)
+            for k = 0, r.GetMediaItemNumTakes(item) - 1 do
+                local take = r.GetTake(item, k)
+                if take and r.ValidatePtr(take, "MediaItem_Take*") then
+                    for f = 0, r.TakeFX_GetCount(take) - 1 do
+                        local hwnd = r.TakeFX_GetFloatingWindow(take, f)
+                        if hwnd then
+                            windows[#windows + 1] = {
+                                kind = "take",
+                                take = take,
+                                fx_idx = f,
+                                hwnd = hwnd,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return windows
+end
+
+ReflexCurrentFXWindowToggleKey = function()
+    return ReflexNavigatorCurrentProjectKey and ReflexNavigatorCurrentProjectKey() or "default"
+end
+
+ReflexCaptureFXWindowToggleSet = function(windows)
+    local snapshot = {}
+    for _, win in ipairs(windows or {}) do
+        if win.kind == "track" and win.track and r.ValidatePtr(win.track, "MediaTrack*") then
+            local track_guid = r.GetTrackGUID(win.track) or ""
+            local fx_guid = r.TrackFX_GetFXGUID(win.track, win.fx_idx) or ""
+            if track_guid ~= "" and fx_guid ~= "" then
+                snapshot[#snapshot + 1] = {
+                    kind = "track",
+                    track_guid = track_guid,
+                    fx_guid = fx_guid,
+                }
+            end
+        elseif win.kind == "take" and win.take and r.ValidatePtr(win.take, "MediaItem_Take*") then
+            local take_guid = ReflexGetTakeGUID(win.take)
+            if take_guid and take_guid ~= "" then
+                snapshot[#snapshot + 1] = {
+                    kind = "take",
+                    take_guid = take_guid,
+                    fx_idx = win.fx_idx,
+                }
+            end
+        end
+    end
+    return snapshot
+end
+
+ReflexRememberFXWindowToggleSet = function(windows)
+    local key = ReflexCurrentFXWindowToggleKey()
+    if not key or key == "" then return end
+    local snapshot = ReflexCaptureFXWindowToggleSet(windows)
+    if #snapshot > 0 then fx_window_toggle_state_cache[key] = snapshot end
+end
+
+ReflexRestoreFXWindowToggleSet = function()
+    local key = ReflexCurrentFXWindowToggleKey()
+    local snapshot = key and fx_window_toggle_state_cache[key] or nil
+    if not snapshot or #snapshot == 0 then return false end
+
+    local opened = 0
+    local restored = {}
+    r.PreventUIRefresh(1)
+    for _, entry in ipairs(snapshot) do
+        if entry.kind == "track" then
+            local track = ReflexFindTrackByGuid(entry.track_guid)
+            local fx_idx = ReflexFindFXByGUID(track, entry.fx_guid)
+            if track and fx_idx ~= nil then
+                r.TrackFX_Show(track, fx_idx, 3)
+                restored[#restored + 1] = { kind = "track", track = track, fx_idx = fx_idx }
+                opened = opened + 1
+            end
+        elseif entry.kind == "take" then
+            local take = ReflexFindTakeByGuid(entry.take_guid)
+            if take and entry.fx_idx and entry.fx_idx < r.TakeFX_GetCount(take) then
+                r.TakeFX_Show(take, entry.fx_idx, 3)
+                restored[#restored + 1] = { kind = "take", take = take, fx_idx = entry.fx_idx }
+                opened = opened + 1
+            end
+        end
+    end
+    r.PreventUIRefresh(-1)
+    if opened > 0 then
+        local function raise_restored(attempts)
+            local windows = {}
+            for _, entry in ipairs(restored) do
+                local hwnd
+                if entry.kind == "track" and entry.track and r.ValidatePtr(entry.track, "MediaTrack*") then
+                    hwnd = r.TrackFX_GetFloatingWindow(entry.track, entry.fx_idx)
+                elseif entry.kind == "take" and entry.take and r.ValidatePtr(entry.take, "MediaItem_Take*") then
+                    hwnd = r.TakeFX_GetFloatingWindow(entry.take, entry.fx_idx)
+                end
+                if hwnd then windows[#windows + 1] = { hwnd = hwnd } end
+            end
+            if #windows > 0 then
+                ReflexRaiseFXWindowsSmallOnTop(windows, 4)
+            elseif attempts > 1 then
+                r.defer(function() raise_restored(attempts - 1) end)
+            end
+        end
+        r.defer(function() raise_restored(8) end)
+    end
+    return opened > 0
+end
+
+ReflexSnapshotProtectedFXWindows = function()
+    reflex_fx_window_cycle.protected = {}
+    for _, win in ipairs(ReflexCollectOpenTrackFXWindows()) do
+        if win.key then reflex_fx_window_cycle.protected[win.key] = true end
+    end
+end
+
+ReflexFocusedWindowChain = function()
+    if not r.JS_Window_GetFocus then return nil end
+    local ok, focused = pcall(function() return r.JS_Window_GetFocus() end)
+    if not ok or not focused then return nil end
+    if reflex_focused_window_chain_cache.focus == focused then
+        return reflex_focused_window_chain_cache.chain
+    end
+
+    local focus_chain = {}
+    local hwnd = focused
+    for _ = 1, 16 do
+        if not hwnd then break end
+        focus_chain[hwnd] = true
+        if not r.JS_Window_GetParent then break end
+        local parent_ok, parent = pcall(function() return r.JS_Window_GetParent(hwnd) end)
+        if not parent_ok or not parent or parent == hwnd then break end
+        hwnd = parent
+    end
+    reflex_focused_window_chain_cache.focus = focused
+    reflex_focused_window_chain_cache.chain = focus_chain
+    return focus_chain
+end
+
+ReflexIsFocusedFloatingFX = function(track, fx_idx)
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return false end
+    local focus_chain = ReflexFocusedWindowChain and ReflexFocusedWindowChain() or nil
+    if not focus_chain then return false end
+    local fx_hwnd = r.TrackFX_GetFloatingWindow(track, fx_idx)
+    return fx_hwnd ~= nil and focus_chain[fx_hwnd] == true
+end
+
+ReflexFindFocusedFloatingFX = function(track)
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return nil end
+    for f = 0, r.TrackFX_GetCount(track) - 1 do
+        if ReflexIsFocusedFloatingFX(track, f) then return f end
+    end
+    return nil
+end
+
+ReflexCollectFloatingFX = function(track)
+    local open = {}
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return open end
+    for f = 0, r.TrackFX_GetCount(track) - 1 do
+        if r.TrackFX_GetFloatingWindow(track, f) then open[#open + 1] = f end
+    end
+    return open
+end
+
+ReflexResolveFXWindowCurrentIndex = function(track)
+    local focused_idx = ReflexFindFocusedFloatingFX(track)
+    if focused_idx ~= nil then return focused_idx end
+
+    local track_guid = r.GetTrackGUID(track)
+    if reflex_fx_window_cycle.track_guid == track_guid then
+        local stored_idx = ReflexFindFXByGUID(track, reflex_fx_window_cycle.fx_guid)
+        if stored_idx ~= nil and r.TrackFX_GetFloatingWindow(track, stored_idx) then
+            return stored_idx
+        end
+    end
+
+    local open = ReflexCollectFloatingFX(track)
+    if #open == 1 then return open[1] end
+    return nil
+end
+
+ReflexAnyManagedCycleWindowsOpen = function()
+    for _, win in ipairs(ReflexCollectOpenTrackFXWindows()) do
+        if win.key and reflex_fx_window_cycle.managed[win.key] then return true end
+    end
+    return false
+end
+
+ReflexCycleHasOpenManagedAndOtherWindows = function()
+    local managed_open, other_open = false, false
+    for _, win in ipairs(ReflexCollectOpenTrackFXWindows()) do
+        if win.key and reflex_fx_window_cycle.managed[win.key] then
+            managed_open = true
+        else
+            other_open = true
+        end
+        if managed_open and other_open then return true end
+    end
+    return false
+end
+
+ReflexResolveNextCyclableFXIndex = function(track, current_idx, direction)
+    local fx_count = r.TrackFX_GetCount(track)
+    if fx_count <= 0 then return nil end
+    direction = direction < 0 and -1 or 1
+
+    local idx = current_idx
+    for _ = 1, fx_count do
+        if idx == nil then
+            idx = direction < 0 and (fx_count - 1) or 0
+        else
+            idx = (idx + direction) % fx_count
+        end
+        local key = ReflexFXWindowKey(track, idx)
+        local offline = r.TrackFX_GetOffline(track, idx)
+        if not offline and not (key and reflex_fx_window_cycle.protected[key]) then
+            return idx
+        end
+    end
+    return nil
+end
+
+ReflexRaiseFXWindow = function(track, fx_idx, attempts)
+    attempts = attempts or 8
+    r.defer(function()
+        local hwnd = r.TrackFX_GetFloatingWindow(track, fx_idx)
+        if not hwnd then
+            if attempts > 1 then ReflexRaiseFXWindow(track, fx_idx, attempts - 1) end
+            return
+        end
+        if r.JS_Window_SetZOrder then r.JS_Window_SetZOrder(hwnd, "TOP") end
+        if r.JS_Window_SetForeground then r.JS_Window_SetForeground(hwnd) end
+        if r.JS_Window_SetFocus then r.JS_Window_SetFocus(hwnd) end
+        if attempts > 1 then ReflexRaiseFXWindow(track, fx_idx, attempts - 1) end
+    end)
+end
+
+ReflexCenterFXWindow = function(track, fx_idx, attempts)
+    attempts = attempts or 8
+    if not (r.JS_Window_Move or r.JS_Window_SetPosition) then
+        InspPositionFXWindow(track, fx_idx)
+        return
+    end
+    r.defer(function()
+        local hwnd = r.TrackFX_GetFloatingWindow(track, fx_idx)
+        if not hwnd then
+            if attempts > 1 then ReflexCenterFXWindow(track, fx_idx, attempts - 1) end
+            return
+        end
+        if not r.my_getViewport then
+            InspPositionFXWindow(track, fx_idx)
+            return
+        end
+        local w, h
+        if r.JS_Window_GetClientSize then
+            local ok, client_w, client_h = r.JS_Window_GetClientSize(hwnd)
+            if ok then w, h = client_w, client_h end
+        end
+        if (not w or not h or w <= 0 or h <= 0) and r.JS_Window_GetRect then
+            local ok, left, top, right, bottom = r.JS_Window_GetRect(hwnd)
+            if ok and left and top and right and bottom then
+                w = right - left
+                h = bottom - top
+            end
+        end
+        if not w or not h or w <= 0 or h <= 0 then
+            if attempts > 1 then ReflexCenterFXWindow(track, fx_idx, attempts - 1) end
+            return
+        end
+        local sx, sy, sr, sb = r.my_getViewport(0, 0, 0, 0, 0, 0, 0, 0, false)
+        sx, sy, sr, sb = sx or 0, sy or 0, sr or 0, sb or 0
+        local sw = sr - sx
+        local sh = sb - sy
+        if sw <= 0 or sh <= 0 then return end
+        local x = sx + math.floor((sw - w) * 0.5 + 0.5)
+        local y = sy + math.floor((sh - h) * 0.5 + 0.5)
+        if r.JS_Window_Move then
+            r.JS_Window_Move(hwnd, x, y)
+        else
+            r.JS_Window_SetPosition(hwnd, x, y, w, h)
+        end
+        if attempts > 1 then ReflexCenterFXWindow(track, fx_idx, attempts - 1) end
+    end)
+end
+
+ReflexCycleFXWindow = function(direction, opts)
+    opts = opts or {}
+    direction = tonumber(direction) or 1
+    direction = direction < 0 and -1 or 1
+    local keep_open = opts.keep_open == true
+
+    local track = ReflexResolveFXWindowCommandTrack()
+    if not track then return false end
+
+    local fx_count = r.TrackFX_GetCount(track)
+    if fx_count <= 0 then
+        reflex_fx_window_cycle.track_guid = r.GetTrackGUID(track)
+        reflex_fx_window_cycle.fx_guid = nil
+        return false
+    end
+
+    ExternalFxSessionCancel()
+    if not ReflexAnyManagedCycleWindowsOpen() then
+        reflex_fx_window_cycle.managed = {}
+        ReflexSnapshotProtectedFXWindows()
+    end
+    local current_idx = ReflexResolveFXWindowCurrentIndex(track)
+    local next_idx = ReflexResolveNextCyclableFXIndex(track, current_idx, direction)
+    if next_idx == nil then return false end
+
+    r.PreventUIRefresh(1)
+    local current_key = current_idx ~= nil and ReflexFXWindowKey(track, current_idx) or nil
+    if not keep_open and current_idx ~= nil and current_idx ~= next_idx
+       and current_key and reflex_fx_window_cycle.managed[current_key]
+       and r.TrackFX_GetFloatingWindow(track, current_idx) then
+        r.TrackFX_Show(track, current_idx, 2)
+    end
+    r.TrackFX_Show(track, next_idx, 3)
+    r.PreventUIRefresh(-1)
+
+    ReflexCenterFXWindow(track, next_idx)
+    ReflexRaiseFXWindow(track, next_idx)
+    reflex_fx_window_cycle.track_guid = r.GetTrackGUID(track)
+    reflex_fx_window_cycle.fx_guid = r.TrackFX_GetFXGUID(track, next_idx) or ""
+    local next_key = ReflexFXWindowKey(track, next_idx)
+    if next_key then reflex_fx_window_cycle.managed[next_key] = true end
+    return true
+end
+
 ReflexOpenFXBrowserForHotkey = function(opts)
     opts = opts or {}
     local now = r.time_precise and r.time_precise() or os.clock()
@@ -10179,6 +12227,300 @@ ReflexToggleNavigatorExpanded = function()
     end
     navigator_expanded = not (navigator_expanded == true)
     SavePref("navigator_expanded", navigator_expanded)
+    return true
+end
+
+ReflexCloseTrackFXWindows = function(track)
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return end
+    for i = 0, r.TrackFX_GetCount(track) - 1 do
+        if r.TrackFX_GetOpen(track, i) then r.TrackFX_SetOpen(track, i, 0) end
+        if r.TrackFX_GetChainVisible(track) ~= -1 then r.TrackFX_Show(track, 0, 0) end
+    end
+
+    for i = 0, r.TrackFX_GetRecCount(track) - 1 do
+        local rec_idx = i + 0x1000000
+        if r.TrackFX_GetOpen(track, rec_idx) then r.TrackFX_SetOpen(track, rec_idx, 0) end
+        if r.TrackFX_GetRecChainVisible(track) ~= -1 then r.TrackFX_Show(track, rec_idx, 0) end
+    end
+end
+
+ReflexCloseTakeFXWindows = function(take)
+    if not take or not r.ValidatePtr(take, "MediaItem_Take*") then return end
+    for i = 0, r.TakeFX_GetCount(take) - 1 do
+        if r.TakeFX_GetOpen(take, i) then r.TakeFX_SetOpen(take, i, 0) end
+        if r.TakeFX_GetChainVisible(take) ~= -1 then r.TakeFX_Show(take, 0, 0) end
+    end
+end
+
+ReflexCloseAllFXWindows = function()
+    ExternalFxSessionCancel()
+    local open_windows = ReflexCollectOpenFXWindows()
+    if #open_windows == 0 then
+        return ReflexRestoreFXWindowToggleSet()
+    end
+    ReflexRememberFXWindowToggleSet(open_windows)
+    reflex_fx_window_cycle.track_guid = nil
+    reflex_fx_window_cycle.fx_guid = nil
+    reflex_fx_window_cycle.managed = {}
+    reflex_fx_window_cycle.protected = {}
+    r.PreventUIRefresh(1)
+    local master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+    if master and r.ValidatePtr(master, "MediaTrack*") then
+        ReflexCloseTrackFXWindows(master)
+    end
+    for i = 0, r.CountTracks(0) - 1 do
+        local track = r.GetTrack(0, i)
+        ReflexCloseTrackFXWindows(track)
+        for j = 0, r.CountTrackMediaItems(track) - 1 do
+            local item = r.GetTrackMediaItem(track, j)
+            for k = 0, r.GetMediaItemNumTakes(item) - 1 do
+                ReflexCloseTakeFXWindows(r.GetTake(item, k))
+            end
+        end
+    end
+    r.PreventUIRefresh(-1)
+    return true
+end
+
+ReflexCollectTileFXWindows = function(target_track)
+    if target_track then
+        return ReflexCollectOpenTrackFXWindows({ only_track = target_track })
+    end
+    return ReflexCollectOpenFXWindows()
+end
+
+ReflexFXWindowRect = function(hwnd)
+    if not (hwnd and r.JS_Window_GetRect) then return nil end
+    local ok, left, top, right, bottom = r.JS_Window_GetRect(hwnd)
+    if not (ok and left and top and right and bottom) then return nil end
+    local w = math.max(1, right - left)
+    local h = math.max(1, bottom - top)
+    return { x = left, y = top, w = w, h = h, area = w * h }
+end
+
+ReflexClampWindowPos = function(x, y, w, h, work)
+    local max_x = math.max(work.x, work.r - w)
+    local max_y = math.max(work.y, work.b - h)
+    x = math.max(work.x, math.min(x, max_x))
+    y = math.max(work.y, math.min(y, max_y))
+    return math.floor(x + 0.5), math.floor(y + 0.5)
+end
+
+ReflexRectOverlapArea = function(a, b)
+    local left = math.max(a.x, b.x)
+    local top = math.max(a.y, b.y)
+    local right = math.min(a.x + a.w, b.x + b.w)
+    local bottom = math.min(a.y + a.h, b.y + b.h)
+    if right <= left or bottom <= top then return 0 end
+    return (right - left) * (bottom - top)
+end
+
+ReflexAddTileCandidateValue = function(values, seen, v)
+    local key = tostring(math.floor(v + 0.5))
+    if seen[key] then return end
+    seen[key] = true
+    values[#values + 1] = v
+end
+
+ReflexFXTileAnchor = function(index)
+    local anchors = {
+        { 0.00, 0.00 },
+        { 1.00, 0.00 },
+        { 0.00, 1.00 },
+        { 1.00, 1.00 },
+        { 0.50, 1.00 },
+        { 0.50, 0.00 },
+        { 0.00, 0.50 },
+        { 1.00, 0.50 },
+        { 0.50, 0.50 },
+    }
+    return anchors[((index - 1) % #anchors) + 1]
+end
+
+ReflexBuildFXTileCandidates = function(win, placed, work, preferred)
+    local xs, ys, seen_x, seen_y = {}, {}, {}, {}
+    local function add_x(v)
+        local x = ReflexClampWindowPos(v, work.y, win.w, win.h, work)
+        ReflexAddTileCandidateValue(xs, seen_x, x)
+    end
+    local function add_y(v)
+        local _, y = ReflexClampWindowPos(work.x, v, win.w, win.h, work)
+        ReflexAddTileCandidateValue(ys, seen_y, y)
+    end
+
+    add_x(work.x)
+    add_x(work.r - win.w)
+    add_x(work.x + (work.w - win.w) * 0.5)
+    add_x(work.x + (work.w - win.w) * 0.25)
+    add_x(work.x + (work.w - win.w) * 0.75)
+    add_x(preferred.x)
+
+    add_y(work.y)
+    add_y(work.b - win.h)
+    add_y(work.y + (work.h - win.h) * 0.5)
+    add_y(work.y + (work.h - win.h) * 0.25)
+    add_y(work.y + (work.h - win.h) * 0.75)
+    add_y(preferred.y)
+
+    for _, p in ipairs(placed) do
+        add_x(p.x)
+        add_x(p.x + p.w)
+        add_x(p.x - win.w)
+        add_x(p.x + p.w - win.w)
+        add_x(p.x + (p.w - win.w) * 0.5)
+
+        add_y(p.y)
+        add_y(p.y + p.h)
+        add_y(p.y - win.h)
+        add_y(p.y + p.h - win.h)
+        add_y(p.y + (p.h - win.h) * 0.5)
+    end
+
+    local candidates = {}
+    for _, x in ipairs(xs) do
+        for _, y in ipairs(ys) do
+            candidates[#candidates + 1] = { x = x, y = y }
+        end
+    end
+    return candidates
+end
+
+ReflexChooseFXTilePosition = function(win, placed, work, index)
+    local anchor = ReflexFXTileAnchor(index)
+    local preferred = {
+        x = work.x + (work.w - win.w) * anchor[1],
+        y = work.y + (work.h - win.h) * anchor[2],
+    }
+    preferred.x, preferred.y = ReflexClampWindowPos(preferred.x, preferred.y, win.w, win.h, work)
+
+    local best, best_score
+    for _, candidate in ipairs(ReflexBuildFXTileCandidates(win, placed, work, preferred)) do
+        local rect = { x = candidate.x, y = candidate.y, w = win.w, h = win.h }
+        local overlap = 0
+        local max_overlap = 0
+        for _, p in ipairs(placed) do
+            local area = ReflexRectOverlapArea(rect, p)
+            overlap = overlap + area
+            max_overlap = math.max(max_overlap, area / math.max(1, math.min(win.area, p.area or p.w * p.h)))
+        end
+        local dx = candidate.x - preferred.x
+        local dy = candidate.y - preferred.y
+        local distance = math.sqrt(dx * dx + dy * dy)
+        local edge_bonus = 0
+        if candidate.x == work.x or candidate.x == work.r - win.w then edge_bonus = edge_bonus - work.w * 0.03 end
+        if candidate.y == work.y or candidate.y == work.b - win.h then edge_bonus = edge_bonus - work.h * 0.03 end
+        local score = overlap * 20 + max_overlap * win.area * 12 + distance + edge_bonus
+        if not best_score or score < best_score then
+            best_score = score
+            best = candidate
+        end
+    end
+    return best and best.x or preferred.x, best and best.y or preferred.y
+end
+
+ReflexRaiseFXWindowsSmallOnTop = function(windows, attempts)
+    attempts = attempts or 2
+    if not (windows and #windows > 0 and r.JS_Window_SetZOrder) then return end
+    local ordered = {}
+    for _, win in ipairs(windows) do
+        if win.hwnd then
+            if not win.area then
+                local rect = ReflexFXWindowRect(win.hwnd)
+                if rect then
+                    win.w, win.h, win.area = rect.w, rect.h, rect.area
+                end
+            end
+            ordered[#ordered + 1] = win
+        end
+    end
+    table.sort(ordered, function(a, b) return (a.area or 0) > (b.area or 0) end)
+    r.defer(function()
+        for _, win in ipairs(ordered) do
+            if win.hwnd then r.JS_Window_SetZOrder(win.hwnd, "TOP") end
+        end
+        if attempts > 1 then ReflexRaiseFXWindowsSmallOnTop(ordered, attempts - 1) end
+    end)
+end
+
+ReflexTileFXWindows = function(opts)
+    opts = opts or {}
+    if not r.JS_Window_GetRect or not r.JS_Window_Move or not r.my_getViewport then return false end
+    local windows = {}
+    local target_track = opts.target_track
+    for _, win in ipairs(ReflexCollectTileFXWindows(target_track)) do
+        local rect = ReflexFXWindowRect(win.hwnd)
+        if rect then
+            win.w = rect.w
+            win.h = rect.h
+            win.area = rect.area
+            windows[#windows + 1] = win
+        end
+    end
+    local n = #windows
+    if n == 0 then
+        if opts.retry_attempts and opts.retry_attempts > 0 then
+            r.defer(function()
+                ReflexTileFXWindows({
+                    target_track = target_track,
+                    retry_attempts = opts.retry_attempts - 1,
+                })
+            end)
+            return true
+        end
+        return false
+    end
+    if opts.expected_count and n < opts.expected_count and opts.retry_attempts and opts.retry_attempts > 0 then
+        r.defer(function()
+            ReflexTileFXWindows({
+                target_track = target_track,
+                retry_attempts = opts.retry_attempts - 1,
+                expected_count = opts.expected_count,
+            })
+        end)
+        return true
+    end
+
+    table.sort(windows, function(a, b) return (a.area or 0) > (b.area or 0) end)
+
+    local sx, sy, sr, sb = r.my_getViewport(0, 0, 0, 0, 0, 0, 0, 0, true)
+    sx, sy, sr, sb = sx or 0, sy or 0, sr or 0, sb or 0
+    local sw = sr - sx
+    local sh = sb - sy
+    if sw <= 0 or sh <= 0 then return false end
+    local work = { x = sx, y = sy, r = sr, b = sb, w = sw, h = sh }
+    local placed = {}
+
+    r.PreventUIRefresh(1)
+    for i, win in ipairs(windows) do
+        local x, y = ReflexChooseFXTilePosition(win, placed, work, i)
+        x, y = ReflexClampWindowPos(x, y, win.w, win.h, work)
+        r.JS_Window_Move(win.hwnd, x, y)
+        placed[#placed + 1] = { x = x, y = y, w = win.w, h = win.h, area = win.area }
+    end
+    r.PreventUIRefresh(-1)
+    ReflexRaiseFXWindowsSmallOnTop(windows, 3)
+    return true
+end
+
+ReflexTileFXWindowsOrCurrentTrack = function()
+    if #ReflexCollectOpenFXWindows() > 0 then
+        return ReflexTileFXWindows()
+    end
+
+    local track = ReflexResolveFXWindowCommandTrack()
+    if not track then return false end
+    local fx_count = r.TrackFX_GetCount(track)
+    if fx_count <= 0 then return false end
+
+    ExternalFxSessionCancel()
+    r.PreventUIRefresh(1)
+    for f = 0, fx_count - 1 do
+        r.TrackFX_Show(track, f, 3)
+    end
+    r.PreventUIRefresh(-1)
+    r.defer(function()
+        ReflexTileFXWindows({ target_track = track, retry_attempts = 8, expected_count = fx_count })
+    end)
     return true
 end
 
@@ -10211,6 +12553,44 @@ reflex_app_hotkeys = {
         end,
     },
     {
+        id = "fx_window_previous",
+        label = "Previous FX Window",
+        key = "ImGui_Key_UpArrow",
+        alt = true,
+        handler = function()
+            return ReflexCycleFXWindow(-1, { source = "hotkey" })
+        end,
+    },
+    {
+        id = "fx_window_next",
+        label = "Next FX Window",
+        key = "ImGui_Key_DownArrow",
+        alt = true,
+        handler = function()
+            return ReflexCycleFXWindow(1, { source = "hotkey" })
+        end,
+    },
+    {
+        id = "fx_window_stack_previous",
+        label = "Stack Previous FX Window",
+        key = "ImGui_Key_UpArrow",
+        alt = true,
+        shift = true,
+        handler = function()
+            return ReflexCycleFXWindow(-1, { source = "hotkey", keep_open = true })
+        end,
+    },
+    {
+        id = "fx_window_stack_next",
+        label = "Stack Next FX Window",
+        key = "ImGui_Key_DownArrow",
+        alt = true,
+        shift = true,
+        handler = function()
+            return ReflexCycleFXWindow(1, { source = "hotkey", keep_open = true })
+        end,
+    },
+    {
         id = "history_back",
         label = "View History Back",
         key = "ImGui_Key_LeftBracket",
@@ -10230,6 +12610,15 @@ reflex_app_hotkeys = {
             ExternalFxSessionCancel()
             ViewHistoryForward()
             return true
+        end,
+    },
+    {
+        id = "close_all_fx_windows",
+        label = "Close All FX Windows",
+        key = "ImGui_Key_Escape",
+        shift = true,
+        handler = function()
+            return ReflexCloseAllFXWindows()
         end,
     },
 }
@@ -10263,14 +12652,33 @@ reflex_reaper_hotkey_allowlist = {
         key = "ImGui_Key_Space",
         action = 40044,
     },
+    {
+        id = "reaper_action_list",
+        key = "ImGui_Key_Slash",
+        shift = true,
+        action = 40605,
+    },
 }
+
+ReflexRunReaperAction = function(action)
+    if type(action) == "number" then
+        if action <= 0 then return false end
+        r.Main_OnCommand(action, 0)
+        return true
+    elseif type(action) == "string" and action ~= "" then
+        local cmd = r.NamedCommandLookup and r.NamedCommandLookup(action) or 0
+        if cmd == 0 then return false end
+        r.Main_OnCommand(cmd, 0)
+        return true
+    end
+    return false
+end
 
 ReflexDispatchHotkeyList = function(list, mods)
     for _, binding in ipairs(list or {}) do
         if ReflexHotkeyPressed(binding, mods) then
-            if binding.action and binding.action > 0 then
-                r.Main_OnCommand(binding.action, 0)
-                return true
+            if binding.action then
+                return ReflexRunReaperAction(binding.action)
             elseif binding.handler then
                 return binding.handler() == true
             end
@@ -10893,7 +13301,8 @@ Loop = function()
             rem_h = math.max(remote_height, S(60))
             -- If content needs more room, shrink remote to accommodate
             if last_content_used_h > 0 then
-                local needed_for_content = last_content_used_h + last_nav_h + divider_h + vh_row_h + win_pad
+                local nav_h_for_content = last_nav_side_layout and 0 or last_nav_h
+                local needed_for_content = last_content_used_h + nav_h_for_content + divider_h + vh_row_h + win_pad
                 local max_remote = math.max(S(60), win_h - needed_for_content)
                 if max_remote < rem_h then rem_h = max_remote end
             end
@@ -10907,13 +13316,27 @@ Loop = function()
         local nav_content_gap = math.max(0, nav_content_gap_px - 1) * 0.5 * nav_ui_scale
         local content_child_top_pad = nav_visible and 0 or S(UI.edge_pad)
         local content_surface_top_nudge = nav_visible and (0.5 * nav_ui_scale) or 0
-        local bw
-        do
+        local pre_nav_parent_w = r.ImGui_GetContentRegionAvail(ctx)
+        local pre_nav_child_w = math.max(pre_nav_parent_w + reflex_right_edge_extend, InspCardMinWidth())
+        local pre_nav_layout = ReflexComputeInspectorColumnLayout(pre_nav_child_w, gap_px)
+        local nav_two_column_body_visible = navigator_expanded == true
+        if current_page == "tracks" then
+            nav_two_column_body_visible = nav_two_column_body_visible
+                or opt_nav_show_search ~= false
+                or opt_nav_custom_set_mode == true
+                or (nav_tlt_search_text or "") ~= ""
+                or (nav_tlt_search_effective_query or "") ~= ""
+        end
+        local nav_side_layout = nav_visible
+            and nav_two_column_body_visible
+            and opt_two_column_nav == true
+            and insp_visible
+            and pre_nav_layout.two_column == true
+        local bw = pre_nav_child_w
+        if not nav_side_layout then
             local reflex_ui_scale = ui_scale
             local saved_scale_comp = ReflexSetBodyScaleCompensation(false)
             ui_scale = nav_ui_scale
-            local nav_sb_inset = -reflex_right_edge_extend
-            bw = r.ImGui_GetContentRegionAvail(ctx) - nav_sb_inset
             local nav_fp = PushFont(GetScaledFont())
             NavDrawSection({
                 bw = bw,
@@ -10936,84 +13359,67 @@ Loop = function()
         end
 
         -- ── SCROLLABLE CONTENT (inspector, context menu) ──
-        local scroll_h = rem_h > 0 and -(rem_h + divider_h + vh_row_h) or -vh_row_h
         local content_parent_w = r.ImGui_GetContentRegionAvail(ctx)
         -- The child boundary is the card margin. On normal right-side docks,
         -- keep the right gap equal to WindowPadding instead of extending into
         -- the docker chrome compensation used by Reflex's left-dock baseline.
         local child_w = content_parent_w + reflex_right_edge_extend
+        child_w = math.max(child_w, InspCardMinWidth())
         local pre_bw = child_w  -- total card region width
-        if nav_visible and (navigator_expanded == true or nav_temporary_expanded == true) then
+        if not nav_side_layout and nav_visible and (navigator_expanded == true or nav_temporary_expanded == true) then
             local gap_hit_h = math.max(nav_content_gap + content_surface_top_nudge, 0.5 * nav_content_gap_px * nav_ui_scale)
-            if gap_hit_h > 0 then
-                local gap_cursor_x = r.ImGui_GetCursorPosX(ctx)
-                local gap_cursor_y = r.ImGui_GetCursorPosY(ctx)
-                local gap_screen_x, content_screen_y = r.ImGui_GetCursorScreenPos(ctx)
-                local hit_y = gap_cursor_y - gap_hit_h
-                local hit_screen_y = content_screen_y - gap_hit_h
-                local handle_h = 3.5 * nav_ui_scale
-                local handle_y = hit_screen_y + (gap_hit_h - handle_h) * 0.5
-                local handle_inset = S(UI.card_r)
-                local handle_x = gap_screen_x + handle_inset
-                local handle_w = math.max(1, child_w - handle_inset * 2)
-                r.ImGui_SetCursorPosY(ctx, hit_y)
-                r.ImGui_InvisibleButton(ctx, "##nav_inspector_divider", child_w, gap_hit_h)
-                local divider_hovered = r.ImGui_IsItemHovered(ctx)
-                local divider_active = r.ImGui_IsItemActive(ctx)
-                if divider_hovered or divider_active then
-                    r.ImGui_SetMouseCursor(ctx, r.ImGui_MouseCursor_ResizeNS())
-                    local dl = r.ImGui_GetWindowDrawList(ctx)
-                    r.ImGui_DrawList_AddRectFilled(dl, handle_x, handle_y,
-                        handle_x + handle_w, handle_y + handle_h, rgb(0x8B8B8C), handle_h * 0.5)
-                end
-                if divider_active then
-                    local _, dy = r.ImGui_GetMouseDelta(ctx)
-                    if dy ~= 0 then
-                        local resizing_temp_nav = nav_temporary_expanded == true and navigator_expanded ~= true
-                        local current_split_h = (resizing_temp_nav and nav_inspector_temp_split_h or nav_inspector_split_h)
-                            or math.max(S(60), last_nav_h - nav_content_gap)
-                        local min_split_h = S(72)
-                        local max_split_h = math.max(min_split_h, win_h - vh_row_h - rem_h - divider_h - gap_hit_h - S(60))
-                        local next_split_h = math.max(min_split_h, math.min(max_split_h, current_split_h + dy))
-                        if resizing_temp_nav then
-                            nav_inspector_temp_split_h = next_split_h
-                            SavePref("nav_inspector_temp_split_h", nav_inspector_temp_split_h)
-                        else
-                            nav_inspector_split_h = next_split_h
-                            SavePref("nav_inspector_split_h", nav_inspector_split_h)
-                        end
-                    end
-                    nav_inspector_dragging = true
-                elseif nav_inspector_dragging then
-                    nav_inspector_dragging = false
-                end
-                r.ImGui_SetCursorPos(ctx, gap_cursor_x, gap_cursor_y)
-            end
+            local max_split_h = math.max(S(72), win_h - vh_row_h - rem_h - divider_h - gap_hit_h - S(60))
+            ReflexDrawNavSplitHandle(child_w, gap_hit_h, max_split_h)
         end
+
+        local master_stack_est_h = (insp_visible and ReflexShouldShowMasterTrackStrip())
+            and ((master_strip_prev_h or S(72)) + gap_px)
+            or 0
+        local function draw_master_in_card_stack(stack_w)
+            if not (insp_visible and ReflexShouldShowMasterTrackStrip()) then return 0 end
+            ReflexDrawMasterTrackStrip(stack_w, S(BASE_H), gap_px)
+        end
+
+        local scroll_h = rem_h > 0 and -(rem_h + divider_h + vh_row_h) or -vh_row_h
 
         -- Pre-compute sends_side at loop level for independent column scrolling
         local loop_sends_side = false
         local loop_insp_bw = pre_bw
         local loop_sends_bw = 0
         local loop_side_gap = gap_px
-        if insp_visible and opt_show_sends then
-            local mvw_btn = S(UI.btn_h)
-            local mvw_gap = S(UI.pad_sm)
-            local mvw_gg = S(UI.group_gap)
-            local mvw_env = math.max(mvw_btn, r.ImGui_CalcTextSize(ctx, "ENV") + S(12))
-            local mvw_content = mvw_btn + mvw_gap + mvw_btn + mvw_gg + mvw_env + mvw_gap + mvw_btn
-            local pre_mvw = mvw_content + S(UI.card_pad) * 2
-            local scmw_btn = S(UI.btn_h)
-            local scmw_gap = S(UI.pad_sm)
-            local scmw_vol = math.max(scmw_btn, r.ImGui_CalcTextSize(ctx, "-00.0") + S(24))
-            local scm_min_w = scmw_btn * 2 + scmw_gap + scmw_gap + scmw_vol + S(UI.card_pad) * 2
-            local threshold = math.floor(pre_mvw * TWO_COL_MULT) + scm_min_w + loop_side_gap
-            if pre_bw >= threshold then
-                loop_sends_side = true
-                -- Inspector capped at comfortable max, remainder goes to sends
-                local insp_max = INSP_MAX_W
-                loop_insp_bw = math.min(pre_bw - scm_min_w - loop_side_gap, insp_max)
-                loop_sends_bw = pre_bw - loop_insp_bw - loop_side_gap
+        local sends_inline_min_w = ReflexSendModuleInlineMinWidth()
+        local sends_force_inline = false
+        local sends_prefer_inline = false
+        local loop_sends_inline = false
+        local nav_body_offset_est = nav_side_layout and math.max(0, last_nav_body_offset_y or 0) or 0
+        local content_visible_h = math.max(S(80),
+            win_h - master_stack_est_h
+                - (rem_h > 0 and (rem_h + divider_h + vh_row_h) or vh_row_h)
+                - content_child_top_pad
+                - nav_body_offset_est)
+        if insp_visible and opt_two_column_mode == true and (opt_show_sends or nav_side_layout) then
+            local loop_layout = nav_side_layout and pre_nav_layout
+                or ReflexComputeInspectorColumnLayout(pre_bw, loop_side_gap)
+            if loop_layout.two_column then
+                loop_insp_bw = loop_layout.inspector_w
+                loop_sends_bw = loop_layout.side_w
+                sends_force_inline = opt_show_sends and loop_sends_bw < sends_inline_min_w
+                if opt_show_sends then
+                    local fallback_cards_h = (last_content_used_h and last_content_used_h > 0)
+                        and math.max(0, last_content_used_h - master_stack_est_h)
+                        or S(320)
+                    local estimated_cards_h = last_inspector_cards_content_h or fallback_cards_h
+                    local estimated_sends_h = math.max(
+                        last_inline_sends_content_h or 0,
+                        nav_sends_left_content_h or 0,
+                        S(220)
+                    )
+                    local overflow_retry_margin = last_inline_sends_overflow and S(24) or 0
+                    sends_prefer_inline = (estimated_cards_h + estimated_sends_h
+                        + S(UI.edge_pad) + overflow_retry_margin) <= content_visible_h
+                end
+                loop_sends_inline = opt_show_sends and (sends_force_inline or sends_prefer_inline)
+                loop_sends_side = opt_show_sends and not loop_sends_inline
             end
         end
 
@@ -11025,72 +13431,193 @@ Loop = function()
 
         local main_dl = r.ImGui_GetWindowDrawList(ctx)
 
-        if loop_sends_side then
-            -- ── TWO-COLUMN LAYOUT: independent scrolling ──
+        last_nav_side_layout = nav_side_layout == true
+
+        if nav_side_layout then
             local child_start_x = r.ImGui_GetCursorPosX(ctx)
             local child_start_y = r.ImGui_GetCursorPosY(ctx)
-            local insp_child_w = loop_insp_bw  -- exact content width — no dead space
-            local sends_child_w = child_w - insp_child_w - loop_side_gap  -- remainder (= loop_sends_bw)
+            local nav_child_w = loop_sends_bw
+            local nav_layer_w = child_w
+            local insp_child_w = loop_insp_bw
+            local sends_under_card = loop_sends_inline
+            local left_used_h = 0
+            local right_used_h = 0
+            local nav_body_offset_y = 0
 
-            -- Inspector scroll child (left column)
+            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, 0)
+            local nav_layer_flags = r.ImGui_WindowFlags_NoScrollbar() | r.ImGui_WindowFlags_NoScrollWithMouse()
+            local nav_child_open = r.ImGui_BeginChild(ctx, "##nav_sends_content", nav_layer_w, scroll_h, 0, nav_layer_flags)
+            r.ImGui_PopStyleVar(ctx, 1)
+
+            if nav_child_open then
+                if r.ImGui_GetScrollY(ctx) ~= 0 then
+                    r.ImGui_SetScrollY(ctx, 0)
+                end
+                local nav_col_h = select(2, r.ImGui_GetWindowSize(ctx))
+                local reflex_ui_scale = ui_scale
+                local saved_scale_comp = ReflexSetBodyScaleCompensation(false)
+                ui_scale = nav_ui_scale
+                local nav_fp = PushFont(GetScaledFont())
+                NavDrawSection({
+                    bw = nav_layer_w,
+                    nav_body_w = nav_child_w,
+                    win_h = nav_col_h,
+                    vh_row_h = 0,
+                    rem_h = 0,
+                    divider_h = 0,
+                    wx = wx,
+                    ww = ww,
+                    arrow_w = S(28),
+                    bh = S(BASE_H),
+                    base_pad_y = BASE_PAD_Y,
+                    content_gap = nav_content_gap,
+                    nav_split_h = nav_inspector_split_h,
+                    nav_temp_split_h = nav_inspector_temp_split_h,
+                    nav_bottom_extra = sends_under_card and 0 or S(60),
+                })
+                PopFont(nav_fp)
+                ui_scale = reflex_ui_scale
+                ReflexSetBodyScaleCompensation(saved_scale_comp)
+                nav_body_offset_y = math.max(0, last_nav_body_offset_y or 0)
+
+                local gap_hit_h = math.max(nav_content_gap + content_surface_top_nudge, 0.5 * nav_content_gap_px * nav_ui_scale)
+                local max_split_h = math.max(S(72), nav_col_h - (sends_under_card and 0 or S(60)))
+                r.ImGui_SetCursorPosX(ctx, 0)
+                ReflexDrawNavSplitHandle(nav_child_w, gap_hit_h, max_split_h)
+                do
+                    local nav_win_x, nav_win_y = r.ImGui_GetWindowPos(ctx)
+                    local _, nav_win_h = r.ImGui_GetWindowSize(ctx)
+                    ReflexDrawColumnSplitHandle("##two_col_split_nav", nav_win_x + nav_child_w,
+                        nav_win_y + nav_body_offset_y, loop_side_gap, nav_win_y + nav_win_h,
+                        pre_bw, loop_side_gap, nav_child_w)
+                end
+
+                if sends_under_card or not opt_show_sends then
+                    if not opt_show_sends then
+                        nav_sends_left_overflow = false
+                    else
+                        local estimated_sends_h = nav_sends_left_content_h or S(220)
+                        local _, remaining_h = r.ImGui_GetContentRegionAvail(ctx)
+                        if remaining_h >= estimated_sends_h + S(UI.edge_pad) then
+                            nav_sends_left_overflow = false
+                        end
+                    end
+                    r.ImGui_Dummy(ctx, 1, 1)
+                else
+                    r.ImGui_SetCursorPosX(ctx, 0)
+                    local _, sends_avail_h = r.ImGui_GetContentRegionAvail(ctx)
+                    sends_avail_h = math.max(S(40), sends_avail_h)
+                    if content_surface_top_nudge > 0 then
+                        r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + content_surface_top_nudge)
+                    end
+                    r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, 0)
+                    local sends_child_open = r.ImGui_BeginChild(ctx, "##sends_content", nav_child_w, sends_avail_h, 0, r.ImGui_WindowFlags_NoScrollbar())
+                    r.ImGui_PopStyleVar(ctx, 1)
+                    if sends_child_open then
+                        if sends_scroll_target then
+                            r.ImGui_SetScrollY(ctx, sends_scroll_target)
+                            sends_scroll_target = nil
+                        end
+                        if sends_expand_scroll_cy then
+                            local visible_h = select(2, r.ImGui_GetWindowSize(ctx))
+                            r.ImGui_SetScrollY(ctx, math.max(0, sends_expand_scroll_cy - visible_h * 0.3))
+                            sends_expand_scroll_cy = nil
+                        end
+                        FxDragApplyScroll("##sends_content")
+                        if insp_track and r.ValidatePtr(insp_track, "MediaTrack*") then
+                            DrawSendsColumn(nav_child_w)
+                        end
+                        r.ImGui_Dummy(ctx, 1, S(UI.edge_pad))
+                        nav_sends_left_content_h = r.ImGui_GetCursorPosY(ctx)
+                        sends_scroll_y = r.ImGui_GetScrollY(ctx)
+                        sends_scroll_max = r.ImGui_GetScrollMaxY(ctx)
+                        sends_scroll_child_h = select(2, r.ImGui_GetWindowSize(ctx))
+                        nav_sends_left_overflow = sends_scroll_max > 0.5
+                        do
+                            local cwx, cwy = r.ImGui_GetWindowPos(ctx)
+                            local cww, cwh = r.ImGui_GetWindowSize(ctx)
+                            FxDragAutoScrollCheck("##sends_content", cwx, cwy, cww, cwh)
+                        end
+                        r.ImGui_EndChild(ctx)
+                    end
+                end
+                left_used_h = r.ImGui_GetCursorPosY(ctx)
+                r.ImGui_Dummy(ctx, 1, 1)
+                left_used_h = math.max(left_used_h, r.ImGui_GetCursorPosY(ctx))
+                r.ImGui_EndChild(ctx)
+            end
+
+            r.ImGui_SetCursorPos(ctx, child_start_x + nav_child_w + loop_side_gap, child_start_y + nav_body_offset_y)
             r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, content_child_top_pad)
             local insp_child_open = r.ImGui_BeginChild(ctx, "##content", insp_child_w, scroll_h, 0, r.ImGui_WindowFlags_NoScrollbar())
             r.ImGui_PopStyleVar(ctx, 1)
 
             if insp_child_open then
+                if nav_scroll_target then
+                    r.ImGui_SetScrollY(ctx, nav_scroll_target)
+                    nav_scroll_target = nil
+                end
+                if sends_under_card and sends_expand_scroll_cy then
+                    local visible_h = select(2, r.ImGui_GetWindowSize(ctx))
+                    r.ImGui_SetScrollY(ctx, math.max(0, sends_expand_scroll_cy - visible_h * 0.3))
+                    sends_expand_scroll_cy = nil
+                end
+                FxDragApplyScroll("##content")
+                if content_surface_top_nudge > 0 then
+                    r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + content_surface_top_nudge)
+                end
 
-            if nav_scroll_target then
-                r.ImGui_SetScrollY(ctx, nav_scroll_target)
-                nav_scroll_target = nil
+                bw = insp_child_w
+                card_idx = 0
+                card_heights_cur = {}
+
+                draw_master_in_card_stack(bw)
+
+                if insp_visible then
+                    local saved_sends = opt_show_sends
+                    opt_show_sends = sends_under_card
+                    InspDrawInspector(bw, bh)
+                    opt_show_sends = saved_sends
+                end
+
+                r.ImGui_Spacing(ctx)
+                r.ImGui_Dummy(ctx, 1, S(UI.edge_pad))
+                right_used_h = nav_body_offset_y + r.ImGui_GetCursorPosY(ctx)
+                last_content_used_h = math.max(left_used_h, right_used_h)
+                nav_scroll_y = r.ImGui_GetScrollY(ctx)
+                nav_scroll_max = r.ImGui_GetScrollMaxY(ctx)
+                if opt_show_sends and sends_under_card then
+                    last_inline_sends_overflow = sends_under_card == true and nav_scroll_max > 0.5
+                elseif not opt_show_sends then
+                    last_inline_sends_overflow = false
+                end
+                nav_child_h = select(2, r.ImGui_GetWindowSize(ctx))
+                card_heights_prev = card_heights_cur
+
+                do
+                    local cwx, cwy = r.ImGui_GetWindowPos(ctx)
+                    local cww, cwh = r.ImGui_GetWindowSize(ctx)
+                    FxDragAutoScrollCheck("##content", cwx, cwy, cww, cwh)
+                end
+                r.ImGui_EndChild(ctx)
             end
-            FxDragApplyScroll("##content")
-            if content_surface_top_nudge > 0 then
-                r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + content_surface_top_nudge)
-            end
 
-            bw = loop_insp_bw
-            card_idx = 0
-            card_heights_cur = {}
-
-            if insp_visible then
-                local saved_sends = opt_show_sends
-                opt_show_sends = false
-                InspDrawInspector(bw, bh)
-                opt_show_sends = saved_sends
-            end
-
-            r.ImGui_Spacing(ctx)
-            r.ImGui_Dummy(ctx, 1, S(UI.edge_pad))  -- bottom padding for full scroll range
-            last_content_used_h = r.ImGui_GetCursorPosY(ctx)
-            nav_scroll_y = r.ImGui_GetScrollY(ctx)
-            nav_scroll_max = r.ImGui_GetScrollMaxY(ctx)
-            nav_child_h = select(2, r.ImGui_GetWindowSize(ctx))
-            card_heights_prev = card_heights_cur
-
-            -- Auto-scroll detection during FX drag (wheel + edge proximity)
-            do
-                local cwx, cwy = r.ImGui_GetWindowPos(ctx)
-                local cww, cwh = r.ImGui_GetWindowSize(ctx)
-                FxDragAutoScrollCheck("##content", cwx, cwy, cww, cwh)
-            end
-
-            r.ImGui_EndChild(ctx)
-
-            end -- insp_child_open
-
-            -- Inspector scroll indicator (centered in gap between columns)
             do
                 local _, iy1 = r.ImGui_GetItemRectMin(ctx)
-                local ix2, iy2 = r.ImGui_GetItemRectMax(ctx)
+                local _, iy2 = r.ImGui_GetItemRectMax(ctx)
                 if nav_scroll_y ~= insp_scroll_prev_y then insp_scroll_fade = 1.8 end
                 insp_scroll_prev_y = nav_scroll_y
                 if insp_scroll_fade > 0 then insp_scroll_fade = insp_scroll_fade - dt * 2.5 end
-                local ind_cx = ix2 + math.floor((loop_side_gap - S(3)) / 2)
-                DrawScrollIndicator(main_dl, iy1, iy2, nav_scroll_y, nav_scroll_max, nav_child_h, insp_scroll_fade, ind_cx)
+                DrawScrollIndicator(main_dl, iy1, iy2, nav_scroll_y, nav_scroll_max, nav_child_h, insp_scroll_fade, reflex_scroll_indicator_x)
             end
+        elseif loop_sends_side then
+            -- ── TWO-COLUMN LAYOUT: independent scrolling ──
+            local child_start_x = r.ImGui_GetCursorPosX(ctx)
+            local child_start_y = r.ImGui_GetCursorPosY(ctx)
+            local insp_child_w = loop_insp_bw  -- exact content width — no dead space
+            local sends_child_w = loop_sends_bw
 
-            -- Sends scroll child (right column)
-            r.ImGui_SetCursorPos(ctx, child_start_x + insp_child_w + loop_side_gap, child_start_y)
+            -- Sends scroll child (left column)
             r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, content_child_top_pad)
             local sends_child_open = r.ImGui_BeginChild(ctx, "##sends_content", sends_child_w, scroll_h, 0, r.ImGui_WindowFlags_NoScrollbar())
             r.ImGui_PopStyleVar(ctx, 1)
@@ -11115,7 +13642,9 @@ Loop = function()
                 DrawSendsColumn(loop_sends_bw)
             end
 
+            r.ImGui_Spacing(ctx)
             r.ImGui_Dummy(ctx, 1, S(UI.edge_pad))  -- bottom padding for full scroll range
+            nav_sends_left_content_h = r.ImGui_GetCursorPosY(ctx)
             sends_scroll_y = r.ImGui_GetScrollY(ctx)
             sends_scroll_max = r.ImGui_GetScrollMaxY(ctx)
             sends_scroll_child_h = select(2, r.ImGui_GetWindowSize(ctx))
@@ -11131,14 +13660,80 @@ Loop = function()
 
             end -- sends_child_open
 
-            -- Sends scroll indicator (flush with window right edge)
+            local _, sends_item_y1 = r.ImGui_GetItemRectMin(ctx)
+            local sends_item_x2, sends_item_y2 = r.ImGui_GetItemRectMax(ctx)
+
+            -- Sends scroll indicator (centered in gap between columns)
             do
-                local _, sy1 = r.ImGui_GetItemRectMin(ctx)
-                local _, sy2 = r.ImGui_GetItemRectMax(ctx)
                 if sends_scroll_y ~= sends_scroll_prev_y then sends_scroll_fade = 1.8 end
                 sends_scroll_prev_y = sends_scroll_y
                 if sends_scroll_fade > 0 then sends_scroll_fade = sends_scroll_fade - dt * 2.5 end
-                DrawScrollIndicator(main_dl, sy1, sy2, sends_scroll_y, sends_scroll_max, sends_scroll_child_h, sends_scroll_fade, reflex_scroll_indicator_x)
+                local ind_cx = sends_item_x2 + math.floor((loop_side_gap - S(3)) / 2)
+                DrawScrollIndicator(main_dl, sends_item_y1, sends_item_y2, sends_scroll_y, sends_scroll_max, sends_scroll_child_h, sends_scroll_fade, ind_cx)
+            end
+            ReflexDrawColumnSplitHandle("##two_col_split_sends", sends_item_x2, sends_item_y1,
+                loop_side_gap, sends_item_y2, pre_bw, loop_side_gap, sends_child_w)
+
+            -- Inspector scroll child (right column)
+            r.ImGui_SetCursorPos(ctx, child_start_x + sends_child_w + loop_side_gap, child_start_y)
+            r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), 0, content_child_top_pad)
+            local insp_child_open = r.ImGui_BeginChild(ctx, "##content", insp_child_w, scroll_h, 0, r.ImGui_WindowFlags_NoScrollbar())
+            r.ImGui_PopStyleVar(ctx, 1)
+
+            if insp_child_open then
+
+            if nav_scroll_target then
+                r.ImGui_SetScrollY(ctx, nav_scroll_target)
+                nav_scroll_target = nil
+            end
+            FxDragApplyScroll("##content")
+            if content_surface_top_nudge > 0 then
+                r.ImGui_SetCursorPosY(ctx, r.ImGui_GetCursorPosY(ctx) + content_surface_top_nudge)
+            end
+
+            bw = loop_insp_bw
+            card_idx = 0
+            card_heights_cur = {}
+
+            draw_master_in_card_stack(bw)
+
+            if insp_visible then
+                local saved_sends = opt_show_sends
+                opt_show_sends = false
+                InspDrawInspector(bw, bh)
+                opt_show_sends = saved_sends
+            end
+
+            r.ImGui_Spacing(ctx)
+            r.ImGui_Dummy(ctx, 1, S(UI.edge_pad))  -- bottom padding for full scroll range
+            last_content_used_h = r.ImGui_GetCursorPosY(ctx)
+            nav_scroll_y = r.ImGui_GetScrollY(ctx)
+            nav_scroll_max = r.ImGui_GetScrollMaxY(ctx)
+            if not opt_show_sends then
+                last_inline_sends_overflow = false
+            end
+            nav_child_h = select(2, r.ImGui_GetWindowSize(ctx))
+            card_heights_prev = card_heights_cur
+
+            -- Auto-scroll detection during FX drag (wheel + edge proximity)
+            do
+                local cwx, cwy = r.ImGui_GetWindowPos(ctx)
+                local cww, cwh = r.ImGui_GetWindowSize(ctx)
+                FxDragAutoScrollCheck("##content", cwx, cwy, cww, cwh)
+            end
+
+            r.ImGui_EndChild(ctx)
+
+            end -- insp_child_open
+
+            -- Inspector scroll indicator (flush with window right edge)
+            do
+                local _, iy1 = r.ImGui_GetItemRectMin(ctx)
+                local _, iy2 = r.ImGui_GetItemRectMax(ctx)
+                if nav_scroll_y ~= insp_scroll_prev_y then insp_scroll_fade = 1.8 end
+                insp_scroll_prev_y = nav_scroll_y
+                if insp_scroll_fade > 0 then insp_scroll_fade = insp_scroll_fade - dt * 2.5 end
+                DrawScrollIndicator(main_dl, iy1, iy2, nav_scroll_y, nav_scroll_max, nav_child_h, insp_scroll_fade, reflex_scroll_indicator_x)
             end
 
             -- Cursor Y is correctly positioned after second EndChild
@@ -11168,6 +13763,8 @@ Loop = function()
             card_idx = 0
             card_heights_cur = {}
 
+            draw_master_in_card_stack(bw)
+
             if insp_visible then
                 InspDrawInspector(bw, bh)
             end
@@ -11177,6 +13774,13 @@ Loop = function()
             last_content_used_h = r.ImGui_GetCursorPosY(ctx)
             nav_scroll_y = r.ImGui_GetScrollY(ctx)
             nav_scroll_max = r.ImGui_GetScrollMaxY(ctx)
+            if opt_show_sends then
+                last_inline_sends_overflow = opt_two_column_mode == true
+                    and loop_sends_side ~= true
+                    and nav_scroll_max > 0.5
+            else
+                last_inline_sends_overflow = false
+            end
             nav_child_h = select(2, r.ImGui_GetWindowSize(ctx))
             card_heights_prev = card_heights_cur
 
@@ -11219,6 +13823,9 @@ Loop = function()
             local footer_left_x = footer_edge
             local footer_right_x = ww - footer_edge - sb_inset
             local dl_footer = r.ImGui_GetWindowDrawList(ctx)
+            local _, footer_screen_y = r.ImGui_GetCursorScreenPos(ctx)
+            r.ImGui_DrawList_AddRectFilled(dl_footer, wx, footer_screen_y - S(2), wx + ww,
+                footer_screen_y + ReflexFooterTotalHeight(footer_d), main_bg)
 
             local COL_FOOTER_REST_BG = rgb(0x171B21)
             local COL_FOOTER_TEXT_REST = rgb(0x919394)
@@ -11335,7 +13942,8 @@ Loop = function()
 
             local sends_cx = footer_right_x - footer_render_r
             local flow_cx = sends_cx - footer_step
-            local settings_cx = flow_cx - footer_step
+            local columns_cx = flow_cx - footer_step
+            local settings_cx = columns_cx - footer_step
             local right_group_x = settings_cx - footer_render_r
             local next_left_x = fwd_cx + footer_render_r
 
@@ -11388,6 +13996,12 @@ Loop = function()
             footer_mode_button("##vhsettings", "Settings", settings_open, true, "Settings",
                 function() settings_open = not settings_open end,
                 settings_cx, footer_cy, DrawFooterSettingsIcon)
+            footer_mode_button("##two_col_footer", "Columns", opt_two_column_mode, true, "Two Column Mode",
+                function()
+                    opt_two_column_mode = not opt_two_column_mode
+                    SavePref("two_column_mode", opt_two_column_mode)
+                end,
+                columns_cx, footer_cy, DrawFooterColumnsIcon)
             footer_mode_button("##flow_footer", "F", flow_view_active, has_flow_routes or flow_view_active, "Flow View",
                 function() FlowViewToggle() end,
                 flow_cx, footer_cy)
@@ -11645,6 +14259,33 @@ Loop = function()
             if nm ~= nav_mirror then nav_mirror = nm; SavePref("nav_mirror", nm) end
             local ni = MenuCheckbox("Show Inspector", insp_visible)
             if ni ~= insp_visible then insp_visible = ni; SavePref("insp_visible", ni) end
+            local nmt = MenuCheckbox("Show Master Track", opt_show_master_track)
+            if nmt ~= opt_show_master_track then opt_show_master_track = nmt; SavePref("show_master_track", nmt) end
+            if SettingsRow("Set Selected Track as Master") then
+                local selected = ExternalFxCaptureSelection()
+                local sel_track = selected and selected[1] or nil
+                if sel_track and r.ValidatePtr(sel_track, "MediaTrack*") then
+                    local real_master = r.GetMasterTrack and r.GetMasterTrack(0) or nil
+                    if real_master and sel_track == real_master then
+                        master_track_guid = ""
+                    else
+                        master_track_guid = r.GetTrackGUID(sel_track) or ""
+                    end
+                    SavePref("master_track_guid", master_track_guid)
+                    opt_show_master_track = true
+                    SavePref("show_master_track", true)
+                end
+            end
+            if master_track_guid and master_track_guid ~= "" then
+                if SettingsRow("Use Reaper Master Track") then
+                    master_track_guid = ""
+                    SavePref("master_track_guid", "")
+                end
+            end
+            local n2c = MenuCheckbox("Two Column Mode", opt_two_column_mode)
+            if n2c ~= opt_two_column_mode then opt_two_column_mode = n2c; SavePref("two_column_mode", n2c) end
+            local n2n = MenuCheckbox("Two Column Nav", opt_two_column_nav)
+            if n2n ~= opt_two_column_nav then opt_two_column_nav = n2n; SavePref("two_column_nav", n2n) end
             local ntt = MenuCheckbox("Show Tooltips", opt_tooltips)
             if ntt ~= opt_tooltips then opt_tooltips = ntt; SavePref("tooltips", ntt) end
             local nif = MenuCheckbox("Insert Instruments First", opt_instr_first)
@@ -11767,7 +14408,7 @@ Loop = function()
             r.ImGui_PopStyleColor(ctx, 14)
 
                 -- Esc closes; clicking outside does NOT close (user must explicitly dismiss via X or gear).
-                if r.ImGui_IsKeyPressed(ctx, r.ImGui_Key_Escape()) then settings_open = false end
+                if TrackNavigatorEscapePressed() then settings_open = false end
 
                 if reg_font then r.ImGui_PopFont(ctx) end
             end -- visible

@@ -155,6 +155,9 @@ FxRowContextMenu = function(track, fi, fx_guid, fx_en, fx_off, popup_id, surface
         end
         r.ImGui_Separator(ctx)
 
+        if FXFolderMenu then FXFolderMenu(track, fi) end
+        r.ImGui_Separator(ctx)
+
         -- Duplicate (Reflex addition, not in REAPER-native)
         if r.ImGui_MenuItem(ctx, "Duplicate") then
             r.Undo_BeginBlock()
@@ -200,9 +203,11 @@ end
 --      → animated blue (paste-landing pulse)
 --   3. else not drag + FxClipHasGuid(guid)
 --      → carry blue C.fx_clip_carry
---   4. else not drag + InspFxSelHas(guid)
+--   4. else not drag + focused floating FX window matches row
+--      → focused-window grey C.fx_focus_outline
+--   5. else not drag + InspFxSelHas(guid)
 --      → grey C.fx_sel_outline
---   5. else nil
+--   6. else nil
 FxRowOutlineColor = function(track, fi, guid, surface)
     if fx_drag.active and fx_drag.src_track == track
        and fx_drag.src_surface == surface and fx_drag.src_fis then
@@ -233,6 +238,9 @@ FxRowOutlineColor = function(track, fi, guid, surface)
         -- once paste_count > 0, so after first paste this branch falls through
         -- and the white selection outline (data preserved) re-emerges.
         return C.fx_clip_carry or rgb(0x73A3F4)
+    end
+    if ReflexIsFocusedFloatingFX and ReflexIsFocusedFloatingFX(track, fi) then
+        return C.fx_focus_outline or rgb(0x4B5059)
     end
     if InspFxSelHas(guid) then
         return C.fx_sel_outline or C.fx_drag_source or rgb(0xA4A4A4)
@@ -331,11 +339,15 @@ FxRowInteract = function(p)
         local fill_x = p.fill_x or p.cx
         local fill_w = p.fill_w or p.w
         local body_only_fill = p.fill_x ~= nil
-        local body_fill_flags = r.ImGui_DrawFlags_RoundCornersTopRight() | r.ImGui_DrawFlags_RoundCornersBottomRight()
+        local body_fill_flags = p.body_round_flags
+        if body_fill_flags == nil then
+            body_fill_flags = r.ImGui_DrawFlags_RoundCornersTopRight() | r.ImGui_DrawFlags_RoundCornersBottomRight()
+        end
+        local body_fill_radius = body_fill_flags ~= 0 and p.radius or 0
         if p.hovered and not p.sel then
             if body_only_fill then
                 r.ImGui_DrawList_AddRectFilled(p.dl, fill_x, p.cy, fill_x + fill_w, p.cy + p.h,
-                    p.hover_col, p.radius, body_fill_flags)
+                    p.hover_col, body_fill_radius, body_fill_flags)
             elseif DrawHighResRoundedRectFilled then
                 DrawHighResRoundedRectFilled(p.dl, fill_x, p.cy, fill_x + fill_w, p.cy + p.h, p.hover_col, p.radius)
             else
@@ -344,7 +356,7 @@ FxRowInteract = function(p)
         elseif p.sel then
             if body_only_fill then
                 r.ImGui_DrawList_AddRectFilled(p.dl, fill_x, p.cy, fill_x + fill_w, p.cy + p.h,
-                    p.active_col, p.radius, body_fill_flags)
+                    p.active_col, body_fill_radius, body_fill_flags)
             elseif DrawHighResRoundedRectFilled then
                 DrawHighResRoundedRectFilled(p.dl, fill_x, p.cy, fill_x + fill_w, p.cy + p.h, p.active_col, p.radius)
             else

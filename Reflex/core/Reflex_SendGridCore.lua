@@ -91,17 +91,18 @@ SendsMeasureGrid = function(bw, cols, col_gap)
 
     local btn_h = S(UI.btn_h)
     local row_gap = S(UI.pad_sm)
+    local knob_gap = S(20 / 1.44)
     local title_gap = S(UI.section_gap)
     local fx_h = S(UI.btn_h)
     local fx_gap_v = S(UI.fx_gap)
     local knob_d = Round(btn_h * 1.5)
     local body_text_h = r.ImGui_GetTextLineHeight(ctx)
     local est_inner_w = col_w - S(UI.card_pad) * 2
-    local knobs_wrap = est_inner_w < (knob_d * 2 + row_gap)
+    local knobs_wrap = est_inner_w < (knob_d * 2 + knob_gap)
     local knob_unit = knob_d + S(2) + body_text_h
     local knob_pair_h = knobs_wrap and (knob_unit * 2 + row_gap) or knob_unit
     local est_fx_btn_w = math.floor(InspCtrlW("FX") * 1.4)
-    local est_arrow_w = btn_h + math.floor(row_gap / 2)
+    local est_arrow_w = btn_h
     local est_route_w = S(8) * 2 + S(4) * 6 + S(7) * 2
     -- v20.425: include + button width (added to compound in v20.420). Without
     -- this, parent under-estimates compound width at certain card widths,
@@ -150,6 +151,7 @@ SendsDrawGroupColumns = function(group, gi, cols, col_w, col_gap, dl, sends_base
         -- v20.420: trailing add-FX row removed (entry now in compound +).
         local fx_slots = any_fx_expanded and max_fx or 0
         local fx_area_h = fx_slots > 0 and (fx_slots * fx_h + (fx_slots - 1) * fx_gap_v) or 0
+        local fx_to_knob_gap_extra = fx_area_h > 0 and row_gap or 0
 
         -- SND section height: check if any send in row is expanded.
         local any_snd_expanded = false
@@ -179,6 +181,7 @@ SendsDrawGroupColumns = function(group, gi, cols, col_w, col_gap, dl, sends_base
                      + ctrl_h + row_gap
                      + fx_area_h
                      + S(UI.section_gap) + 2
+                     + fx_to_knob_gap_extra
                      + knob_pair_h
                      + ms_row_h
                      + col_pad_bot
@@ -296,6 +299,12 @@ SendsDrawSection = function(bw, skip_top_margin)
 
     local cols = math.max(1, math.min(6, sends_view_cols))
     local col_gap = S(UI.edge_pad) - 2
+    local min_col_w = ReflexSendModuleInlineMinWidth and ReflexSendModuleInlineMinWidth() or 0
+    while cols > 1 and min_col_w > 0 do
+        local projected_col_w = math.floor((bw - col_gap * (cols - 1)) / cols)
+        if projected_col_w >= min_col_w then break end
+        cols = cols - 1
+    end
 
     -- Handle scroll-to on activation
     if sends_view_scroll_pending then
@@ -347,10 +356,7 @@ DrawSendsColumn = function(col_bw)
     SendsViewCheckRefresh()
     if sends_view_active and #sends_view_tracks > 0 then
         local saved_cols = sends_view_cols
-        local scmw_btn = S(UI.btn_h)
-        local scmw_gap = S(UI.pad_sm)
-        local scmw_vol = math.max(scmw_btn, r.ImGui_CalcTextSize(ctx, "-00.0") + S(24))
-        local scmw = scmw_btn * 2 + scmw_gap + scmw_gap + scmw_vol + S(UI.card_pad) * 2
+        local scmw = ReflexSendsColumnMinWidth and ReflexSendsColumnMinWidth() or S(160)
         local side_col_gap = S(UI.edge_pad) - 2
         local side_cols = math.max(1, math.floor((col_bw + side_col_gap) / (scmw + side_col_gap)))
         side_cols = math.min(side_cols, sends_view_cols)

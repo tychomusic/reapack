@@ -44,9 +44,9 @@ local nav_theme = {
     colors = {
         fx_instr_txt = 0x324bd0,
         vol_slider_fill = 0x08a5f7,
-        vol_slider_mark = 0x3e454b,
-        vol_slider_mark_over = 0x82baf7,
-        vol_slider_mark_intersect = 0xb9b9b9,
+        vol_slider_mark = 0x171b22,
+        vol_slider_mark_over = 0x171b22,
+        vol_slider_mark_intersect = 0x171b22,
     },
 }
 

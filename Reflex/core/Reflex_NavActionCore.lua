@@ -772,6 +772,31 @@ ReflexInstallNavActionCore = function(deps)
         r.Undo_EndBlock("Track Navigator: Show All TLTs", 0)
     end
 
+    ShowAllQuickSetTLFs = function()
+        if opt_nav_custom_set_mode ~= true or not NavCustomSetEntries then
+            ShowAllTLFs()
+            return
+        end
+        local entries = NavCustomSetEntries()
+        if #entries == 0 then return end
+        ExitSpecialViews()
+        ViewHistoryPush()
+        r.Undo_BeginBlock(); r.PreventUIRefresh(1)
+        NavHideEverythingWithoutHistory()
+        for _, entry in ipairs(entries) do
+            NavShowCustomItem({
+                track = entry.track,
+                label = entry.name,
+                color = entry.color,
+                is_folder = entry.is_folder,
+            }, false)
+        end
+        SyncGhostVisibility()
+        EnsurePinnedVisible()
+        r.PreventUIRefresh(-1); r.TrackList_AdjustWindows(false); r.UpdateArrange()
+        r.Undo_EndBlock("Track Navigator: Show All Quick Set TLTs", 0)
+    end
+
     HideAllTLFs = function()
         ViewHistoryPush()
         r.Undo_BeginBlock(); r.PreventUIRefresh(1); HideEverything()
@@ -789,10 +814,11 @@ ReflexInstallNavActionCore = function(deps)
         for i = 0, nt - 1 do
             local t = r.GetTrack(0, i)
             if t and r.ValidatePtr(t, "MediaTrack*") then
-                r.SetMediaTrackInfo_Value(t, "B_SHOWINTCP", 1)
-                r.SetMediaTrackInfo_Value(t, "B_SHOWINMIXER", 1)
+                local ignored = NavTrackAutoIgnored and NavTrackAutoIgnored(t)
+                r.SetMediaTrackInfo_Value(t, "B_SHOWINTCP", ignored and 0 or 1)
+                r.SetMediaTrackInfo_Value(t, "B_SHOWINMIXER", ignored and 0 or 1)
                 if r.GetMediaTrackInfo_Value(t, "I_FOLDERDEPTH") == 1 then
-                    r.SetMediaTrackInfo_Value(t, "I_FOLDERCOMPACT", 0)
+                    r.SetMediaTrackInfo_Value(t, "I_FOLDERCOMPACT", ignored and 2 or 0)
                 end
             end
         end

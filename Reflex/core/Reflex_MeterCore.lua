@@ -18,10 +18,9 @@ ReflexInstallMeterCore = function(deps)
         end
     end
 
-    -- Meter color by dB threshold: red > -3, amber > -6, green otherwise.
+    -- Meter color by dB threshold: green normally, red only at/above digital full scale.
     MeterColor = function(db)
-        if db > -3 then return C.fx_offline_txt
-        elseif db > -6 then return C.amber
+        if db >= 0 then return C.fx_offline_txt
         else return C.green end
     end
 

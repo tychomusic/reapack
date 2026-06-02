@@ -179,6 +179,30 @@ ReflexInstallEnvelopeCore = function(deps)
         insp_env_cache_dirty = false
     end
 
+    InspEnvelopeCacheStale = function(track)
+        if insp_env_cache_dirty or not insp_env_cache or insp_env_cache.track ~= track then return true end
+        if not track or not r.ValidatePtr(track, "MediaTrack*") then return true end
+        local total_env_ct = r.CountTrackEnvelopes(track)
+        if total_env_ct ~= (insp_env_cache.total_env_count or -1) then return true end
+        for e = 0, total_env_ct - 1 do
+            local env = r.GetTrackEnvelope(track, e)
+            local cached = insp_env_cache.entries[e + 1]
+            if not env or not cached or cached.env ~= env then return true end
+            local _, fi = r.Envelope_GetParentTrack(env)
+            local _, ename = r.GetEnvelopeName(env)
+            local _, chunk = r.GetEnvelopeStateChunk(env, "", false)
+            local act = chunk and (chunk:match("ACT%s+(%d+)") or "1") or "1"
+            local vis = chunk and chunk:match("VIS%s+1") ~= nil or false
+            if cached.name ~= (ename or "?")
+                or cached.fx_idx ~= (fi or -1)
+                or cached.act ~= act
+                or cached.visible ~= vis then
+                return true
+            end
+        end
+        return false
+    end
+
     InspInvalidateEnvCache = function()
         insp_env_cache_dirty = true
     end

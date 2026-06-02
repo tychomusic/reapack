@@ -637,6 +637,16 @@ ReflexInstallNavViewCore = function(deps)
         return m.show_all, primary, m.shift, pin, m.child_expand
     end
 
+    local function NavShowAllFromTltClick()
+        if current_page == "tracks"
+           and opt_nav_custom_set_mode == true
+           and ShowAllQuickSetTLFs then
+            ShowAllQuickSetTLFs()
+        else
+            ShowAllTracks()
+        end
+    end
+
     local function NavUtf8CharCount(s)
         s = s or ""
         local len = #s
@@ -1889,7 +1899,7 @@ ReflexInstallNavViewCore = function(deps)
         if show_hov then
             NavPopupTip({
                 "Show every track in TCP and Mixer.",
-                "Ignores ARCHIVE and all NAV filters.",
+                "Still obeys Ignore ARCHIVE.",
             })
         end
         if show_clicked then
@@ -2576,10 +2586,17 @@ ReflexInstallNavViewCore = function(deps)
         local nav_body_x_offset = params.nav_body_x_offset or 0
         local nav_header_x_offset = params.nav_header_x_offset or 0
         local nav_ar_x_offset = params.nav_ar_x_offset or nav_header_x_offset
+        local nav_body_w_override = params.nav_body_w
+        local nav_header_search_enabled = params.nav_header_search == true
+        local nav_body_top_extra = params.nav_body_top_extra or 0
+        local nav_body_top_extra_preserves_body_h = params.nav_body_top_extra_preserves_body_h == true
 
 	          -- ── NAVIGATOR SECTION (fixed, non-scrolling) ──
 	          local nav_start_x = r.ImGui_GetCursorPosX(ctx)
 	          local nav_start_y = r.ImGui_GetCursorPosY(ctx)
+          local nav_origin_y = nav_start_y
+          last_nav_body_offset_y = 0
+          last_nav_header_offset_y = 0
           -- nav_end_y: bottom edge of the last visible NAV element. Set in
           -- both navigator_expanded branches below; consumed by the bottom-
           -- margin block to position the content child flush with NAV bottom
@@ -3002,7 +3019,8 @@ ReflexInstallNavViewCore = function(deps)
               -- Collapsed NAV treats view buttons as one leading group, so the
               -- dot row uses the full width instead of reserving a top-right
               -- view-button zone.
-              local max_dot_x = nav_cx + bw
+              local body_flow_w = nav_body_w_override or math.max(0, bw - nav_body_x_offset)
+              local max_dot_x = nav_cx + nav_body_x_offset + body_flow_w
               local asr_placements, asr_row, asr_next_x
               if embedded_nav_panel then
                   asr_placements, asr_row, asr_next_x = {}, 1, dot_start_x_first
@@ -3163,7 +3181,7 @@ ReflexInstallNavViewCore = function(deps)
                       if nav_mods.custom_set then
                           NavToggleTrackCustomSet(NavTlfItemTrack(item))
                       elseif show_all then
-                          ShowAllTracks()
+                          NavShowAllFromTltClick()
                       else
                           HandleTracksClick(md.ri, primary, shift, pin, child_expand)
                           NavMaybeSuppressTlfHover(item, was_visible, show_all, primary)
@@ -3254,19 +3272,33 @@ ReflexInstallNavViewCore = function(deps)
 
           local search_gap = NavRetinaPx(12)
           local search_min_w = NavRetinaPx(125)
-          local nav_list_w = math.max(0, bw - nav_body_x_offset)
+          local nav_list_w = math.max(0, nav_body_w_override or (bw - nav_body_x_offset))
           local search_pre_w = nav_list_w
-          local search_can_show = current_page == "tracks"
+          local header_search_x = nav_shared_scx + nav_left_pad_shared
+              + nav_arrow_area + nav_header_x_offset + search_gap
+          local header_search_right = ar_fixed_start_x - search_gap
+          local header_search_w = math.max(0, header_search_right - header_search_x)
+          local header_search_can_show = nav_header_search_enabled
+              and embedded_nav_panel
+              and ar_fixed
+              and current_page == "tracks"
               and opt_nav_show_search ~= false
+              and header_search_w >= search_min_w
+          local sticky_search_can_show = current_page == "tracks"
+              and opt_nav_show_search ~= false
+              and not header_search_can_show
               and search_pre_w >= search_min_w
           -- Force cursor below the header/A/S/R flow rows. Without search, keep
           -- the legacy TLT gap exactly; with search, the search pill owns the
           -- requested 12px gaps above and below.
-          local nav_body_gap = search_can_show and search_gap or S(3.75)
-          local nav_body_y = nav_start_y + nav_single_row_h * nav_ar_flow_rows + nav_body_gap
+          local nav_body_gap = sticky_search_can_show and search_gap or S(3.75)
+          local nav_body_y_base = nav_start_y + nav_single_row_h * nav_ar_flow_rows + nav_body_gap
+          last_nav_header_offset_y = math.max(0, nav_body_y_base - nav_origin_y)
+          local nav_body_y = nav_body_y_base + nav_body_top_extra
+          last_nav_body_offset_y = math.max(0, nav_body_y - nav_origin_y)
 
           local sticky_search_h = 0
-          if search_can_show then
+          if header_search_can_show or sticky_search_can_show then
               local tlf_h = S(34)
               local tlf_r = math.floor(tlf_h / 2)
               local circ_gap = Round(S(9.56))
@@ -3292,7 +3324,8 @@ ReflexInstallNavViewCore = function(deps)
                   nav_tlt_search_hide_clear = true
                   nav_tlt_search_recent_clear_frames = 8
               end
-              local function NavDrawStickyTltSearchBox()
+              local function NavDrawStickyTltSearchBox(row_cx, row_cy, pill_w)
+                  local prev_cursor_x, prev_cursor_y = r.ImGui_GetCursorPos(ctx)
                   nav_tlt_search_visible = true
                   if (nav_tlt_search_recent_clear_frames or 0) > 0 then
                       nav_tlt_search_recent_clear_frames = nav_tlt_search_recent_clear_frames - 1
@@ -3301,10 +3334,6 @@ ReflexInstallNavViewCore = function(deps)
                   if force_empty then
                       nav_tlt_search_force_empty_frames = nav_tlt_search_force_empty_frames - 1
                   end
-                  r.ImGui_SetCursorPosY(ctx, nav_body_y)
-                  r.ImGui_SetCursorPosX(ctx, nav_start_x + nav_body_x_offset)
-                  local row_cx, row_cy = r.ImGui_GetCursorScreenPos(ctx)
-                  local pill_w = nav_list_w
                   local mid_y = row_cy + tlf_h * 0.5
                   local dl = r.ImGui_GetWindowDrawList(ctx)
                   local mouse_x, mouse_y = r.ImGui_GetMousePos(ctx)
@@ -3332,7 +3361,10 @@ ReflexInstallNavViewCore = function(deps)
                   local clear_cx = row_cx + pill_w - tlf_h * 0.5
                   local clear_draw_cx = clear_cx - clear_cross_x_shift
                   local text_left = row_cx + circ_gap + search_text_extra_indent
-                  local text_right = clear_draw_cx - pin_dot_r - circ_gap
+                  local search_has_text = (nav_tlt_search_text or "") ~= ""
+                  local text_right = search_has_text
+                      and (clear_draw_cx - pin_dot_r - circ_gap)
+                      or (row_cx + pill_w - circ_gap)
                   local input_w = math.max(1, text_right - text_left)
                   local text_h = r.ImGui_GetTextLineHeight(ctx)
                   local input_pad_y = math.max(0, Round((tlf_h - text_h) / 2) - search_text_y_shift)
@@ -3416,7 +3448,7 @@ ReflexInstallNavViewCore = function(deps)
                   end
 
                   local show_clear = not nav_tlt_search_hide_clear
-                      and (input_active or (nav_tlt_search_text or "") ~= "")
+                      and (nav_tlt_search_text or "") ~= ""
                   if show_clear then
                       local hit = tlf_h
                       local clear_x = row_cx + pill_w - hit
@@ -3442,9 +3474,17 @@ ReflexInstallNavViewCore = function(deps)
                       or (nav_tlt_search_focus_requested_frames or 0) > 0
                       or NavNormalizeTltSearchQuery(nav_tlt_search_text or "") ~= ""
                       or NavNormalizeTltSearchQuery(nav_tlt_search_effective_query or "") ~= ""
+                  r.ImGui_SetCursorPos(ctx, prev_cursor_x, prev_cursor_y)
               end
-              NavDrawStickyTltSearchBox()
-              sticky_search_h = tlf_h + search_gap
+              if header_search_can_show then
+                  NavDrawStickyTltSearchBox(header_search_x, nav_shared_scy, header_search_w)
+              else
+                  r.ImGui_SetCursorPosY(ctx, nav_body_y)
+                  r.ImGui_SetCursorPosX(ctx, nav_start_x + nav_body_x_offset)
+                  local row_cx, row_cy = r.ImGui_GetCursorScreenPos(ctx)
+                  NavDrawStickyTltSearchBox(row_cx, row_cy, nav_list_w)
+                  sticky_search_h = tlf_h + search_gap
+              end
           else
               nav_tlt_search_visible = false
               nav_tlt_search_active = false
@@ -3459,7 +3499,7 @@ ReflexInstallNavViewCore = function(deps)
           local nav_last_drawn_bottom_y = nil
 
           if nav_collapsed_search_visible and not nav_render_expanded then
-              if search_can_show then
+              if sticky_search_can_show then
                   nav_end_y = nav_list_y
                   nav_ctx_y2 = math.max(nav_ctx_y2, nav_ctx_y1 + (nav_end_y - nav_start_y))
                   last_nav_collapsed_visible_h = math.max(last_nav_collapsed_visible_h or 0, nav_end_y - nav_start_y)
@@ -3471,8 +3511,13 @@ ReflexInstallNavViewCore = function(deps)
           -- the inspector pattern. Children resize naturally to interior width.
           local _bottom_used = vh_row_h + rem_h + (rem_h > 0 and divider_h or 0) + nav_bottom_extra
           local _nav_top_used = nav_list_y - nav_start_y
-          local _nav_block_max_h = math.max(1, win_h - _nav_top_used - _bottom_used)
           local active_nav_split_h = nav_temp_expanded and nav_temp_split_h or nav_split_h
+          local _nav_top_used_for_limits = _nav_top_used
+          if nav_body_top_extra_preserves_body_h and nav_body_top_extra > 0 then
+              _nav_top_used_for_limits = math.max(0, _nav_top_used - nav_body_top_extra)
+              if active_nav_split_h then active_nav_split_h = active_nav_split_h + nav_body_top_extra end
+          end
+          local _nav_block_max_h = math.max(1, win_h - _nav_top_used_for_limits - _bottom_used)
           local _nav_h
           if nav_temp_expanded then
               local cap_h = active_nav_split_h and active_nav_split_h > _nav_top_used
@@ -3585,7 +3630,7 @@ ReflexInstallNavViewCore = function(deps)
 	              local ri, pending_item = NavFindTltRenderIndexByGuid(pending.guid)
 	              if not ri or not pending_item then return false end
 	              if pending.show_all then
-	                  ShowAllTracks()
+	                  NavShowAllFromTltClick()
 	              else
 	                  HandleTracksClick(ri, pending.primary, pending.shift, pending.pin, pending.child_expand)
 	                  NavMaybeSuppressTlfHover(pending_item, pending.was_visible, pending.show_all, pending.primary)
@@ -3905,7 +3950,7 @@ ReflexInstallNavViewCore = function(deps)
 	                              local show_all, primary, shift, pin, child_expand = NavTrackClickMods(mods)
 	                              local was_visible = vis
 	                              if show_all then
-	                                  ShowAllTracks()
+	                                  NavShowAllFromTltClick()
 	                              else
 	                                  HandleTracksClick(ri, primary, shift, pin, child_expand)
 	                                  NavMaybeSuppressTlfHover(item, was_visible, show_all, primary)
@@ -4068,7 +4113,7 @@ ReflexInstallNavViewCore = function(deps)
 	                          was_visible = was_visible,
 	                      }
 	                  elseif show_all then
-	                      ShowAllTracks()
+	                      NavShowAllFromTltClick()
 	                  else
 	                      HandleTracksClick(ri, primary, shift, pin, child_expand)
 	                      NavMaybeSuppressTlfHover(item, was_visible, show_all, primary)

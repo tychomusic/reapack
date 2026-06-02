@@ -143,7 +143,17 @@ end
 -- There's no undo/restore for either selection or clipboard, so safety-of-
 -- accidental-tap is a wash — intuitiveness wins. Chip × remains as mouse exit.
 FxDragPollEscape = function()
-    if r.ImGui_IsKeyPressed(ctx, r.ImGui_Key_Escape()) then
+    local esc_pressed = false
+    if TrackNavigatorEscapePressed then
+        esc_pressed = TrackNavigatorEscapePressed()
+    elseif r.ImGui_IsKeyPressed and r.ImGui_Key_Escape then
+        local ok_key, key = pcall(r.ImGui_Key_Escape)
+        if ok_key then
+            local ok_pressed, pressed = pcall(r.ImGui_IsKeyPressed, ctx, key)
+            esc_pressed = ok_pressed and pressed == true
+        end
+    end
+    if esc_pressed then
         if fx_drag.active or fx_drag.src_track then
             fx_drag.cancelled = true
             FxDragClear()
@@ -483,8 +493,7 @@ FxDragResolveDrop = function()
                 end
             end
             text_str = fx_name
-            text_col = fx_drag.is_instr and (C.fx_instr_txt or rgb(0x1643D6))
-                                         or (C.text or rgb(0xE6EDF3))
+            text_col = C.text or rgb(0xE6EDF3)
         end
         -- Automation-variant suffix only when user has modifier active.
         if op == "copy" and with_auto then

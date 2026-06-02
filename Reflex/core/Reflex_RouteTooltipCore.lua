@@ -18,23 +18,33 @@ end
 
 -- Format HW output dst channel (plain index).
 FormatChanHW = function(val)
-    return (val + 1) .. "/" .. (val + 2)
+    if RouteHWOutputNameFromValue then return RouteHWOutputNameFromValue(val) end
+    return "Output " .. (val + 1) .. "/" .. (val + 2)
 end
 
 -- Show persistent routing tooltip (ignores opt_tooltips).
-ShowRoutingTooltip = function(track)
+ShowRoutingTooltip = function(track, opts)
+    opts = opts or {}
     if not track or not r.ValidatePtr(track, "MediaTrack*") then return end
-    if insp_routing_expanded[track] then return end
     local has_br = r.BR_GetMediaTrackSendInfo_Track ~= nil
     local num_sends = r.GetTrackNumSends(track, 0)
     local num_recvs = r.GetTrackNumSends(track, -1)
     local num_hw = r.GetTrackNumSends(track, 1)
-    if num_sends == 0 and num_recvs == 0 and num_hw == 0 then return end
+    local has_routes = num_sends > 0 or num_recvs > 0 or num_hw > 0
+    if insp_routing_expanded[track] and not opts.action_text then return end
+    if not has_routes and not opts.action_text then return end
 
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowPadding(), S(12), S(10))
     r.ImGui_BeginTooltip(ctx)
     r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ItemSpacing(), 0, S(4))
     local th = r.ImGui_GetTextLineHeight(ctx)
+
+    if opts.action_text then
+        for line in tostring(opts.action_text):gmatch("[^\n]+") do
+            r.ImGui_TextColored(ctx, C.text_muted, line)
+        end
+        if has_routes then r.ImGui_Spacing(ctx) end
+    end
 
     if num_sends > 0 then
         r.ImGui_TextColored(ctx, C.text_muted, "Sends")
@@ -98,18 +108,14 @@ ShowRoutingTooltip = function(track)
         r.ImGui_TextColored(ctx, C.text_muted, "Hardware Outputs")
         for hi = 0, num_hw - 1 do
             local is_muted = r.GetTrackSendInfo_Value(track, 1, hi, "B_MUTE") == 1
-            local col = is_muted and C.text_muted or C.route_parent
+            local col = is_muted and C.text_muted or (C.route_hw or C.text_dim)
             local src_val = math.floor(r.GetTrackSendInfo_Value(track, 1, hi, "I_SRCCHAN"))
             local dst_val = math.floor(r.GetTrackSendInfo_Value(track, 1, hi, "I_DSTCHAN"))
             local src_str = FormatChanPacked(src_val)
             local dst_str = FormatChanHW(dst_val)
-            local is_default = src_str == "1/2" and dst_str == "1/2"
-            local label = "Output " .. dst_str
-            r.ImGui_TextColored(ctx, col, label)
-            if not is_default then
-                r.ImGui_SameLine(ctx, 0, S(10))
-                r.ImGui_TextColored(ctx, C.text_muted, src_str .. " \xE2\x86\x92 " .. dst_str)
-            end
+            r.ImGui_TextColored(ctx, col, dst_str)
+            r.ImGui_SameLine(ctx, 0, S(10))
+            r.ImGui_TextColored(ctx, C.text_muted, src_str)
         end
     end
 
