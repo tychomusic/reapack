@@ -23,11 +23,11 @@ Read repo-level `../PROJECT_KNOWLEDGE.md` first for ReaPack-wide workflow and cr
 - Main script: `Reflex/Reflex.lua`
 - Public version: `20.676`
 - Author metadata: `S.Hansen / Tycho`
-- Release package excludes generated/user-local state files such as `remote_buttons.txt`, `remote_pages.txt`, and `fx_browser_action.txt`.
+- Release package excludes generated/user-local state files such as `remote_buttons.txt`, `remote_pages.txt`, `fx_browser_action.txt`, and `fx_folder_primary.txt`.
 - The user's normal Reflex toolbar/action should run `/Applications/Reaper/Scripts/Tycho/reapack/Reflex/Reflex.lua`.
 - `Reflex/Navigator.lua` is a NAV-only Reflex harness for isolating embedded Navigator behavior during development. It is not the public spin-off Track Navigator script; when the user says "Track Navigator", use `/Applications/Reaper/Scripts/Tycho/reapack/Track Navigator/Track Navigator.lua`.
 - Reflex no longer loads external theme files. The former tested `Reflex_Theme.lua` values are embedded in `Reflex.lua`, `Navigator.lua`, and `Reflex_IOManager.lua`; future user-facing UI customization belongs in an Options GUI.
-- Reflex user-local state files (`remote_buttons.txt`, `remote_pages.txt`, `fx_browser_action.txt`) now live in `/Applications/Reaper/Scripts/Tycho/reapack/Reflex` for local testing and are locally ignored via `.git/info/exclude`.
+- Reflex user-local state files (`remote_buttons.txt`, `remote_pages.txt`, `fx_browser_action.txt`, `fx_folder_primary.txt`) now live in `/Applications/Reaper/Scripts/Tycho/reapack/Reflex` for local testing and are locally ignored via `.git/info/exclude`.
 - Quick send FX-chain presets live in `/Applications/Reaper/Scripts/Tycho/reapack/Reflex/quick_sends/` as user-local `.RfxChain` files and are locally ignored. Reflex scans this folder directly; each chain filename becomes a right-click `CTRL.add_send` quick-send menu item.
 - The older `/Applications/Reaper/Scripts/Tycho/Reflex` folder is no longer the source of truth for development. It was archived on 2026-05-24 under `/Applications/Reaper/Scripts/Tycho cleanup archive 2026-05-24/Reflex.stale-20.669` along with `Reflex.bak`; use that archive only when intentionally recovering a specific old/local file.
 
@@ -177,6 +177,7 @@ Scripts/Tycho/Reflex/
   remote_buttons.txt           Remote macro pad persistence (auto-generated, not packaged)
   remote_pages.txt             Remote page definitions (auto-generated, not packaged)
   fx_browser_action.txt        Custom FX browser action ID (auto-generated, not packaged)
+  fx_folder_primary.txt        FX folder/category primary-choice cache (auto-generated, not packaged)
   quick_sends/                 User-local `.RfxChain` quick send presets (auto-created, not packaged)
   icons/                       Remote button icon PNGs (3-state horizontal strips)
   icons/Nav.QuickSet.Q.png     NAV.Q label image

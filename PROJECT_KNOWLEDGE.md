@@ -50,6 +50,8 @@ The user's active REAPER install at `/Applications/Reaper` should run only these
 
 For development, testing, and runtime config inspection, `/Applications/Reaper/` is the only meaningful REAPER install unless the user explicitly says otherwise. Prefer this install for portable REAPER resource files such as `reaper.ini`, `reaper-fxfolders.ini`, `reaper-fxtags.ini`, action state, and local runtime behavior. Do not infer source-of-truth config from `~/Library/Application Support/REAPER` when `/Applications/Reaper/` contains the active portable config.
 
+Do not launch, foreground, or run REAPER for runtime/UI testing unless the user explicitly asks for it. The user handles REAPER-side testing by default; Codex should limit unattended verification to code inspection, git checks, ReaPack checks, and other non-REAPER commands.
+
 `Reflex/Navigator.lua` exists inside the Reflex package as a NAV-only Reflex harness. It is useful for isolating Reflex's embedded Navigator behavior, but it is not the spin-off public Track Navigator script and should not be described to the user as the normal Navigator button/action. When the user says they want to run "Track Navigator", they mean `Track Navigator/Track Navigator.lua`.
 
 Stale duplicate folders were archived on 2026-05-24 under `/Applications/Reaper/Scripts/Tycho cleanup archive 2026-05-24`:
@@ -59,7 +61,7 @@ Stale duplicate folders were archived on 2026-05-24 under `/Applications/Reaper/
 
 Do not use or recreate `/Applications/Reaper/Scripts/Tycho/Reflex`, `/Applications/Reaper/Scripts/Tycho/Reflex.bak`, or `/Applications/Reaper/Scripts/Tycho ReaPack` as live sources. If recovery is needed, copy specific files out of the archive deliberately.
 
-Reflex user-local state files (`remote_buttons.txt`, `remote_pages.txt`, and `fx_browser_action.txt`) were migrated into `/Applications/Reaper/Scripts/Tycho/reapack/Reflex` and are locally ignored via `.git/info/exclude`; they are not packaged. `Tycho_Track Name Rewriter.lua` was preserved at `/Applications/Reaper/Scripts/Tycho/Tycho_Track Name Rewriter.lua`.
+Reflex user-local state files (`remote_buttons.txt`, `remote_pages.txt`, `fx_browser_action.txt`, and `fx_folder_primary.txt`) were migrated into `/Applications/Reaper/Scripts/Tycho/reapack/Reflex` and are locally ignored via `.git/info/exclude`; they are not packaged. `Tycho_Track Name Rewriter.lua` was preserved at `/Applications/Reaper/Scripts/Tycho/Tycho_Track Name Rewriter.lua`.
 
 ## Track Navigator And Reflex
 - Track Navigator is the standalone public ReaPack package for NAV.
