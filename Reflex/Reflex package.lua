@@ -1,10 +1,10 @@
 -- @description Reflex
--- @version 20.676
+-- @version 20.677
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @link Requirements https://github.com/tychomusic/reapack#reflex
 -- @changelog
---   Add a REAPER action and standalone Navigator hotkey for toggling Navigator expand.
+--   Refine FX unavailable state, MIDI input meters, and volume fader drag behavior.
 -- @metapackage
 -- @provides
 --   [main] Reflex.lua

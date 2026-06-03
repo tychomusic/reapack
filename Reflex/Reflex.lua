@@ -3,7 +3,7 @@
  * Description: Folder visibility and collapse manager for REAPER sessions.
  *              Companion to Realist. Realist-styled UI.
  * Author:      S.Hansen / Tycho
- * Version:     20.676
+ * Version:     20.677
  *
  * Click:       solo (if others visible) or toggle collapse (if alone)
  * CMD+click:   add/remove from visible set
@@ -20,7 +20,7 @@ local r = reaper
 
 -- Single source of truth for Reflex version. Update this when bumping
 -- the header comment; used by settings panel title.
-REFLEX_VERSION = "20.676"
+REFLEX_VERSION = "20.677"
 
 ReflexDependencyError = function(detail)
     local msg = "Reflex requires ReaImGui 0.10 or newer."
@@ -1948,11 +1948,12 @@ DrawFXPowerButton = function(id, x, y, row_h, enabled, payload)
     return hov
 end
 
-ShowOfflineFxStateTooltip = function(enabled)
+ShowOfflineFxStateTooltip = function(enabled, reason)
     PushTooltipStyle()
     local tip_fp = PushTooltipFont()
     r.ImGui_BeginTooltip(ctx)
-    r.ImGui_Text(ctx, enabled and "Offline / enabled" or "Offline / bypassed")
+    local state = enabled and "enabled" or "bypassed"
+    r.ImGui_Text(ctx, (reason and reason ~= "") and (reason .. " / " .. state) or ("Offline / " .. state))
     r.ImGui_EndTooltip(ctx)
     PopTooltipFont(tip_fp)
     PopTooltipStyle()
@@ -2158,6 +2159,124 @@ FXPluginCategory = function(track, fx_idx, raw_name, display_name, is_container,
     end
     if is_instrument then return "Instrument" end
     return nil
+end
+
+FXNamedConfigValue = function(track, fx_idx, parm)
+    if not (r.TrackFX_GetNamedConfigParm and track and r.ValidatePtr(track, "MediaTrack*") and fx_idx ~= nil) then
+        return nil
+    end
+    local ok, val = r.TrackFX_GetNamedConfigParm(track, fx_idx, parm)
+    if ok and val and val ~= "" then return val end
+    return nil
+end
+
+FXUnavailableReasonFromText = function(text)
+    local s = tostring(text or ""):lower()
+    if s == "" then return nil end
+    if ReflexIsMacOS() and s:find("%.dll") then return "Missing Windows VST" end
+    if ReflexIsMacOS() and s:match("^%s*<dx") then return "Missing Windows DX" end
+    if s:find("not found", 1, true)
+        or s:find("could not be loaded", 1, true)
+        or s:find("failed to load", 1, true)
+        or s:find("unable to load", 1, true)
+        or s:find("unavailable", 1, true)
+        or s:find("missing plug-in", 1, true)
+        or s:find("missing plugin", 1, true) then
+        return "Missing plug-in"
+    end
+    return nil
+end
+
+fx_unavailable_chunk_cache = setmetatable({}, { __mode = "k" })
+
+FXChunkUnavailableCacheKey = function(track)
+    if not track or not r.ValidatePtr(track, "MediaTrack*") then return nil end
+    local count = r.TrackFX_GetCount(track)
+    local parts = { tostring(count) }
+    for i = 0, count - 1 do
+        parts[#parts + 1] = r.TrackFX_GetFXGUID(track, i) or ""
+    end
+    return table.concat(parts, "|")
+end
+
+FXChunkHeaderLine = function(block)
+    if not block or block == "" then return nil end
+    for line in tostring(block):gmatch("[^\r\n]+") do
+        local trimmed = line:gsub("^%s+", "")
+        if trimmed:sub(1, 1) == "<" then return trimmed end
+    end
+    return nil
+end
+
+FXChunkBlockForIndex = function(track, fx_idx)
+    if not (FxChunkSplitLines and FxChunkFindFxchain and FxChunkFxRanges) then return nil end
+    if not (r.GetTrackStateChunk and track and r.ValidatePtr(track, "MediaTrack*") and fx_idx ~= nil) then
+        return nil
+    end
+
+    local key = FXChunkUnavailableCacheKey(track)
+    if not key then return nil end
+    local cached = fx_unavailable_chunk_cache[track]
+    if cached and cached.key == key then return cached.blocks[fx_idx] end
+
+    local ok, chunk = r.GetTrackStateChunk(track, "", false)
+    if not ok or type(chunk) ~= "string" or chunk == "" then return nil end
+    local lines = FxChunkSplitLines(chunk)
+    local open_ln, close_ln, content_depth = FxChunkFindFxchain(lines)
+    if not open_ln or not close_ln then return nil end
+    local ranges = FxChunkFxRanges(lines, open_ln, close_ln, content_depth)
+    local blocks = {}
+    for i, range in ipairs(ranges) do
+        local out = {}
+        for ln = range[1], range[2] do out[#out + 1] = lines[ln] end
+        blocks[i - 1] = table.concat(out, "\n")
+    end
+    fx_unavailable_chunk_cache[track] = { key = key, blocks = blocks }
+    return blocks[fx_idx]
+end
+
+FXChunkUnavailableReason = function(track, fx_idx)
+    local header = FXChunkHeaderLine(FXChunkBlockForIndex(track, fx_idx))
+    return FXUnavailableReasonFromText(header)
+end
+
+FXUnavailableReason = function(track, fx_idx, raw_name)
+    local seen = {}
+    local function check(value)
+        if not value or value == "" or seen[value] then return nil end
+        seen[value] = true
+        return FXUnavailableReasonFromText(value)
+    end
+
+    local reason = check(raw_name)
+    if reason then return reason end
+
+    if track and r.ValidatePtr(track, "MediaTrack*") and fx_idx ~= nil then
+        if not raw_name or raw_name == "" then
+            local _, name = r.TrackFX_GetFXName(track, fx_idx, "")
+            reason = check(name)
+            if reason then return reason end
+        end
+        for _, parm in ipairs({ "fx_ident", "fx_name", "original_name" }) do
+            reason = check(FXNamedConfigValue(track, fx_idx, parm))
+            if reason then return reason end
+        end
+        reason = FXChunkUnavailableReason(track, fx_idx)
+        if reason then return reason end
+    end
+    return nil
+end
+
+FXEffectiveState = function(track, fx_idx, raw_name, enabled, offline)
+    local unavailable_reason = FXUnavailableReason(track, fx_idx, raw_name)
+    local offline_actual = offline == true or offline == 1
+    return {
+        enabled = enabled == true or enabled == 1,
+        offline_actual = offline_actual,
+        offline = offline_actual or unavailable_reason ~= nil,
+        offline_reason = unavailable_reason,
+        unavailable = unavailable_reason ~= nil,
+    }
 end
 
 FXPluginCategoryInfo = function(track, fx_idx)
@@ -3502,6 +3621,7 @@ local insp_cmp_check_time = 0
 local insp_cmp_count = 0
 local insp_vol_dragging = false
 local insp_vol_drag_track = nil
+local insp_vol_drag_start_frac = nil
 local insp_vol_val_dragging = false
 local insp_vol_val_drag_track = nil
 local insp_vol_drag_moved = false
@@ -3631,7 +3751,7 @@ end
 -- selected FX track remains visible in the rendered chain.
 InspCleanupDragState = function(opts)
     opts = opts or {}
-    if insp_vol_dragging then insp_vol_dragging = false; insp_vol_drag_track = nil; insp_vol_before = nil end
+    if insp_vol_dragging then insp_vol_dragging = false; insp_vol_drag_track = nil; insp_vol_drag_start_frac = nil; insp_vol_before = nil end
     if insp_vol_val_dragging then insp_vol_val_dragging = false; insp_vol_val_drag_track = nil; insp_vol_val_before = nil end
     if insp_pan_dragging then insp_pan_dragging = false; insp_pan_before = nil end
     if insp_wet_dragging then insp_wet_dragging = false; insp_wet_drag_fi = nil; insp_wet_before = nil end
@@ -3888,6 +4008,9 @@ InspScanTrack = function(track)
     for f = 0, r.TrackFX_GetCount(track) - 1 do
         local _, fx_name = r.TrackFX_GetFXName(track, f)
         local display_name = InspStripName(fx_name)
+        local fx_enabled = r.TrackFX_GetEnabled(track, f)
+        local fx_offline = r.TrackFX_GetOffline(track, f)
+        local fx_state = FXEffectiveState(track, f, fx_name, fx_enabled, fx_offline)
         -- Find Wet parameter index (REAPER wrapper param, not internal plugin params)
         local wet_idx, wet_val = -1, 1.0
         local wp = r.TrackFX_GetParamFromIdent(track, f, ":wet")
@@ -3904,9 +4027,13 @@ InspScanTrack = function(track)
         fx_list[#fx_list + 1] = {
             track = track, fx_idx = f,
             name = display_name,
+            raw_name = fx_name,
             category = FXPluginCategory(track, f, fx_name, display_name, is_container, is_instr),
-            enabled = r.TrackFX_GetEnabled(track, f),
-            offline = r.TrackFX_GetOffline(track, f),
+            enabled = fx_state.enabled,
+            offline = fx_state.offline,
+            offline_actual = fx_state.offline_actual,
+            offline_reason = fx_state.offline_reason,
+            unavailable = fx_state.unavailable,
             env_count = InspCountFXEnvelopes(track, f),
             guid = r.TrackFX_GetFXGUID(track, f) or "",
             cmp_key = CmpKey(track, f),
@@ -4325,8 +4452,14 @@ InspRefreshFXState = function(track)
     local cached_total = insp_env_cache and insp_env_cache.total_env_count or -1
     local env_changed = total_env_count ~= cached_total
     for _, fx in ipairs(fx_list) do
-        fx.enabled = r.TrackFX_GetEnabled(fx.track, fx.fx_idx)
-        fx.offline = r.TrackFX_GetOffline(fx.track, fx.fx_idx)
+        local fx_enabled = r.TrackFX_GetEnabled(fx.track, fx.fx_idx)
+        local fx_offline = r.TrackFX_GetOffline(fx.track, fx.fx_idx)
+        local fx_state = FXEffectiveState(fx.track, fx.fx_idx, fx.raw_name or fx.name, fx_enabled, fx_offline)
+        fx.enabled = fx_state.enabled
+        fx.offline = fx_state.offline
+        fx.offline_actual = fx_state.offline_actual
+        fx.offline_reason = fx_state.offline_reason
+        fx.unavailable = fx_state.unavailable
         local new_ct = fx_env_ct[fx.fx_idx] or 0
         if new_ct ~= fx.env_count then env_changed = true end
         fx.env_count = new_ct
@@ -5129,7 +5262,7 @@ InspDrawFXRow = function(fx, fi, bw, ibh, fx_count)
     local row_hovered_full = row_hovered_pre
     r.ImGui_PopStyleColor(ctx, 3)
     if fx.offline and row_hovered_full then
-        ShowOfflineFxStateTooltip(fx.enabled)
+        ShowOfflineFxStateTooltip(fx.enabled, fx.offline_reason)
     -- v20.424: descriptive hover tooltip on FX row (parity with sends).
     -- "Click: open" omitted — self-explanatory. Suppressed during carry mode
     -- to avoid competing with insert-indicator visuals.
@@ -6822,14 +6955,15 @@ InspDrawVolumeSlider = function(track, hdr)
             insp_vol_drag_moved = false
             -- Option C test: cache pre-drag value, no undo block during drag
             insp_vol_before = r.GetMediaTrackInfo_Value(track, "D_VOL")
+            insp_vol_drag_start_frac = vol_db_to_frac(vol_gain_to_db(insp_vol_before))
         end
     end
     if r.ImGui_IsItemActive(ctx) and insp_vol_dragging then
-        local dx, dy = r.ImGui_GetMouseDragDelta(ctx, 0)
-        if insp_vol_drag_moved or math.abs(dx) >= 1 or math.abs(dy) >= 1 then
+        local dx = r.ImGui_GetMouseDragDelta(ctx, 0)
+        if insp_vol_drag_moved or math.abs(dx) >= 1 then
             insp_vol_drag_moved = true
-            local mx = r.ImGui_GetMousePos(ctx)
-            local ratio = math.max(0, math.min(1, (mx - vbar_cx) / vbar_w))
+            local start_frac = insp_vol_drag_start_frac or vol_db_to_frac(vol_gain_to_db(insp_vol_before or vol))
+            local ratio = math.max(0, math.min(1, start_frac + dx / vbar_w))
             local new_vol = vol_frac_to_gain(ratio)
             -- Raw write during drag, no undo wrapping (audio feedback only)
             r.SetMediaTrackInfo_Value(track, "D_VOL", new_vol)
@@ -6846,6 +6980,7 @@ InspDrawVolumeSlider = function(track, hdr)
             r.Undo_EndBlock("Reflex: Volume change", -1)
         end
         insp_vol_before = nil
+        insp_vol_drag_start_frac = nil
         insp_vol_drag_moved = false
     end
 
@@ -10790,6 +10925,10 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             local fx_en = r.TrackFX_GetEnabled(track, fi)
             local fx_off = r.TrackFX_GetOffline(track, fi)
             local fx_name = fx_names[fi] or ""
+            local fx_state = FXEffectiveState(track, fi, fx_name, fx_en, fx_off)
+            fx_en = fx_state.enabled
+            fx_off = fx_state.offline
+            local fx_offline_reason = fx_state.offline_reason
             -- v20.406: cache GUID once per row for multi-select + drag-source logic
             local fx_guid = r.TrackFX_GetFXGUID(track, fi) or ""
             local is_instr = false
@@ -10837,7 +10976,7 @@ DrawCompactTrackColumn = function(track, dl, cx, cy, col_w, col_h, max_fx, sourc
             local row_hovered_full = row_hovered_pre
             r.ImGui_PopStyleColor(ctx, 3)
             if fx_off and row_hovered_full then
-                ShowOfflineFxStateTooltip(fx_en)
+                ShowOfflineFxStateTooltip(fx_en, fx_offline_reason)
             -- v20.424: drop "Click: open" (self-explanatory). Suppress during
             -- carry mode — competes with insert-indicator
             -- visuals and pill messaging. Descriptive category, opt_tooltips-gated.
@@ -12093,7 +12232,9 @@ ReflexResolveNextCyclableFXIndex = function(track, current_idx, direction)
             idx = (idx + direction) % fx_count
         end
         local key = ReflexFXWindowKey(track, idx)
-        local offline = r.TrackFX_GetOffline(track, idx)
+        local _, fx_name = r.TrackFX_GetFXName(track, idx, "")
+        local fx_state = FXEffectiveState(track, idx, fx_name, r.TrackFX_GetEnabled(track, idx), r.TrackFX_GetOffline(track, idx))
+        local offline = fx_state.offline
         if not offline and not (key and reflex_fx_window_cycle.protected[key]) then
             return idx
         end

@@ -13,8 +13,10 @@ ReflexInstallIOCore = function(deps)
 record_input_box_width = {}
 record_input_activity_peak = {}
 record_input_midi_flash = {}
+record_input_midi_flash_level = {}
 record_input_midi_recent_seq = 0
 record_input_midi_recent = {}
+record_input_midi_recent_level = {}
 record_input_favorites = nil
 record_input_context = nil
 record_input_notice_text = ""
@@ -1311,30 +1313,132 @@ RecordInputMidiActivityLevel = function(device)
     return level
 end
 
-RecordInputMidiFlashActive = function(key, level)
+RecordInputNormalizeMidiLevel = function(level)
+    level = tonumber(level) or 0
+    if level <= 0 then return 0 end
+    if level > 1 and level <= 127 then return math.min(1, level / 127) end
+    return math.min(1, level)
+end
+
+RecordInputMidiLevelFromMessage = function(buf)
+    if type(buf) ~= "string" or #buf == 0 then return 0 end
+    local status = buf:byte(1) or 0
+    local event = status & 0xF0
+    local data1 = buf:byte(2) or 0
+    local data2 = buf:byte(3) or 0
+
+    if event == 0x90 then
+        return data2 > 0 and RecordInputNormalizeMidiLevel(data2) or 0
+    elseif event == 0x80 then
+        return 0
+    elseif event == 0xA0 or event == 0xB0 then
+        return RecordInputNormalizeMidiLevel(data2)
+    elseif event == 0xC0 or event == 0xD0 then
+        return RecordInputNormalizeMidiLevel(data1)
+    elseif event == 0xE0 then
+        local bend = data1 + data2 * 128
+        return math.min(1, math.abs(bend - 8192) / 8192)
+    end
+
+    if #buf >= 3 then return RecordInputNormalizeMidiLevel(math.max(data1, data2)) end
+    if #buf >= 2 then return RecordInputNormalizeMidiLevel(data1) end
+    return 1
+end
+
+RecordInputMidiStoreRecentLevel = function(key, until_time, level)
+    if not key or key == "" then return end
+    local prev_until = record_input_midi_recent[key] or 0
+    local prev_level = (prev_until >= r.time_precise()) and (record_input_midi_recent_level[key] or 0) or 0
+    record_input_midi_recent[key] = until_time
+    record_input_midi_recent_level[key] = math.max(prev_level, level or 0)
+end
+
+RecordInputMidiFlashLevel = function(key, level)
     local now = r.time_precise()
-    if (level or 0) > 0 then record_input_midi_flash[key] = now + 0.10 end
-    return (record_input_midi_flash[key] or 0) >= now
+    level = RecordInputNormalizeMidiLevel(level)
+    if level > 0 then
+        record_input_midi_flash[key] = now + 0.10
+        record_input_midi_flash_level[key] = level
+    end
+    if (record_input_midi_flash[key] or 0) >= now then
+        return record_input_midi_flash_level[key] or 1
+    end
+    return 0
+end
+
+RecordInputMidiFlashActive = function(key, level)
+    return RecordInputMidiFlashLevel(key, level) > 0
 end
 
 RecordInputPollRecentMidi = function()
     if not r.MIDI_GetRecentInputEvent then return end
-    local ok, seq, _buf, _ts, dev_idx = pcall(r.MIDI_GetRecentInputEvent, 0)
+    local ok, seq, buf, _ts, dev_idx = pcall(r.MIDI_GetRecentInputEvent, 0)
     if not ok or not seq or seq == 0 or seq == record_input_midi_recent_seq then return end
-    record_input_midi_recent_seq = seq
-    dev_idx = math.floor(tonumber(dev_idx) or -1)
-    local dev = dev_idx & 0xFFFF
+    local newest_seq = seq
     local now = r.time_precise()
-    record_input_midi_recent.any = now + 0.12
-    record_input_midi_recent[dev] = now + 0.12
+    local until_time = now + 0.12
+    local idx = 0
+
+    while ok and seq and seq ~= 0 and seq ~= record_input_midi_recent_seq do
+        local level = RecordInputMidiLevelFromMessage(buf)
+        if level > 0 then
+            dev_idx = math.floor(tonumber(dev_idx) or -1)
+            local dev = dev_idx & 0xFFFF
+            local channel = 0
+            if type(buf) == "string" and #buf > 0 then
+                local status = buf:byte(1) or 0
+                if (status & 0xF0) ~= 0xF0 then channel = (status & 0x0F) + 1 end
+            end
+            RecordInputMidiStoreRecentLevel("any", until_time, level)
+            RecordInputMidiStoreRecentLevel("dev:" .. tostring(dev), until_time, level)
+            if channel > 0 then
+                RecordInputMidiStoreRecentLevel("ch:" .. tostring(channel), until_time, level)
+                RecordInputMidiStoreRecentLevel("devch:" .. tostring(dev) .. ":" .. tostring(channel), until_time, level)
+            end
+        end
+        idx = idx + 1
+        ok, seq, buf, _ts, dev_idx = pcall(r.MIDI_GetRecentInputEvent, idx)
+    end
+
+    record_input_midi_recent_seq = newest_seq
 end
 
-RecordInputRecentMidiActive = function(device)
+RecordInputRecentMidiLevel = function(device, channel)
     RecordInputPollRecentMidi()
     local now = r.time_precise()
     device = math.floor(device or 63)
-    if (record_input_midi_recent.any or 0) >= now and device == 63 then return true end
-    return (record_input_midi_recent[device] or 0) >= now
+    channel = math.floor(channel or 0)
+    local keys
+    if device == 63 then
+        keys = channel > 0 and { "ch:" .. tostring(channel) } or { "any" }
+    else
+        keys = channel > 0
+            and { "devch:" .. tostring(device) .. ":" .. tostring(channel) }
+            or { "dev:" .. tostring(device) }
+    end
+    local level = 0
+    for _, key in ipairs(keys) do
+        if (record_input_midi_recent[key] or 0) >= now then
+            level = math.max(level, record_input_midi_recent_level[key] or 0)
+        end
+    end
+    return level
+end
+
+RecordInputRecentMidiActive = function(device, channel)
+    return RecordInputRecentMidiLevel(device, channel) > 0
+end
+
+RecordInputMidiMeterLevel = function(meter, key, decay)
+    meter = meter or {}
+    local device = meter.device or 63
+    local channel = meter.channel or 0
+    key = key or ("midi-meter:" .. tostring(device) .. ":" .. tostring(channel))
+    local raw = math.max(
+        RecordInputRecentMidiLevel(device, channel),
+        RecordInputMidiFlashLevel(key, RecordInputMidiActivityLevel(device))
+    )
+    return SmoothPeak(record_input_activity_peak, key, raw, decay or 0.80)
 end
 
 RecordInputMenuMeterDiameter = function()
@@ -1369,12 +1473,34 @@ DrawRecordInputMenuMeter = function(dl, meter, cx, cy, dot_r)
         r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, dot_r, col, 24)
     elseif meter.kind == "midi" then
         local device = meter.device or 63
-        local key = "midi:" .. tostring(device)
-        if RecordInputRecentMidiActive(device)
-            or RecordInputMidiFlashActive(key, RecordInputMidiActivityLevel(device))
-        then
-            r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, dot_r, C.midi_activity, 24)
+        local channel = meter.channel or 0
+        local key = "midi:" .. tostring(device) .. ":" .. tostring(channel)
+        if RecordInputMidiMeterLevel(meter, key, 0.72) > 0.01 then
+            r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, dot_r, C.amber, 24)
         end
+    end
+end
+
+DrawRecordInputMidiSegmentMeter = function(dl, meter, x1, y1, x2, y2)
+    local h = y2 - y1
+    local w = x2 - x1
+    if w <= 0 or h <= 0 then return end
+
+    local dot_d = h
+    local dot_r = dot_d * 0.5
+    local gap = math.max(1, dot_d * 0.45)
+    local count = math.max(1, math.floor((w + gap) / (dot_d + gap)))
+    local total_w = count * dot_d + (count - 1) * gap
+    local start_x = x1 + math.max(0, (w - total_w) * 0.5)
+    local cy = y1 + h * 0.5
+    local key = "midi-row:" .. tostring(meter.device or 63) .. ":" .. tostring(meter.channel or 0)
+    local level = RecordInputMidiMeterLevel(meter, key, 0.78)
+    local filled = level > 0.01 and math.max(1, math.min(count, math.ceil(level * count))) or 0
+
+    for i = 1, count do
+        local cx = start_x + dot_r + (i - 1) * (dot_d + gap)
+        local col = i <= filled and C.amber or C.input_meter_bg
+        r.ImGui_DrawList_AddCircleFilled(dl, cx, cy, dot_r, col, 24)
     end
 end
 
@@ -1383,10 +1509,13 @@ DrawRecordInputActivityMeter = function(dl, meter, x1, y1, x2, y2)
     local w = x2 - x1
     if w <= 0 or h <= 0 then return end
     local rds = h / 2
-    r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y2, C.vol_slider_bg, rds)
-    if not meter then return end
+    if not meter then
+        r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y2, C.vol_slider_bg, rds)
+        return
+    end
 
     if meter.kind == "audio" then
+        r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y2, C.vol_slider_bg, rds)
         local raw = RecordInputAudioActivityLevel(meter.channel, meter.stereo, meter.nchan)
         local key = "audio-row:" .. tostring(meter.nchan or (meter.stereo and "st" or "mo")) .. ":" .. tostring(meter.channel or 0)
         local peak = SmoothPeak(record_input_activity_peak, key, raw, 0.85)
@@ -1399,13 +1528,7 @@ DrawRecordInputActivityMeter = function(dl, meter, x1, y1, x2, y2)
         r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y2, MeterColor(db), rds)
         r.ImGui_DrawList_PopClipRect(dl)
     elseif meter.kind == "midi" then
-        local device = meter.device or 63
-        local key = "midi-row:" .. tostring(device)
-        if RecordInputRecentMidiActive(device)
-            or RecordInputMidiFlashActive(key, RecordInputMidiActivityLevel(device))
-        then
-            r.ImGui_DrawList_AddRectFilled(dl, x1, y1, x2, y2, C.midi_activity, rds)
-        end
+        DrawRecordInputMidiSegmentMeter(dl, meter, x1, y1, x2, y2)
     end
 end
 
@@ -1419,7 +1542,7 @@ RecordInputMeterForValue = function(value, track)
         local nchan = track and math.floor(r.GetMediaTrackInfo_Value(track, "I_NCHAN") or 2) or 2
         return { kind = "audio", channel = info.channel, nchan = math.max(1, nchan) }
     elseif info.kind == "midi" then
-        return { kind = "midi", device = info.device or 63 }
+        return { kind = "midi", device = info.device or 63, channel = info.channel or 0 }
     end
     return nil
 end
