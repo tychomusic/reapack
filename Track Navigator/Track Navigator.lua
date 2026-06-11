@@ -3,11 +3,11 @@
  * Description: Track Navigator.
  *              Standalone NAV visibility manager for REAPER.
  * Author:      S.Hansen / Tycho
- * Version:     1.2.14
+ * Version:     1.2.15
 --]]
 
 local r = reaper
-TRACK_NAVIGATOR_VERSION = "1.2.14"
+TRACK_NAVIGATOR_VERSION = "1.2.15"
 
 TrackNavigatorDependencyError = function(detail)
     local msg = "Track Navigator requires ReaImGui 0.10 or newer."
@@ -1102,6 +1102,28 @@ TrackNavigatorAnyPopupOpen = function()
     return ok_open and popup_open == true
 end
 
+TrackNavigatorFindHostWindow = function()
+    if not r.JS_Window_Find then return nil end
+    local ok, hwnd = pcall(r.JS_Window_Find, "Track Navigator", true)
+    if ok and hwnd then return hwnd end
+    ok, hwnd = pcall(r.JS_Window_Find, "Track Navigator", false)
+    if ok and hwnd then return hwnd end
+    return nil
+end
+
+TrackNavigatorFocusHostWindow = function()
+    local hwnd = TrackNavigatorFindHostWindow()
+    if not hwnd and nav_window_docked and r.GetMainHwnd then
+        local ok_main, main_hwnd = pcall(r.GetMainHwnd)
+        if ok_main then hwnd = main_hwnd end
+    end
+    if not hwnd then return false end
+    if r.JS_Window_SetZOrder then pcall(r.JS_Window_SetZOrder, hwnd, "TOP") end
+    if r.JS_Window_SetForeground then pcall(r.JS_Window_SetForeground, hwnd) end
+    if r.JS_Window_SetFocus then pcall(r.JS_Window_SetFocus, hwnd) end
+    return true
+end
+
 TrackNavigatorRequestTltSearchFocus = function()
     current_page = "tracks"
     if not navigator_expanded then
@@ -1378,6 +1400,7 @@ TrackNavigatorLoop = function()
     end
     if (nav_tlt_search_window_focus_requested_frames or 0) > 0 then
         if r.ImGui_SetNextWindowFocus then pcall(r.ImGui_SetNextWindowFocus, ctx) end
+        TrackNavigatorFocusHostWindow()
         nav_tlt_search_window_focus_requested_frames = nav_tlt_search_window_focus_requested_frames - 1
     end
     local min_nav_w = S(34)
@@ -1445,8 +1468,9 @@ TrackNavigatorLoop = function()
         if TrackNavigatorSearchShortcutPressed() then
             TrackNavigatorRequestTltSearchFocus()
         end
-        if (nav_tlt_search_window_focus_requested_frames or 0) > 0 and r.ImGui_SetWindowFocus then
-            pcall(r.ImGui_SetWindowFocus, ctx)
+        if (nav_tlt_search_window_focus_requested_frames or 0) > 0 then
+            if r.ImGui_SetWindowFocus then pcall(r.ImGui_SetWindowFocus, ctx) end
+            TrackNavigatorFocusHostWindow()
         end
         local nav_expanded_before_draw = navigator_expanded
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)

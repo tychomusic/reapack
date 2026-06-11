@@ -1,9 +1,9 @@
 -- @description Track Navigator
--- @version 1.2.14
+-- @version 1.2.15
 -- @author S.Hansen / Tycho
 -- @link GitHub repository https://github.com/tychomusic/reapack
 -- @changelog
---   Refine promoted child visibility and shared NAV behavior.
+--   Focus the Track Navigator window when the Focus Search action is triggered.
 -- @metapackage
 -- @provides
 --   [main] Track Navigator.lua
