@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Tycho ReaPack" commit="debde138c0312a1a89a36c84668f39b37a0a47b4">
+<index version="1" name="Tycho ReaPack" commit="02c2640bb3fe91cddbf632d64378611692c6138d">
   <category name="Reflex">
     <reapack name="Reflex package.lua" type="script" desc="Reflex">
       <metadata>
@@ -1441,6 +1441,62 @@ Requires ReaImGui 0.10+ and SWS Extension; FX Window Toggle requires js_ReaScrip
         <source file="icons/Nav.CustomSet.Asterisk.png">https://github.com/tychomusic/reapack/raw/9aa1137d2951088aa2a624c3e908ed8cb14f6521/Track%20Navigator/icons/Nav.CustomSet.Asterisk.png</source>
         <source file="icons/Navigator.mark.png">https://github.com/tychomusic/reapack/raw/9aa1137d2951088aa2a624c3e908ed8cb14f6521/Track%20Navigator/icons/Navigator.mark.png</source>
         <source file="icons/Tycho-Logo-dots.png">https://github.com/tychomusic/reapack/raw/9aa1137d2951088aa2a624c3e908ed8cb14f6521/Track%20Navigator/icons/Tycho-Logo-dots.png</source>
+      </version>
+      <version name="1.2.15" author="S.Hansen / Tycho" time="2026-06-11T16:27:39Z">
+        <changelog><![CDATA[Focus the Track Navigator window when the Focus Search action is triggered.]]></changelog>
+        <source main="main" file="Track Navigator.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/Track%20Navigator.lua</source>
+        <source main="main" file="actions/Track Navigator - Focus Search.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Focus%20Search.lua</source>
+        <source main="main" file="actions/Track Navigator - History Back.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20History%20Back.lua</source>
+        <source main="main" file="actions/Track Navigator - History Forward.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20History%20Forward.lua</source>
+        <source main="main" file="actions/Track Navigator - Active View - Enable.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Active%20View%20-%20Enable.lua</source>
+        <source main="main" file="actions/Track Navigator - Active View - Rebuild.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Active%20View%20-%20Rebuild.lua</source>
+        <source main="main" file="actions/Track Navigator - Active View - Exit.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Active%20View%20-%20Exit.lua</source>
+        <source main="main" file="actions/Track Navigator - Armed View - Enable.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Armed%20View%20-%20Enable.lua</source>
+        <source main="main" file="actions/Track Navigator - Armed View - Rebuild.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Armed%20View%20-%20Rebuild.lua</source>
+        <source main="main" file="actions/Track Navigator - Armed View - Exit.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Armed%20View%20-%20Exit.lua</source>
+        <source main="main" file="actions/Track Navigator - Armed View - Toggle.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Armed%20View%20-%20Toggle.lua</source>
+        <source main="main" file="actions/Track Navigator - Selected Tracks View - Enable.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Selected%20Tracks%20View%20-%20Enable.lua</source>
+        <source main="main" file="actions/Track Navigator - Selected Tracks View - Rebuild.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Selected%20Tracks%20View%20-%20Rebuild.lua</source>
+        <source main="main" file="actions/Track Navigator - Selected Tracks View - Exit.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Selected%20Tracks%20View%20-%20Exit.lua</source>
+        <source main="main" file="actions/Track Navigator - Routing View - Enable.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Routing%20View%20-%20Enable.lua</source>
+        <source main="main" file="actions/Track Navigator - Routing View - Rebuild.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Routing%20View%20-%20Rebuild.lua</source>
+        <source main="main" file="actions/Track Navigator - Routing View - Exit.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Routing%20View%20-%20Exit.lua</source>
+        <source main="main" file="actions/Track Navigator - Scroll to Record Armed Tracks.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Scroll%20to%20Record%20Armed%20Tracks.lua</source>
+        <source main="main" file="actions/Track Navigator - Show Only TLT 01.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Show%20Only%20TLT%2001.lua</source>
+        <source main="main" file="actions/Track Navigator - Show Only TLT 02.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Show%20Only%20TLT%2002.lua</source>
+        <source main="main" file="actions/Track Navigator - Show Only TLT 03.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Show%20Only%20TLT%2003.lua</source>
+        <source main="main" file="actions/Track Navigator - Show Only TLT 04.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Show%20Only%20TLT%2004.lua</source>
+        <source main="main" file="actions/Track Navigator - Show Only TLT 05.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Show%20Only%20TLT%2005.lua</source>
+        <source main="main" file="actions/Track Navigator - Show Only TLT 06.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Show%20Only%20TLT%2006.lua</source>
+        <source main="main" file="actions/Track Navigator - Show Only TLT 07.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Show%20Only%20TLT%2007.lua</source>
+        <source main="main" file="actions/Track Navigator - Show Only TLT 08.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Show%20Only%20TLT%2008.lua</source>
+        <source main="main" file="actions/Track Navigator - Show Only TLT 09.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Show%20Only%20TLT%2009.lua</source>
+        <source main="main" file="actions/Track Navigator - Show Only TLT 10.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator%20-%20Show%20Only%20TLT%2010.lua</source>
+        <source file="Track Navigator_Theme_Default.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/Track%20Navigator_Theme_Default.lua</source>
+        <source file="actions/Track Navigator_ActionBridge.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/actions/Track%20Navigator_ActionBridge.lua</source>
+        <source file="core/Reflex_FontCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_FontCore.lua</source>
+        <source file="core/Reflex_StyleCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_StyleCore.lua</source>
+        <source file="core/Reflex_ColorCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_ColorCore.lua</source>
+        <source file="core/Reflex_PinCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_PinCore.lua</source>
+        <source file="core/Reflex_NavTreeCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_NavTreeCore.lua</source>
+        <source file="core/Reflex_NavExclusionCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_NavExclusionCore.lua</source>
+        <source file="core/Reflex_NavInclusionCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_NavInclusionCore.lua</source>
+        <source file="core/Reflex_RealistCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_RealistCore.lua</source>
+        <source file="core/Reflex_TrackScanCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_TrackScanCore.lua</source>
+        <source file="core/Reflex_TrackUtilCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_TrackUtilCore.lua</source>
+        <source file="core/Reflex_SongCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_SongCore.lua</source>
+        <source file="core/Reflex_SubGroupCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_SubGroupCore.lua</source>
+        <source file="core/Reflex_ViewHistory.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_ViewHistory.lua</source>
+        <source file="core/Reflex_NavActionCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_NavActionCore.lua</source>
+        <source file="core/Reflex_ViewModes.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_ViewModes.lua</source>
+        <source file="core/Reflex_NavViewCore.lua">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/core/Reflex_NavViewCore.lua</source>
+        <source file="icons/Nav.Active.A.png">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/icons/Nav.Active.A.png</source>
+        <source file="icons/Nav.QuickSet.Q.png">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/icons/Nav.QuickSet.Q.png</source>
+        <source file="icons/Nav.Select.S.png">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/icons/Nav.Select.S.png</source>
+        <source file="icons/Nav.Route.R.png">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/icons/Nav.Route.R.png</source>
+        <source file="icons/Nav.CustomSet.Asterisk.png">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/icons/Nav.CustomSet.Asterisk.png</source>
+        <source file="icons/Navigator.mark.png">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/icons/Navigator.mark.png</source>
+        <source file="icons/Tycho-Logo-dots.png">https://github.com/tychomusic/reapack/raw/02c2640bb3fe91cddbf632d64378611692c6138d/Track%20Navigator/icons/Tycho-Logo-dots.png</source>
       </version>
     </reapack>
   </category>
